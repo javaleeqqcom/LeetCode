@@ -1,32 +1,40 @@
 import sys
 import os
 import importlib.util
+import importlib
 import inspect
 from datetime import datetime
 from io import StringIO
 from typing import get_origin, get_args, Union, Optional, List, Dict, Tuple, Set, Optional, Union, Any
 
+def preload_custom_modules():
+    """预加载 custom_init 和 base_init 到 sys.modules，确保全局唯一"""
+    for mod_name, file_name in [("custom_init", "custom_init.py"), ("base_init", "base_init.py")]:
+        if mod_name in sys.modules:
+            continue  # 已加载，跳过
+        
+        if not os.path.isfile(file_name):
+            if mod_name == "custom_init":
+                raise FileNotFoundError(f"{file_name} not found")
+            else:
+                continue  # base_init 可选
+        
+        # 关键：使用 importlib.reload 确保只加载一次
+        try:
+            spec = importlib.util.spec_from_file_location(mod_name, file_name)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = module  # 注册到 sys.modules
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise ImportError(f"Failed to load {file_name}: {e}")
 
 def load_parser_registry():
     """加载 base_init 和 custom_init 中的解析器注册表"""
     registry = {}
-
-    # 加载 base_init.py
-    base_spec = importlib.util.spec_from_file_location("base_init", "base_init.py")
-    if base_spec and base_spec.loader:
-        base_mod = importlib.util.module_from_spec(base_spec)
-        base_spec.loader.exec_module(base_mod)
-        if hasattr(base_mod, 'base_input_parser_registry'):
-            registry.update(base_mod.base_input_parser_registry)
-
-    # 加载 custom_init.py
-    custom_spec = importlib.util.spec_from_file_location("custom_init", "custom_init.py")
-    if custom_spec and custom_spec.loader:
-        custom_mod = importlib.util.module_from_spec(custom_spec)
-        custom_spec.loader.exec_module(custom_mod)
-        if hasattr(custom_mod, 'input_parser_registry'):
-            registry.update(custom_mod.input_parser_registry)
-
+    import custom_init
+    import base_init
+    registry.update(getattr(custom_init, 'input_parser_registry', {}))
+    registry.update(getattr(base_init, 'base_input_parser_registry', {}))
     return registry
 
 
@@ -139,7 +147,11 @@ def capture_print_and_result(func, *args, **kwargs):
     printed = captured_output.getvalue()
     return printed, result
 
+
+# 在 main() 开头调用
 def main():
+    preload_custom_modules()  # 👈 确保后续 import 使用同一模块
+
     if len(sys.argv) < 3:
         print("Usage: python run_solution.py <solution.py> <input.txt> [method_name]")
         sys.exit(1)
