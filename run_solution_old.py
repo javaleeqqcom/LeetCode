@@ -97,15 +97,16 @@ def parse_input_file(filepath: str, param_names: list[str]) -> dict[str, str]:
 def find_candidate_method(cls):
     methods = []
     for name, _ in inspect.getmembers(cls, predicate=inspect.isfunction):
-        # 只保留不以 '_' 开头的方法（排除 __xxx__ 和 _private）
-        if not name.startswith('_'):
-            methods.append(name)
+        if not name.startswith('__') or name in ('__init__', '__call__'):
+            continue
+        methods.append(name)
     if len(methods) == 1:
         return methods[0]
     elif len(methods) == 0:
         raise AttributeError("No public method found in Solution class.")
     else:
         raise AttributeError(f"Multiple public methods: {methods}. Please specify one.")
+
 
 def capture_print_and_result(func, *args, **kwargs):
     old_stdout = sys.stdout
@@ -118,6 +119,7 @@ def capture_print_and_result(func, *args, **kwargs):
     printed = captured_output.getvalue()
     return printed, result
 
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python run_solution.py <solution.py> <input.txt> [method_name]")
@@ -127,61 +129,36 @@ def main():
     input_file = sys.argv[2]
     method_name = sys.argv[3] if len(sys.argv) > 3 else None
 
-    # === 新增：预加载 custom_init 并构建全局上下文 ===
-    custom_globals = {}
+    # 加载解析器
+    parser_registry = load_parser_registry()
 
-    # 加载 base_init 和 custom_init 的符号到全局
-    for init_file, mod_name in [("base_init.py", "base_init"), ("custom_init.py", "custom_init")]:
-        if os.path.isfile(init_file):
-            spec = importlib.util.spec_from_file_location(mod_name, init_file)
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                # 将模块所有属性注入全局
-                for name in dir(mod):
-                    if not name.startswith("__"):
-                        custom_globals[name] = getattr(mod, name)
-        else:
-            print(f"Warning: {init_file} not found, skipping.")
-
-    # 确保内置类型可用
-    import builtins
-    custom_globals.update({
-        '__builtins__': builtins,
-    })
-
-    # === 加载学生 solution 到 custom_globals 上下文中 ===
+    # 加载学生 solution
     spec = importlib.util.spec_from_file_location("solution", solution_file)
     if not spec or not spec.loader:
         raise ImportError(f"Cannot load {solution_file}")
-
     module = importlib.util.module_from_spec(spec)
-    
-    # ⭐ 关键：执行时使用自定义 globals
-    exec_code = compile(open(solution_file, encoding='utf-8').read(), solution_file, 'exec')
-    exec(exec_code, custom_globals)
+    spec.loader.exec_module(module)
 
-    # 将 globals 中的 Solution 类绑定到 module（兼容后续逻辑）
-    if 'Solution' not in custom_globals:
-        raise AttributeError("The solution file must define a class named 'Solution'.")
-    module.Solution = custom_globals['Solution']
-
-    # === 后续逻辑不变 ===
-    parser_registry = load_parser_registry()  # 仍用于参数解析
+    if not hasattr(module, 'Solution'):
+        raise AttributeError("Missing 'Solution' class.")
 
     SolutionClass = module.Solution
 
+    # 推断或获取方法名
     if method_name is None:
         method_name = find_candidate_method(SolutionClass)
 
     func = getattr(SolutionClass, method_name)
     sig = inspect.signature(func)
 
+    # 获取参数名（跳过 self）
     param_names = [name for name in sig.parameters.keys() if name != 'self']
     params = {name: sig.parameters[name] for name in param_names}
 
+    # 读取原始输入
     raw_inputs = parse_input_file(input_file, param_names)
 
+    # 转换每个参数
     converted_args = {}
     for name in param_names:
         if name not in raw_inputs:
@@ -190,6 +167,7 @@ def main():
         param = params[name]
         key = get_parser_key(param.annotation)
 
+        # 查找匹配的解析器
         if key in parser_registry:
             converter = parser_registry[key]
             try:
@@ -197,15 +175,18 @@ def main():
             except Exception as e:
                 raise ValueError(f"Failed to parse '{name}' with key {key}: {e}")
         else:
+            # 无匹配解析器，尝试 literal_eval
             import ast
             try:
                 converted_args[name] = ast.literal_eval(raw_str)
             except Exception as e:
                 raise ValueError(f"No parser for {key}, and literal_eval failed on '{raw_str}': {e}")
 
+    # 执行
     obj = SolutionClass()
     printed, result = capture_print_and_result(func, obj, **converted_args)
 
+    # 输出日志
     base_name = os.path.splitext(os.path.basename(solution_file))[0]
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     log_filename = f"{base_name}_{timestamp}.log"
@@ -221,6 +202,7 @@ def main():
 
     print(f"✅ Output saved to: {log_filename}")
     print(f"Return: {result}")
+
 
 if __name__ == "__main__":
     main()

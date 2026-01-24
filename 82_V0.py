@@ -18,4 +18,4 @@ class Solution:
                     pred=cur
             else:
                 break
-
+        return head
