@@ -4,7 +4,7 @@ import importlib.util
 import inspect
 from datetime import datetime
 from io import StringIO
-from typing import get_origin, get_args, Union, Optional, Any
+from typing import get_origin, get_args, Union, Optional, List, Dict, Tuple, Set, Optional, Union, Any
 
 
 def load_parser_registry():
@@ -67,32 +67,53 @@ def get_parser_key(annotation) -> tuple[str, ...]:
 
     return (str(annotation),)
 
-
 def parse_input_file(filepath: str, param_names: list[str]) -> dict[str, str]:
-    """读取输入文件，返回 {param_name: raw_string}"""
+    """读取输入文件，支持单行或多行赋值，返回 {param_name: raw_string}"""
     with open(filepath, 'r', encoding='utf-8') as f:
-        lines = [line.rstrip() for line in f if line.strip()]
+        lines = [line.rstrip() for line in f]
 
     if not lines:
         raise ValueError("Input file is empty.")
 
-    has_eq = any('=' in line for line in lines)
+    # 判断是否为命名参数格式（至少有一行包含 '='）
+    has_eq = any('=' in line for line in lines if line.strip())
 
+    if not has_eq:
+        # 纯位置参数：非空行数必须等于参数个数
+        non_empty_lines = [line for line in lines if line.strip()]
+        if len(non_empty_lines) != len(param_names):
+            raise ValueError(f"Positional input lines ({len(non_empty_lines)}) != parameters ({len(param_names)})")
+        return {name: line.strip() for name, line in zip(param_names, non_empty_lines)}
+
+    # 命名参数：拼接跨行赋值
     raw_data = {}
-    if has_eq:
-        for line in lines:
-            if '=' not in line:
-                raise ValueError(f"Line missing '=': {line}")
-            key, val = line.split('=', 1)
-            raw_data[key.strip()] = val.strip()
-    else:
-        if len(lines) != len(param_names):
-            raise ValueError(f"Positional input lines ({len(lines)}) != parameters ({len(param_names)})")
-        for name, line in zip(param_names, lines):
-            raw_data[name] = line.strip()
+    current_key = None
+    current_lines = []
+
+    for line in lines:
+        stripped = line.rstrip()
+        if not stripped:
+            continue  # 跳过空行
+
+        if '=' in stripped:
+            # 保存上一个 key 的值
+            if current_key is not None:
+                raw_data[current_key] = '\n'.join(current_lines).strip()
+            # 开始新 key
+            key_part, val_part = stripped.split('=', 1)
+            current_key = key_part.strip()
+            current_lines = [val_part]
+        else:
+            # 续接当前 key 的值
+            if current_key is None:
+                raise ValueError(f"Line before any assignment: {stripped}")
+            current_lines.append(stripped)
+
+    # 保存最后一个 key
+    if current_key is not None:
+        raw_data[current_key] = '\n'.join(current_lines).strip()
 
     return raw_data
-
 
 def find_candidate_method(cls):
     methods = []
