@@ -1,4 +1,4 @@
-from Solution_init import *
+# from custom_init import *
 # Definition for singly-linked list.
 # class ListNode:
 #     def __init__(self, val=0, next=None):

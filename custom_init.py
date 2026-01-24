@@ -26,9 +26,7 @@ class TreeNode:
         self.right = right
 
 # ====== 转换函数 ======
-def List2ListNode(lst: List[int]) -> Optional[ListNode]:
-    if not lst:
-        return None
+def List2ListNode(lst: list) -> Optional[ListNode]:
     head = ListNode(lst[0])
     cur = head
     for val in lst[1:]:
@@ -60,8 +58,8 @@ def List2TreeNode(level_order: List[Optional[int]]) -> Optional[TreeNode]:
 # ====== 【核心】注册转换规则 ======
 # 键：(目标类型名, 输入类型签名...)
 # 值：转换函数
-input_parser_registry = base_input_parser_registry + {
-    ("ListNode","List[int]"): lambda args: List2ListNode(args[0]),
+input_parser_registry = {
+    ("ListNode","list"): lambda args: List2ListNode(args[0]),
     # 要特别注意 TreeNode 的输入如： [1,2,null,4] 的 null 表示占位空节点，用于凑齐完全二叉树，因此其输入类型不是 List，而是应当为 str。
     ("TreeNode","str"): lambda args: List2TreeNode(args[0]), 
     # 可继续添加：
