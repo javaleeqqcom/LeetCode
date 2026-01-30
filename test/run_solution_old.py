@@ -4,7 +4,7 @@ import importlib.util
 import inspect
 from datetime import datetime
 from io import StringIO
-from typing import get_origin, get_args, Union, Optional, Any
+from typing import get_origin, get_args, Union, Optional, List, Dict, Tuple, Set, Optional, Union, Any
 
 
 def load_parser_registry():
