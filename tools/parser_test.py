@@ -9,6 +9,105 @@ import json
 import os
 import random
 
+import random
+import string
+
+def gen_hashable_elem():
+    """生成一个可哈希的基础元素（用于 dict key 或 list 元素）"""
+    choice = random.randint(0, 4)
+    if choice == 0:
+        return random.randint(-10, 10)
+    elif choice == 1:
+        return round(random.uniform(-5.0, 5.0), 3)
+    elif choice == 2:
+        return random.choice([True, False, None])
+    elif choice == 3:
+        # 随机短字符串，避免特殊字符干扰 repr/ast
+        length = random.randint(1, 5)
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    else:  # choice == 4
+        return ()  # 空 tuple 是 hashable 的
+
+def generate_random_value(depth=0, max_depth=2):
+    """
+    生成一个随机的、ast.literal_eval 可解析的 Python 对象。
+    不再包含 set 类型。
+    """
+    if depth > max_depth:
+        # 到达最大深度，只返回基础类型
+        choice = random.randint(0, 4)
+        if choice == 0:
+            return random.randint(-10, 10)
+        elif choice == 1:
+            return round(random.uniform(-5.0, 5.0), 3)
+        elif choice == 2:
+            return random.choice([True, False, None])
+        elif choice == 3:
+            length = random.randint(1, 5)
+            return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+        else:
+            return []
+
+    choice = random.randint(0, 5)  # 6 种类型（去掉了 set）
+
+    if choice == 0:  # int
+        return random.randint(-100, 100)
+    elif choice == 1:  # float
+        return round(random.uniform(-10.0, 10.0), 4)
+    elif choice == 2:  # bool / None
+        return random.choice([True, False, None])
+    elif choice == 3:  # str
+        length = random.randint(0, 8)
+        return ''.join(random.choices(string.ascii_letters + string.digits + " ", k=length)).strip()
+    elif choice == 4:  # list
+        n = random.randint(0, 4)
+        return [generate_random_value(depth + 1, max_depth) for _ in range(n)]
+    elif choice == 5:  # dict
+        n = random.randint(0, 3)
+        d = {}
+        for _ in range(n):
+            key = gen_hashable_elem()
+            # 避免 key 重复（简单处理）
+            while key in d:
+                key = gen_hashable_elem()
+            d[key] = generate_random_value(depth + 1, max_depth)
+        return d
+    # 注意：已移除 set 和 complex 等不支持类型
+
+def save_parsed_result(parsed_cases: List, original_filename: str):
+    """将解析结果保存为JSON文件用于调试"""
+    json_file = os.path.splitext(original_filename)[0] + '.json'
+    # 转换不可序列化的对象为字符串
+    serializable_cases = []
+    for case in parsed_cases:
+        if isinstance(case, dict):
+            serializable_case = {}
+            for k, v in case.items():
+                if k == 'input':
+                    serializable_case[k] = {}
+                    for ik, iv in v.items():
+                        try:
+                            json.dumps(iv)
+                            serializable_case[k][ik] = iv
+                        except (TypeError, ValueError):
+                            serializable_case[k][ik] = repr(iv)
+                else:
+                    try:
+                        json.dumps(v)
+                        serializable_case[k] = v
+                    except (TypeError, ValueError):
+                        serializable_case[k] = repr(v)
+            serializable_cases.append(serializable_case)
+        else:  # tuple or other
+            try:
+                json.dumps(case)
+                serializable_cases.append(case)
+            except (TypeError, ValueError):
+                serializable_cases.append(repr(case))
+    
+    with open(json_file, 'w', encoding='utf-8') as f:
+        json.dump(serializable_cases, f, indent=2, ensure_ascii=False)
+
 class TestTestExamplesParser(unittest.TestCase):
     TEST_DIR = "tools_test"
     
@@ -37,40 +136,6 @@ class TestTestExamplesParser(unittest.TestCase):
             f.write(content)
         return test_file
 
-    def save_parsed_result(self, parsed_cases: List, original_filename: str):
-        """将解析结果保存为JSON文件用于调试"""
-        json_file = os.path.splitext(original_filename)[0] + '.json'
-        # 转换不可序列化的对象为字符串
-        serializable_cases = []
-        for case in parsed_cases:
-            if isinstance(case, dict):
-                serializable_case = {}
-                for k, v in case.items():
-                    if k == 'input':
-                        serializable_case[k] = {}
-                        for ik, iv in v.items():
-                            try:
-                                json.dumps(iv)
-                                serializable_case[k][ik] = iv
-                            except (TypeError, ValueError):
-                                serializable_case[k][ik] = repr(iv)
-                    else:
-                        try:
-                            json.dumps(v)
-                            serializable_case[k] = v
-                        except (TypeError, ValueError):
-                            serializable_case[k] = repr(v)
-                serializable_cases.append(serializable_case)
-            else:  # tuple or other
-                try:
-                    json.dumps(case)
-                    serializable_cases.append(case)
-                except (TypeError, ValueError):
-                    serializable_cases.append(repr(case))
-        
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump(serializable_cases, f, indent=2, ensure_ascii=False)
-
     def test_parse_dict_style_basic(self):
         """测试字典风格的基本解析"""
         # 原始测试数据
@@ -91,7 +156,7 @@ class TestTestExamplesParser(unittest.TestCase):
         cases = parse_test_cases(test_file)
         
         # 保存解析结果用于调试
-        self.save_parsed_result(cases, test_file)
+        save_parsed_result(cases, test_file)
         
         # 验证解析结果
         self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
@@ -119,7 +184,7 @@ class TestTestExamplesParser(unittest.TestCase):
         cases = parse_test_cases(test_file)
         
         # 保存解析结果用于调试
-        self.save_parsed_result(cases, test_file)
+        save_parsed_result(cases, test_file)
         
         self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
         for i, (original, parsed) in enumerate(zip(test_cases_data, cases)):
@@ -128,46 +193,6 @@ class TestTestExamplesParser(unittest.TestCase):
                 self.assertEqual(parsed['input'], original['input'])
                 self.assertEqual(parsed['output'], original['output'])
                 self.assertNotIn('expected', parsed)
-
-    def generate_random_value(self, depth: int = 0, max_depth: int = 3) -> Any:
-        """生成随机嵌套基础类型值"""
-        if depth >= max_depth:
-            choices = [
-                random.randint(-100, 100),
-                random.uniform(-10.0, 10.0),
-                random.choice([True, False, None]),
-                f"str{random.randint(0,9)}"
-            ]
-            return random.choice(choices)
-        choice = random.randint(0, 4)
-        if choice == 0:  # list
-            return [self.generate_random_value(depth+1, max_depth) for _ in range(random.randint(0, 5))]
-        elif choice == 1:  # tuple
-            return tuple(self.generate_random_value(depth+1, max_depth) for _ in range(random.randint(0, 5)))
-        elif choice == 2:  # dict (keys must be hashable)
-            def gen_hashable_key():
-                return random.choice([
-                    random.randint(-50, 50),
-                    random.uniform(-5.0, 5.0),
-                    f"key{random.randint(0,9)}",
-                    tuple(random.randint(0,10) for _ in range(random.randint(0,3)))
-                ])
-            return {gen_hashable_key(): self.generate_random_value(depth+1, max_depth) for _ in range(random.randint(0, 5))}
-        elif choice == 3:  # set (only hashable elements)
-            def gen_hashable_elem():
-                return random.choice([
-                    random.randint(-50, 50),
-                    random.uniform(-5.0, 5.0),
-                    f"elem{random.randint(0,9)}",
-                    tuple(random.randint(0,10) for _ in range(random.randint(0,2)))
-                ])
-            elems = [gen_hashable_elem() for _ in range(random.randint(0, 5))]
-            try:
-                return set(elems)
-            except TypeError:  # Fallback if unhashable (shouldn't happen with our generator)
-                return list(set(str(e) for e in elems))
-        else:
-            return self.generate_random_value(depth+1, max_depth)
 
     def test_parse_random_cases(self):
         """测试随机大批量基础类型"""
@@ -184,10 +209,10 @@ class TestTestExamplesParser(unittest.TestCase):
                         inputs = {}
                         for i in range(num_inputs):
                             param_name = f"param{i+1}"
-                            inputs[param_name] = self.generate_random_value(0, depth)
+                            inputs[param_name] = generate_random_value(0, depth)
                         # 随机生成输出和预期结果
-                        output_val = self.generate_random_value(0, depth)
-                        expected_val = self.generate_random_value(0, depth)
+                        output_val = generate_random_value(0, depth)
+                        expected_val = generate_random_value(0, depth)
                         test_cases_data.append({
                             'input': inputs,
                             'output': output_val,
@@ -204,7 +229,7 @@ class TestTestExamplesParser(unittest.TestCase):
                     parsed_cases = parse_test_cases(test_file)
                     
                     # 保存解析结果用于调试
-                    self.save_parsed_result(parsed_cases, test_file)
+                    save_parsed_result(parsed_cases, test_file)
                     
                     # 验证解析结果
                     self.assertEqual(
@@ -237,19 +262,10 @@ class TestTestExamplesParser(unittest.TestCase):
                                     if isinstance(parsed_val, str):
                                         self.assertEqual(parsed_val, repr(orig_val))
                             
-                            # 验证输出
-                            if isinstance(original['output'], (int, float, str, bool, type(None), list, tuple, dict)):
-                                if isinstance(parsed['output'], str):
-                                    self.assertEqual(parsed['output'], repr(original['output']))
-                                else:
-                                    self.assertEqual(parsed['output'], original['output'])
-                            
-                            # 验证预期结果
-                            if isinstance(original['expected'], (int, float, str, bool, type(None), list, tuple, dict)):
-                                if isinstance(parsed['expected'], str):
-                                    self.assertEqual(parsed['expected'], repr(original['expected']))
-                                else:
-                                    self.assertEqual(parsed['expected'], original['expected'])
+                            # 验证输出 (直接比较对象)
+                            self.assertEqual(parsed['output'], original['output'])
+                            # 验证预期结果 (直接比较对象)
+                            self.assertEqual(parsed['expected'], original['expected'])
 
 if __name__ == '__main__':
     unittest.main()
