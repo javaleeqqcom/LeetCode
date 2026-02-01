@@ -2,153 +2,90 @@
 import ast
 import re
 from typing import List, Any, Union
+# tools/test_examples_parser.py
+import ast
+from typing import List, Dict, Any, Union
 
-def parse_test_cases(file_path: str) -> List[Union[tuple, dict]]:
+def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
     """
-    解析 LeetCode 风格测试用例文件。
-    支持两种格式：
+    解析测试用例文件，支持两种格式：
+    1. LeetCode 字典格式（包含"输入"/"输出"[/"预期结果"]）
+    2. 简单元组格式（每行一个参数）
     
-    格式1（无参数名，纯值）：
-        [1,2,3]
-        5
-        
-    格式2（带参数名）：
-        输入
-        nums =
-        [1,2,3]
-        k =
-        5
-        输出
-        0
-        预期结果
-        0
-    
-    返回：List[Union[tuple, dict]]
-        - 若为格式1：返回 [(arg1, arg2, ...), ...]
-        - 若为格式2：返回 [{'input': {...}, 'output': ..., 'expected': ...}, ...]
+    返回:
+    - 字典格式: {'input': {param_name: value}, 'output': value, 'expected': value (optional)}
+    - 元组格式: (arg1, arg2, ..., output)
     """
     with open(file_path, 'r', encoding='utf-8') as f:
-        lines = [line.rstrip() for line in f]
-
-    # 判断格式类型
-    has_input_keyword = any(re.match(r'^输入\s*$', line) for line in lines)
+        content = f.read()
     
-    if has_input_keyword:
-        return _parse_dict_style(lines)
-    else:
-        return _parse_tuple_style(lines)
-
-def _parse_tuple_style(lines: List[str]) -> List[tuple]:
+    # 按空行分割测试用例
+    raw_cases = [case.strip() for case in content.split('\n\n') if case.strip()]
     test_cases = []
-    current_case = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if current_case:
-                test_cases.append(tuple(current_case))
-                current_case = []
-            continue
+    
+    for raw_case in raw_cases:
+        lines = [line.strip() for line in raw_case.split('\n') if line.strip()]
         
-        try:
-            parsed = safe_eval(stripped)
-            current_case.append(parsed)
-        except:
-            current_case.append(stripped)
-
-    if current_case:
-        test_cases.append(tuple(current_case))
+        # 检测是否为字典格式（包含"输入"、"输出"等关键词）
+        if any(line == "输入" for line in lines):
+            case_dict = _parse_dict_style_case(lines)
+            if case_dict:
+                test_cases.append(case_dict)
+        else:
+            # 简单元组格式
+            args = []
+            for line in lines:
+                try:
+                    args.append(ast.literal_eval(line))
+                except (ValueError, SyntaxError):
+                    args.append(line)  # 保留原始字符串
+            if args:
+                # 最后一个元素是输出，前面是输入参数
+                if len(args) > 1:
+                    test_cases.append(tuple(args))
+                else:
+                    test_cases.append((args[0],))
     
     return test_cases
 
-def _parse_dict_style(lines: List[str]) -> List[dict]:
-    test_cases = []
+def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
+    """解析字典风格的测试用例"""
+    case = {'input': {}}
+    current_section = None
+    
     i = 0
     while i < len(lines):
-        line = lines[i].strip()
-        if not line or not re.match(r'^输入\s*$', line):
-            i += 1
-            continue
+        line = lines[i]
         
-        # 找到输入块
+        if line == "输入":
+            current_section = "input"
+        elif line == "输出":
+            current_section = "output"
+        elif line == "预期结果":
+            current_section = "expected"
+        else:
+            # 处理参数行或值行
+            if current_section == "input":
+                if ' = ' in line:
+                    # 参数声明行: "param ="
+                    param_name = line.split(' = ')[0]
+                    # 下一行是值
+                    if i + 1 < len(lines) and not lines[i + 1].startswith(("输入", "输出", "预期结果")):
+                        i += 1
+                        value_line = lines[i]
+                        try:
+                            case['input'][param_name] = ast.literal_eval(value_line)
+                        except (ValueError, SyntaxError):
+                            case['input'][param_name] = value_line
+                    else:
+                        case['input'][param_name] = None
+                # 如果没有' = '，可能是值行（但这种情况不应该出现）
+            elif current_section in ["output", "expected"]:
+                try:
+                    case[current_section] = ast.literal_eval(line)
+                except (ValueError, SyntaxError):
+                    case[current_section] = line
+        
         i += 1
-        inputs = {}
-        while i < len(lines):
-            line = lines[i].strip()
-            if not line:
-                i += 1
-                continue
-            if re.match(r'^(输出|预期结果)\s*$', line):
-                break
-            if '=' in line:
-                key, val_expr = line.split('=', 1)
-                key = key.strip()
-                val_lines = []
-                i += 1
-                # 收集多行值（如列表）
-                while i < len(lines) and not re.match(r'^\w+\s*=?\s*$', lines[i].strip()):
-                    if lines[i].strip():
-                        val_lines.append(lines[i])
-                    i += 1
-                val_str = '\n'.join(val_lines) if val_lines else val_expr.strip()
-                try:
-                    val = safe_eval(val_str)
-                except:
-                    val = val_str
-                inputs[key] = val
-                continue
-            i += 1
-        
-        # 找输出
-        output_val = None
-        expected_val = None
-        while i < len(lines):
-            line = lines[i].strip()
-            if re.match(r'^输出\s*$', line):
-                i += 1
-                out_lines = []
-                while i < len(lines) and not re.match(r'^(输入|预期结果)\s*$', lines[i].strip()):
-                    if lines[i].strip():
-                        out_lines.append(lines[i])
-                    i += 1
-                out_str = '\n'.join(out_lines).strip()
-                try:
-                    output_val = safe_eval(out_str) if out_str else None
-                except:
-                    output_val = out_str
-                continue
-            elif re.match(r'^预期结果\s*$', line):
-                i += 1
-                exp_lines = []
-                while i < len(lines) and not re.match(r'^输入\s*$', lines[i].strip()):
-                    if lines[i].strip():
-                        exp_lines.append(lines[i])
-                    i += 1
-                exp_str = '\n'.join(exp_lines).strip()
-                try:
-                    expected_val = safe_eval(exp_str) if exp_str else None
-                except:
-                    expected_val = exp_str
-                continue
-            else:
-                i += 1
-        
-        case = {'input': inputs}
-        if output_val is not None:
-            case['output'] = output_val
-        if expected_val is not None:
-            case['expected'] = expected_val
-        test_cases.append(case)
     
-    return test_cases
-
-def safe_eval(s: str) -> Any:
-    """安全评估字符串表达式，避免执行任意代码"""
-    s_clean = s.strip()
-    if not s_clean:
-        return s
-    try:
-        return ast.literal_eval(s_clean)
-    except (ValueError, SyntaxError):
-        return s
-    
+    return case
