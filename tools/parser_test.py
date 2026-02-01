@@ -6,10 +6,7 @@ import hashlib
 from typing import Any, Dict, List, Tuple, Union
 from examples_parser import parse_test_cases
 import json
-import os
-import random
-
-import random
+import re
 import string
 
 def gen_hashable_elem():
@@ -108,6 +105,20 @@ def save_parsed_result(parsed_cases: List, original_filename: str):
     with open(json_file, 'w', encoding='utf-8') as f:
         json.dump(serializable_cases, f, indent=2, ensure_ascii=False)
 
+
+def _to_leetcode_repr(obj) -> str:
+    """将 Python 对象转为 LeetCode 风格的字符串表示（None → null）"""
+    s = repr(obj)
+    # 安全替换：仅替换顶层的 None，避免影响字符串
+    # 更简单方式：先转 JSON？但可能不支持 tuple 等
+    # 这里用字符串替换，但要小心
+    # 更可靠：递归构造，但为测试简化处理
+    s = s.replace("None", "null")
+    # 但要避免把 "None" 字符串误替换 → 所以只替换单词边界
+    s = re.sub(r'\bNone\b', 'null', s)
+    return s
+
+
 class TestTestExamplesParser(unittest.TestCase):
     TEST_DIR = "tools_test"
     
@@ -116,25 +127,48 @@ class TestTestExamplesParser(unittest.TestCase):
         os.makedirs(cls.TEST_DIR, exist_ok=True)
 
     def write_test_file(self, test_cases_data: List[Dict], filename: str) -> str:
-        """将测试数据写入符合LeetCode格式的文件"""
         test_file = os.path.join(self.TEST_DIR, filename)
         content = ""
         for case in test_cases_data:
-            # 写入"输入"部分
             content += "输入\n"
             for k, v in case['input'].items():
-                content += f"{k} =\n{repr(v)}\n"
-            # 写入"输出"部分
+                content += f"{k} =\n{_to_leetcode_repr(v)}\n"
             content += "输出\n"
-            content += f"{repr(case['output'])}\n"
-            # 写入"预期结果"部分（如果存在）
+            content += f"{_to_leetcode_repr(case['output'])}\n"
             if 'expected' in case:
                 content += "预期结果\n"
-                content += f"{repr(case['expected'])}\n"
+                content += f"{_to_leetcode_repr(case['expected'])}\n"
             content += "\n"
         with open(test_file, 'w', encoding='utf-8') as f:
             f.write(content)
         return test_file
+
+    def test_parse_null_as_none(self):
+        """测试 LeetCode 风格的 null 被正确解析为 None"""
+        test_cases_data = [
+            {
+                'input': {'root': None, 'val': 5},
+                'output': None,
+                'expected': True
+            },
+            {
+                'input': {'arr': [1, None, 3]},
+                'output': [1, 3],
+                'expected': None
+            }
+        ]
+        test_file = self.write_test_file(test_cases_data, "test_null.txt")
+        cases = parse_test_cases(test_file)
+        save_parsed_result(cases, test_file)
+
+        self.assertEqual(len(cases), 2)
+        # 验证 None 已正确解析
+        self.assertIsNone(cases[0]['input']['root'])
+        self.assertIsNone(cases[0]['output'])
+        self.assertTrue(cases[0]['expected'])
+
+        self.assertEqual(cases[1]['input']['arr'], [1, None, 3])
+        self.assertIsNone(cases[1]['expected'])
 
     def test_parse_dict_style_basic(self):
         """测试字典风格的基本解析"""

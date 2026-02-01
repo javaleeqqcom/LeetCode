@@ -7,9 +7,9 @@
 - Q123_V1.py （示例名称）：学生答题的代码（可以拷贝到 leecode 的测试框架中运行，无需修改，注意学生代码不 import custom_init.py 等，因为这些复制到 leetcode 肯定会报错（无此文件报错））
 - Q123_Brute.py （示例名称）：（可选）学生暴力破解的代码
 - Q123_case.txt（示例名称）：学生答题的测试样例数据文件，不过类名需要改为 Brute 类，以免与 Solution 类冲突。
-- run_solution.py : 用于执行学生答题的代码，并调用 test_examples_parser.py 自动读取如 Q123_case.txt 的测试样例数据文件，进行测试。若测试样例数据文件包含正确结果，则会自动比较输出与预期结果并给出。若学生写了暴力代码，可以输入暴力代码文件名，自动比较被测代码是否正确。
+- run_solution.py : 用于执行学生答题的代码，并调用 examples_parser.py 自动读取如 Q123_case.txt 的测试样例数据文件，进行测试。若测试样例数据文件包含正确结果，则会自动比较输出与预期结果并给出。若学生写了暴力代码，可以输入暴力代码文件名，自动比较被测代码是否正确。
 
-目前需要先测试 examples_parser.py 程序是否完全符合要求，通过 parser_test.py 进行测试。
-目前问题：
-```
-人工判断 原始转txt 和 examples_parser.py 转换的对象转json 是一致的，为何 parser_test.py 认为不一致？
+现在成功比较 parser_test.py，下一步实现 null 转化为 None 的识别，因为 leetcode 中不只是 python 语言，所以其数组空指针用 null 表示。
+修改方案：
+1. 在测试中增加空指针的情况，并且要将 python 格式的 None 替换为 null （注意不是字符串）
+2. 在 examples_parser.py 分割行后，先将非字符串的所有 null 替换为 None，以便 ast 解析时正确识别。
