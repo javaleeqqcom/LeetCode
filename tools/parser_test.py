@@ -25,51 +25,39 @@ def gen_hashable_elem():
     else:  # choice == 4
         return ()  # 空 tuple 是 hashable 的
 
-def generate_random_value(depth=0, max_depth=2):
-    """
-    生成一个随机的、ast.literal_eval 可解析的 Python 对象。
-    不再包含 set 类型。
-    """
-    if depth > max_depth:
-        # 到达最大深度，只返回基础类型
-        choice = random.randint(0, 4)
-        if choice == 0:
-            return random.randint(-10, 10)
-        elif choice == 1:
-            return round(random.uniform(-5.0, 5.0), 3)
-        elif choice == 2:
-            return random.choice([True, False, None])
-        elif choice == 3:
-            length = random.randint(1, 5)
-            return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
-        else:
-            return []
+def generate_random_value(current_depth: int, max_depth: int):
+    """生成随机值，支持嵌套 list/tuple/dict，包含 None/bool/int/str"""
+    if current_depth >= max_depth:
+        # 到达最大深度，只生成基础类型
+        choice = random.choice(['int', 'str', 'bool', 'none'])
+    else:
+        # 允许嵌套
+        choice = random.choice(['int', 'str', 'bool', 'none', 'list', 'tuple', 'dict'])
 
-    choice = random.randint(0, 5)  # 6 种类型（去掉了 set）
-
-    if choice == 0:  # int
+    if choice == 'int':
         return random.randint(-100, 100)
-    elif choice == 1:  # float
-        return round(random.uniform(-10.0, 10.0), 4)
-    elif choice == 2:  # bool / None
-        return random.choice([True, False, None])
-    elif choice == 3:  # str
-        length = random.randint(0, 8)
-        return ''.join(random.choices(string.ascii_letters + string.digits + " ", k=length)).strip()
-    elif choice == 4:  # list
-        n = random.randint(0, 4)
-        return [generate_random_value(depth + 1, max_depth) for _ in range(n)]
-    elif choice == 5:  # dict
-        n = random.randint(0, 3)
-        d = {}
-        for _ in range(n):
-            key = gen_hashable_elem()
-            # 避免 key 重复（简单处理）
-            while key in d:
-                key = gen_hashable_elem()
-            d[key] = generate_random_value(depth + 1, max_depth)
-        return d
-    # 注意：已移除 set 和 complex 等不支持类型
+    elif choice == 'str':
+        length = random.randint(0, 10)
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    elif choice == 'bool':
+        return random.choice([True, False])
+    elif choice == 'none':
+        return None
+    elif choice == 'list':
+        size = random.randint(0, 5)
+        return [generate_random_value(current_depth + 1, max_depth) for _ in range(size)]
+    elif choice == 'tuple':
+        size = random.randint(0, 5)
+        return tuple(generate_random_value(current_depth + 1, max_depth) for _ in range(size))
+    elif choice == 'dict':
+        size = random.randint(0, 4)
+        return {
+            f"key_{i}": generate_random_value(current_depth + 1, max_depth)
+            for i in range(size)
+        }
+    else:
+        return 0  # fallback
+    
 
 def save_parsed_result(parsed_cases: List, original_filename: str):
     """将解析结果保存为JSON文件用于调试"""
@@ -105,19 +93,14 @@ def save_parsed_result(parsed_cases: List, original_filename: str):
     with open(json_file, 'w', encoding='utf-8') as f:
         json.dump(serializable_cases, f, indent=2, ensure_ascii=False)
 
-
 def _to_leetcode_repr(obj) -> str:
-    """将 Python 对象转为 LeetCode 风格的字符串表示（None → null）"""
+    """将 Python 对象转为 LeetCode 风格字符串（None→null, True→true, False→false）"""
     s = repr(obj)
-    # 安全替换：仅替换顶层的 None，避免影响字符串
-    # 更简单方式：先转 JSON？但可能不支持 tuple 等
-    # 这里用字符串替换，但要小心
-    # 更可靠：递归构造，但为测试简化处理
-    s = s.replace("None", "null")
-    # 但要避免把 "None" 字符串误替换 → 所以只替换单词边界
+    # 先处理布尔和 None，注意顺序避免干扰
+    s = re.sub(r'\bTrue\b', 'true', s)
+    s = re.sub(r'\bFalse\b', 'false', s)
     s = re.sub(r'\bNone\b', 'null', s)
     return s
-
 
 class TestTestExamplesParser(unittest.TestCase):
     TEST_DIR = "tools_test"
@@ -143,32 +126,42 @@ class TestTestExamplesParser(unittest.TestCase):
             f.write(content)
         return test_file
 
-    def test_parse_null_as_none(self):
-        """测试 LeetCode 风格的 null 被正确解析为 None"""
+    def test_parse_boolean_and_null(self):
+        """测试 LeetCode 风格的 true/false/null 被正确转换"""
         test_cases_data = [
             {
-                'input': {'root': None, 'val': 5},
-                'output': None,
-                'expected': True
+                'input': {
+                    'n': 7,
+                    'edges': [[0,1],[0,2],[1,4],[1,5],[2,3],[2,6]],
+                    'hasApple': [False, False, True, False, True, True, False]
+                },
+                'output': 8,
+                'expected': None
             },
             {
-                'input': {'arr': [1, None, 3]},
-                'output': [1, 3],
-                'expected': None
+                'input': {'flag': True, 'value': None},
+                'output': False,
+                'expected': True
             }
         ]
-        test_file = self.write_test_file(test_cases_data, "test_null.txt")
+        test_file = self.write_test_file(test_cases_data, "test_bool_null.txt")
         cases = parse_test_cases(test_file)
+
+        # 保存解析结果用于调试
         save_parsed_result(cases, test_file)
+        
+        # 验证解析结果
+        case0 = cases[0]
+        self.assertEqual(case0['input']['n'], 7)
+        self.assertEqual(case0['input']['hasApple'], [False, False, True, False, True, True, False])
+        self.assertEqual(case0['output'], 8)
+        self.assertIsNone(case0['expected'])
 
-        self.assertEqual(len(cases), 2)
-        # 验证 None 已正确解析
-        self.assertIsNone(cases[0]['input']['root'])
-        self.assertIsNone(cases[0]['output'])
-        self.assertTrue(cases[0]['expected'])
-
-        self.assertEqual(cases[1]['input']['arr'], [1, None, 3])
-        self.assertIsNone(cases[1]['expected'])
+        case1 = cases[1]
+        self.assertTrue(case1['input']['flag'])
+        self.assertIsNone(case1['input']['value'])
+        self.assertFalse(case1['output'])
+        self.assertTrue(case1['expected'])
 
     def test_parse_dict_style_basic(self):
         """测试字典风格的基本解析"""
@@ -227,6 +220,7 @@ class TestTestExamplesParser(unittest.TestCase):
                 self.assertEqual(parsed['input'], original['input'])
                 self.assertEqual(parsed['output'], original['output'])
                 self.assertNotIn('expected', parsed)
+
 
     def test_parse_random_cases(self):
         """测试随机大批量基础类型"""

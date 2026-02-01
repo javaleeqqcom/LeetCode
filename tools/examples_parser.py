@@ -1,5 +1,4 @@
 # tools/examples_parser.py
-
 import ast
 import re
 from typing import List, Any, Union
@@ -20,7 +19,7 @@ def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
             args = []
             for line in lines:
                 # ===== 元组格式也需处理 null =====
-                processed_line = replace_null_with_none(line)
+                processed_line = leetcode_keywords_to_python(line)
                 try:
                     args.append(ast.literal_eval(processed_line))
                 except (ValueError, SyntaxError):
@@ -32,28 +31,46 @@ def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
                     test_cases.append((args[0],))
     return test_cases
 
-# ===== 新增：安全替换 null -> None（避开字符串） =====
-def replace_null_with_none(text: str) -> str:
+# ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
+def leetcode_keywords_to_python(text: str) -> str:
     """
-    将字符串中所有非字符串字面量的 'null' 替换为 'None'。
-    例如：
-        '[null, "null", {"x": null}]' → '[None, "null", {"x": None}]'
+    将字符串中所有非字符串字面量的 'null', 'true', 'false'
+    替换为 Python 对应的 'None', 'True', 'False'。
+    
+    示例：
+        '[null, true, "false", false]' 
+        → '[None, True, "false", False]'
+        
+        '{"valid": true, "msg": "null"}'
+        → '{"valid": True, "msg": "null"}'
     """
     def replacer(match):
-        s = match.group(0)
-        if s.startswith('"') or s.startswith("'"):
-            # 是字符串字面量，原样返回
-            return s
-        elif s == 'null':
+        token = match.group(0)
+        # 如果是字符串字面量（以引号开头），原样返回
+        if token.startswith('"') or token.startswith("'"):
+            return token
+        # 否则，按关键字转换
+        if token == 'null':
             return 'None'
+        elif token == 'true':
+            return 'True'
+        elif token == 'false':
+            return 'False'
         else:
-            return s
+            return token  # 理论上不会发生
 
-    # 匹配：字符串字面量 或 单词边界上的 null
-    pattern = r'("(?:[^"\\]|\\.)*")|(\'(?:[^\'\\]|\\.)*\')|\bnull\b'
-    return re.sub(pattern, replacer, text)
+    # 正则说明：
+    # - 匹配双引号字符串（支持转义）
+    # - 匹配单引号字符串（支持转义）
+    # - 匹配单词边界上的 null / true / false（避免匹配到部分单词如 "trueness"）
+    pattern = r'''
+        "(?:[^"\\]|\\.)*"          # 双引号字符串
+        |'(?:[^'\\]|\\.)*'         # 单引号字符串
+        |\b(?:null|true|false)\b   # 关键字（单词边界）
+    '''
+    return re.sub(pattern, replacer, text, flags=re.VERBOSE)
 
-# ===== 原有函数保持不变，仅在解析前调用 replace_null_with_none =====
+# ===== 原有函数保持不变，仅在解析前调用 leetcode_keywords_to_python =====
 
 def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
     case = {'input': {}}
@@ -69,7 +86,7 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
             current_section = "expected"
         else:
             # ===== 关键修改：预处理 line =====
-            processed_line = replace_null_with_none(line)
+            processed_line = leetcode_keywords_to_python(line)
 
             if current_section == "input":
                 if line.endswith(' ='):  # 注意：这里仍用原始 line 判断语法结构
@@ -78,7 +95,7 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
                         i += 1
                         value_line = lines[i]
                         # ===== 对值行也做 null → None 替换 =====
-                        processed_value = replace_null_with_none(value_line)
+                        processed_value = leetcode_keywords_to_python(value_line)
                         try:
                             case['input'][param_name] = ast.literal_eval(processed_value)
                         except (ValueError, SyntaxError):
