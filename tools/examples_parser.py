@@ -66,11 +66,11 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
         else:
             # 处理参数行或值行
             if current_section == "input":
-                if ' = ' in line:
-                    # 参数声明行: "param ="
-                    param_name = line.split(' = ')[0]
-                    # 下一行是值
-                    if i + 1 < len(lines) and not lines[i + 1].startswith(("输入", "输出", "预期结果")):
+                if line.endswith(' ='):
+                    # 参数声明行: "param1 ="
+                    param_name = line[:-2]  # 移除末尾的 " ="
+                    # 下一行一定是值
+                    if i + 1 < len(lines):
                         i += 1
                         value_line = lines[i]
                         try:
@@ -79,7 +79,7 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
                             case['input'][param_name] = value_line
                     else:
                         case['input'][param_name] = None
-                # 如果没有' = '，可能是值行（但这种情况不应该出现）
+                # 如果不是以 ' =' 结尾，说明是孤立的值行（不应该出现）
             elif current_section in ["output", "expected"]:
                 try:
                     case[current_section] = ast.literal_eval(line)
