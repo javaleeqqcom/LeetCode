@@ -55,82 +55,88 @@ class TestTestExamplesParser(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.makedirs(cls.TEST_DIR, exist_ok=True)
+    
+    def value_to_str(self, v: Any) -> str:
+        """将值转为单行字符串表示（符合LeetCode规范）"""
+        return repr(v)
+    
+    def write_test_file(self, test_cases_data: List[Dict], filename: str) -> str:
+        """将测试数据写入符合LeetCode格式的文件"""
+        test_file = os.path.join(self.TEST_DIR, filename)
+        content = ""
+        
+        for case in test_cases_data:
+            # 写入"输入"部分
+            content += "输入\n"
+            for k, v in case['input'].items():
+                content += f"{k} =\n{repr(v)}\n"
+            
+            # 写入"输出"部分
+            content += "输出\n"
+            content += f"{repr(case['output'])}\n"
+            
+            # 写入"预期结果"部分（如果存在）
+            if 'expected' in case:
+                content += "预期结果\n"
+                content += f"{repr(case['expected'])}\n"
+            
+            content += "\n"
+        
+        with open(test_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return test_file
 
     def test_parse_dict_style_basic(self):
         """测试字典风格的基本解析"""
-        content = """输入
-nums = 
-[1,5,2]
-输出
-0
-预期结果
-2
-
-输入
-arr = 
-[1,3,2,3,1]
-k = 
-3
-输出
-1
-预期结果
-4
-"""
-        test_file = os.path.join(self.TEST_DIR, "test_dict_basic.txt")
-        with open(test_file, 'w', encoding='utf-8') as f:
-            f.write(content)
+        # 原始测试数据
+        test_cases_data = [
+            {
+                'input': {'nums': [1, 5, 2]},
+                'output': 0,
+                'expected': 2
+            },
+            {
+                'input': {'arr': [1, 3, 2, 3, 1], 'k': 3},
+                'output': 1,
+                'expected': 4
+            }
+        ]
         
+        test_file = self.write_test_file(test_cases_data, "test_dict_basic.txt")
         cases = parse_test_cases(test_file)
         
-        # 验证第一个测试用例
-        self.assertEqual(len(cases), 2, f"File: {test_file}")
-        case1 = cases[0]
-        self.assertIsInstance(case1, dict, f"File: {test_file}")
-        self.assertIn('input', case1, f"File: {test_file}")
-        self.assertIn('output', case1, f"File: {test_file}")
-        self.assertIn('expected', case1, f"File: {test_file}")
-        self.assertEqual(case1['input']['nums'], [1, 5, 2], f"File: {test_file}")
-        self.assertEqual(case1['output'], 0, f"File: {test_file}")
-        self.assertEqual(case1['expected'], 2, f"File: {test_file}")
-        
-        # 验证第二个测试用例
-        case2 = cases[1]
-        self.assertEqual(case2['input']['arr'], [1, 3, 2, 3, 1], f"File: {test_file}")
-        self.assertEqual(case2['input']['k'], 3, f"File: {test_file}")
-        self.assertEqual(case2['output'], 1, f"File: {test_file}")
-        self.assertEqual(case2['expected'], 4, f"File: {test_file}")
+        # 验证解析结果
+        self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
+        for i, (original, parsed) in enumerate(zip(test_cases_data, cases)):
+            with self.subTest(case=i, file=test_file):
+                self.assertIsInstance(parsed, dict)
+                self.assertEqual(parsed['input'], original['input'])
+                self.assertEqual(parsed['output'], original['output'])
+                self.assertEqual(parsed['expected'], original['expected'])
 
     def test_parse_dict_style_no_expected(self):
         """测试没有预期结果的情况"""
-        content = """输入
-nums = 
-[1,5,2]
-输出
-0
-
-输入
-data = 
-{"a": 1}
-输出
-null
-"""
-        test_file = os.path.join(self.TEST_DIR, "test_dict_no_expected.txt")
-        with open(test_file, 'w', encoding='utf-8') as f:
-            f.write(content)
+        test_cases_data = [
+            {
+                'input': {'nums': [1, 5, 2]},
+                'output': 0
+            },
+            {
+                'input': {'data': {"a": 1}},
+                'output': None  # 注意：null 在 Python 中是 None
+            }
+        ]
         
+        test_file = self.write_test_file(test_cases_data, "test_dict_no_expected.txt")
         cases = parse_test_cases(test_file)
         
-        self.assertEqual(len(cases), 2, f"File: {test_file}")
-        case1 = cases[0]
-        self.assertIn('input', case1, f"File: {test_file}")
-        self.assertIn('output', case1, f"File: {test_file}")
-        self.assertNotIn('expected', case1, f"File: {test_file}")
-        self.assertEqual(case1['input']['nums'], [1, 5, 2], f"File: {test_file}")
-        self.assertEqual(case1['output'], 0, f"File: {test_file}")
-        
-        case2 = cases[1]
-        self.assertEqual(case2['input']['data'], {"a": 1}, f"File: {test_file}")
-        self.assertEqual(case2['output'], "null", f"File: {test_file}")  # 无法解析的字符串保持原样
+        self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
+        for i, (original, parsed) in enumerate(zip(test_cases_data, cases)):
+            with self.subTest(case=i, file=test_file):
+                self.assertIsInstance(parsed, dict)
+                self.assertEqual(parsed['input'], original['input'])
+                self.assertEqual(parsed['output'], original['output'])
+                self.assertNotIn('expected', parsed)
 
     def test_parse_random_cases(self):
         """测试随机大批量基础类型"""
@@ -159,29 +165,16 @@ null
                             'expected': expected_val
                         })
                     
-                    # 生成文件内容（修正格式：变量名= 后换行）
-                    content = ""
-                    for case in test_cases_data:
-                        content += "输入\n"
-                        for k, v in case['input'].items():
-                            content += f"{k} = \n{repr(v)}\n"
-                        content += "输出\n"
-                        content += f"{repr(case['output'])}\n"
-                        content += "预期结果\n"
-                        content += f"{repr(case['expected'])}\n\n"
-                    
                     # 生成哈希文件名
-                    hash_obj = hashlib.md5(content.encode('utf-8'))
+                    content_for_hash = str(test_cases_data).encode('utf-8')
+                    hash_obj = hashlib.md5(content_for_hash)
                     filename = f"random_depth{depth}_batch{batch}_{hash_obj.hexdigest()[:8]}.txt"
-                    test_file = os.path.join(self.TEST_DIR, filename)
                     
-                    with open(test_file, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    
-                    # 解析并验证
+                    # 写入文件并解析
+                    test_file = self.write_test_file(test_cases_data, filename)
                     parsed_cases = parse_test_cases(test_file)
                     
-                    # 在断言中包含文件路径信息
+                    # 验证解析结果
                     self.assertEqual(
                         len(parsed_cases), 
                         len(test_cases_data),
@@ -189,57 +182,42 @@ null
                     )
                     
                     for i, (original, parsed) in enumerate(zip(test_cases_data, parsed_cases)):
-                        # 验证结构
-                        self.assertIsInstance(parsed, dict, f"File: {test_file}")
-                        self.assertIn('input', parsed, f"File: {test_file}")
-                        self.assertIn('output', parsed, f"File: {test_file}")
-                        self.assertIn('expected', parsed, f"File: {test_file}")
-                        
-                        # 验证输入
-                        for k, v in original['input'].items():
-                            self.assertIn(k, parsed['input'], f"File: {test_file}")
-                            # 由于解析限制，某些复杂结构可能保持字符串形式
-                            # 这里主要验证基本类型和简单嵌套
-                            if isinstance(v, (int, float, str, bool, type(None))):
-                                self.assertEqual(
-                                    parsed['input'][k], 
-                                    v,
-                                    f"File: {test_file}, Param: {k}"
-                                )
-                            elif isinstance(v, (list, tuple, dict)):
-                                # 对于容器类型，至少验证类型和长度
-                                if isinstance(parsed['input'][k], str):
-                                    # 如果保持字符串，检查是否包含原始repr的关键部分
-                                    self.assertIn(
-                                        repr(v)[:10], 
-                                        parsed['input'][k],
-                                        f"File: {test_file}, Param: {k}"
-                                    )
+                        with self.subTest(case=i, file=test_file, depth=depth, batch=batch):
+                            self.assertIsInstance(parsed, dict)
+                            # 验证输入字典
+                            self.assertEqual(set(parsed['input'].keys()), set(original['input'].keys()))
+                            for k in original['input'].keys():
+                                # 对于可安全解析的类型直接比较，否则比较 repr 字符串
+                                orig_val = original['input'][k]
+                                parsed_val = parsed['input'][k]
+                                
+                                if isinstance(orig_val, (int, float, str, bool, type(None))):
+                                    self.assertEqual(parsed_val, orig_val)
+                                elif isinstance(orig_val, (list, tuple, dict)):
+                                    if isinstance(parsed_val, str):
+                                        # 如果解析失败保持字符串，比较 repr
+                                        self.assertEqual(parsed_val, repr(orig_val))
+                                    else:
+                                        # 如果成功解析，直接比较
+                                        self.assertEqual(parsed_val, orig_val)
                                 else:
-                                    # 如果成功解析，验证基本属性
-                                    self.assertEqual(
-                                        type(parsed['input'][k]), 
-                                        type(v),
-                                        f"File: {test_file}, Param: {k}"
-                                    )
-                        
-                        # 验证输出和预期结果（同样处理）
-                        if isinstance(original['output'], (int, float, str, bool, type(None))):
-                            self.assertEqual(
-                                parsed['output'], 
-                                original['output'],
-                                f"File: {test_file}"
-                            )
-                        if isinstance(original['expected'], (int, float, str, bool, type(None))):
-                            self.assertEqual(
-                                parsed['expected'], 
-                                original['expected'],
-                                f"File: {test_file}"
-                            )
-
-    def value_to_str(self, v: Any) -> str:
-        """将值转为单行字符串表示（符合LeetCode规范）"""
-        return repr(v)
+                                    # 其他类型（如 set）可能无法完美解析，比较 repr
+                                    if isinstance(parsed_val, str):
+                                        self.assertEqual(parsed_val, repr(orig_val))
+                            
+                            # 验证输出
+                            if isinstance(original['output'], (int, float, str, bool, type(None), list, tuple, dict)):
+                                if isinstance(parsed['output'], str):
+                                    self.assertEqual(parsed['output'], repr(original['output']))
+                                else:
+                                    self.assertEqual(parsed['output'], original['output'])
+                            
+                            # 验证预期结果
+                            if isinstance(original['expected'], (int, float, str, bool, type(None), list, tuple, dict)):
+                                if isinstance(parsed['expected'], str):
+                                    self.assertEqual(parsed['expected'], repr(original['expected']))
+                                else:
+                                    self.assertEqual(parsed['expected'], original['expected'])
 
 if __name__ == '__main__':
     unittest.main()
