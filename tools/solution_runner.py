@@ -1,42 +1,38 @@
 # tools/solution_runner.py
+
 import os
 import inspect
 from pathlib import Path
 import logging
 import json
-import datetime,time
-import inspect
+import datetime, time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
+import ast
+import types
+from charset_normalizer import from_bytes  # 自动检测编码
+
 try:
     from examples_parser import parse_test_cases
-    from custom_init import input_parser_registry, ListNode ,TreeNode
+    from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
 except:
     from tools.examples_parser import parse_test_cases
-    from tools.custom_init import input_parser_registry, ListNode ,TreeNode
+    from tools.custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
 
-def _convert_case_by_signature( case: Union[Dict, Tuple], sig: inspect.Signature) -> Union[Dict, Tuple]:
-    """
-    对单个测试用例（dict 或 tuple）执行类型转换。
-    - dict：按键（参数名）匹配
-    - tuple：按位置匹配参数顺序
-    所有参数均尝试转换（registry 无匹配则直通原值）。
-    """
-
-    # 获取参数名列表（按顺序）
+def _convert_case_by_signature(case: Union[Dict, Tuple], sig: inspect.Signature) -> Union[Dict, Tuple]:
+    """对测试用例执行类型转换（精确匹配）"""
     param_names = list(sig.parameters.keys())
-
-    # 👇 关键：使用当前全局命名空间来解析字符串注解
+    type_hints = {}
     try:
-        type_hints = inspect.get_type_hints(sig, globalns=globals(), localns={})
+        type_hints = get_type_hints(sig, globalns={}, localns={})
     except Exception:
-        type_hints = {}
+        pass
 
     if isinstance(case, dict):
         input_dict = case.get('input', {})
         converted = {}
         for name in param_names:
             if name not in input_dict:
-                continue  # 跳过缺失参数（由 bind 检查合法性）
+                continue
             value = input_dict[name]
             target_type = type_hints.get(name)
             source_type = type(value)
@@ -56,21 +52,18 @@ def _convert_case_by_signature( case: Union[Dict, Tuple], sig: inspect.Signature
             key = (target_type, source_type)
             converter = input_parser_registry.get(key)
             converted_values.append(converter(value) if converter is not None else value)
-        # 补齐未提供但有默认值的参数？——不需要，tuple 应提供完整前缀
         return tuple(converted_values)
-
     else:
         raise ValueError(f"不支持的用例类型: {type(case)}")
 
-
 def _sanitize_filename(name: str) -> str:
-    """将字符串转换为安全的文件名（替换非法字符）"""
+    """安全文件名转换"""
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
 def _get_unique_log_path(base_name: str) -> str:
-    """生成不重复的日志路径，如 base.log, base.1.log, base.2.log..."""
+    """生成唯一日志路径"""
     if not base_name.endswith('.log'):
         base_name += '.log'
     if not os.path.exists(base_name):
@@ -81,49 +74,58 @@ def _get_unique_log_path(base_name: str) -> str:
         if not os.path.exists(candidate):
             return candidate
         counter += 1
-    raise Exception("尝试次数过多，无法生成不重复的日志路径，请清理文件夹。")
+    raise Exception("无法生成唯一日志路径")
 
 class SolutionRunner:
-    def __init__(self, obj_fun: Union[Callable, object]) -> None:
+    def __init__(self, solution_file: str) -> None:
         """
-        初始化 SolutionRunner。
-        :param obj_fun: 可以是函数，也可以是一个类的实例（该类必须有且仅有一个非魔术方法）
+        初始化 SolutionRunner，自动加载学生代码文件。
+        :param solution_file: 学生代码文件路径（如 "P82_V0.py"）
         """
-        if inspect.isfunction(obj_fun):
-            self.obj_fun = obj_fun
-        elif inspect.isclass(obj_fun):
-            # 如果传入的是类（而非实例），自动实例化
-            obj_fun = obj_fun()
-            self._bind_method_from_instance(obj_fun)
-        elif hasattr(obj_fun, '__class__'):
-            # 传入的是类的实例
-            self._bind_method_from_instance(obj_fun)
-        else:
-            raise TypeError("obj_fun 必须是函数、类或类的实例")
-
-    def _bind_method_from_instance(self, instance: object) -> None:
-        """从实例中提取唯一有效的成员方法"""
+        # 1. 读取并自动检测编码（支持中文）
+        with open(solution_file, 'rb') as f:
+            raw = f.read()
+            result = from_bytes(raw).best()
+            student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
+        
+        # 2. 创建虚拟执行环境
+        mod = types.ModuleType('student_solution')
+        mod.__dict__.update({
+            'ListNode': ListNode,
+            'TreeNode': TreeNode,
+            'Optional': Optional,
+            'List': List,
+            'Dict': Dict,
+            '__builtins__': __builtins__,
+        })
+        
+        # 3. 执行学生代码（注入类型）
+        exec(student_code, mod.__dict__)
+        
+        # 4. 获取Solution类
+        if 'Solution' not in mod.__dict__:
+            raise ValueError("学生代码中未定义 Solution 类")
+        self.Solution = mod.Solution
+        
+        # 5. 提取方法（假设只有一个非魔术方法）
         methods = []
-        for name, method in inspect.getmembers(instance, predicate=inspect.ismethod):
+        for name, method in inspect.getmembers(self.Solution, predicate=inspect.isfunction):
             if not (name.startswith('__') and name.endswith('__')):
                 methods.append(method)
         if len(methods) != 1:
-            raise ValueError(f"类实例必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个: {[m.__name__ for m in methods]}")
-        self.obj_fun = methods[0]
+            raise ValueError(f"Solution类必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个")
+        self.method = methods[0]
 
     def read_test_case(
         self,
         path_list: Union[str, os.PathLike, List[Union[str, Path]]],
         file_name_pattern: Optional[str] = None
     ) -> Dict[str, Union[Dict, Tuple]]:
-        """
-        读取并解析测试用例文件，在此阶段完成所有类型转换。
-        """
+        """读取并解析测试用例文件（自动完成类型转换）"""
         from glob import glob
-
         if not isinstance(path_list, list):
             path_list = [path_list]
-
+        
         all_files = []
         for p in path_list:
             p = Path(p)
@@ -136,125 +138,91 @@ class SolutionRunner:
                 all_files.extend(f.resolve() for f in matched if f.is_file())
             else:
                 raise FileNotFoundError(f"路径不存在: {p}")
-
+        
         cwd = Path.cwd()
         test_cases_dict = {}
-        sig = inspect.signature(self.obj_fun)
-
+        sig = inspect.signature(self.method)
+        
         for file_path in all_files:
             try:
                 parsed_list = parse_test_cases(str(file_path))
             except Exception as e:
                 raise RuntimeError(f"解析测试文件失败: {file_path}") from e
-
+            
             for i, raw_case in enumerate(parsed_list):
                 rel_path = str(file_path.relative_to(cwd)) if cwd in file_path.parents else str(file_path)
                 key = f"{rel_path}#{i+1}"
-
-                # === 核心修改：在此处执行转换 ===
                 converted_case = _convert_case_by_signature(raw_case, sig)
-
+                
                 # 验证绑定（使用转换后的值）
                 if isinstance(converted_case, dict):
-                    try:
-                        sig.bind(**converted_case.get('input', {}))
-                    except TypeError as e:
-                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
-                else:  # tuple
-                    try:
-                        sig.bind(*converted_case)
-                    except TypeError as e:
-                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
-
+                    sig.bind(**converted_case.get('input', {}))
+                else:
+                    sig.bind(*converted_case)
+                
                 test_cases_dict[key] = converted_case
-
+        
         return test_cases_dict
-    
+
     def run(
         self,
         test_cases: Dict[str, Union[Dict, Tuple]],
         log_suffix: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        执行所有测试用例，并可选记录日志。
-        :param test_cases: 测试用例字典
-        :param log_suffix: 日志文件名后缀（如 "_debug"），若为 None 则不记录日志
-        :return: {key: result 或 exception}
-        """
+        """执行测试用例（自动处理实例化）"""
         results = {}
         for key, case in test_cases.items():
             logger = None
             log_file = None
-
             if log_suffix is not None:
                 safe_key = _sanitize_filename(key)
                 log_base_name = f"{safe_key}{log_suffix}"
                 log_file = _get_unique_log_path(log_base_name)
-
                 logger_name = f"runner_logger_{abs(hash(log_file)) % (10**8)}"
                 logger = logging.getLogger(logger_name)
                 logger.setLevel(logging.INFO)
                 logger.propagate = False
-
                 # 移除旧 handlers（避免重复）
                 logger.handlers.clear()
-
                 fh = logging.FileHandler(log_file, encoding='utf-8')
                 formatter = logging.Formatter(fmt='%(asctime)s:\t%(message)s')
-
-                def format_time_with_microseconds(record, datefmt=None):
-                    # 仅输出 HH:MM:SS，微秒已通过 msecs 提供
-                    return time.strftime("%H:%M:%S", time.localtime(record.created))
-
-                formatter.formatTime = format_time_with_microseconds
+                # 仅输出 HH:MM:SS，微秒已通过 msecs 提供
+                formatter.formatTime = lambda record, datefmt=None: time.strftime("%H:%M:%S", time.localtime(record.created))
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
-
-                # 首条日志：记录完整日期、函数名、日志路径
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
-                func_name = getattr(self.obj_fun, '__name__', 'unknown_function')
+                func_name = getattr(self.method, '__name__', 'unknown_function')
                 logger.info(f"[{today}] Running function '{func_name}' with test case key: {key}")
                 logger.info(f"Log file: {log_file}")
-
+            
             try:
                 if isinstance(case, dict):
                     input_args = case.get('input', {})
                     if logger:
-                        pretty_input = json.dumps(input_args, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f">>> INPUT\n{pretty_input}")
-
+                        logger.info(f">>> INPUT\n{json.dumps(input_args, indent=2, ensure_ascii=False, default=str)}")
                     start_time = time.perf_counter()
-                    result = self.obj_fun(**input_args)
+                    instance = self.Solution()
+                    result = self.method(instance, **input_args)
                     elapsed = time.perf_counter() - start_time
-
                 elif isinstance(case, tuple):
                     if logger:
-                        pretty_input = json.dumps(list(case), indent=2, ensure_ascii=False, default=str)
-                        logger.info(f">>> INPUT\n{pretty_input}")
-
+                        logger.info(f">>> INPUT\n{json.dumps(list(case), indent=2, ensure_ascii=False, default=str)}")
                     start_time = time.perf_counter()
-                    result = self.obj_fun(*case)
+                    instance = self.Solution()
+                    result = self.method(instance, *case)
                     elapsed = time.perf_counter() - start_time
-
                 else:
                     raise ValueError(f"Invalid test case format: {type(case)}")
-
                 results[key] = result
-
                 if logger:
-                    pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-                    logger.info(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
-
+                    logger.info(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{json.dumps(result, indent=2, ensure_ascii=False, default=str)}")
             except Exception as e:
                 results[key] = e
                 if logger:
                     logger.exception("\n!!! EXCEPTION OCCURRED:")
-
             finally:
                 if logger:
-                    # 安全关闭 handler
                     for handler in logger.handlers[:]:
                         handler.close()
-                        logger.removeHandler(handler)
-
+                    logger.removeHandler(handler)
         return results
