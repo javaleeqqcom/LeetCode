@@ -4,54 +4,54 @@ import inspect
 from pathlib import Path
 import logging
 import json
+import datetime,time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional
 try:
     from examples_parser import parse_test_cases
 except:
     from tools.examples_parser import parse_test_cases
 
-
 def _sanitize_filename(name: str) -> str:
     """将字符串转换为安全的文件名（替换非法字符）"""
-    # 替换常见非法字符（Windows/Linux/macOS）
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
 
 def _get_case_logger(key: str) -> logging.Logger:
-    """为给定 key 返回一个专用的 logger，日志写入 {key}.log"""
+    """为给定 key 返回一个专用的 logger，日志写入 {key}_{YYYYMMDD}.log"""
     logger_name = f"case_logger_{key}"
     logger = logging.getLogger(logger_name)
 
-    # 防止重复添加 handler（避免日志重复）
     if not logger.handlers:
         logger.setLevel(logging.INFO)
-        logger.propagate = False  # 不向 root logger 传播
+        logger.propagate = False
 
-        # 创建文件 handler
+        # 文件名加入日期，避免不同天的测试互相覆盖
         safe_key = _sanitize_filename(key)
-        log_file = f"{safe_key}.log"
+        date_str = time.strftime("%Y%m%d")
+        log_file = f"{safe_key}_{date_str}.log"
+        
         fh = logging.FileHandler(log_file, mode='w', encoding='utf-8')
 
-        # 自定义格式：仅时间戳（毫秒精度）
-        formatter = logging.Formatter(fmt='%(asctime)s', datefmt='%H:%M:%S.%f')
-        # 截断微秒到毫秒（%f 是6位，我们取前3位）
-        old_format = formatter.formatTime
-        def format_time_with_millis(record, datefmt=None):
-            ct = old_format(record, datefmt)
-            # ct 格式如 '14:30:45.123456' -> 截为 '14:30:45.123'
-            if '.' in ct:
-                main, micro = ct.rsplit('.', 1)
-                ct = f"{main}.{micro[:3]}"
-            return ct
-        formatter.formatTime = format_time_with_millis
-
+        # 关键修复：不设置 datefmt，让 formatTime 完全控制时间格式
+        formatter = logging.Formatter(fmt='%(asctime)s')
+        
+        # 自定义 formatTime：生成 HH:MM:SS.mmmmmm（微秒）
+        def format_time_with_microseconds(record, datefmt=None):
+            # 使用 record.created (浮点秒) 和 record.msecs
+            ct = time.localtime(record.created)
+            # 格式化到秒
+            s = time.strftime("%H:%M:%S", ct)
+            # 添加微秒（record.msecs 是毫秒小数部分，需 *1000）
+            microseconds = int(record.msecs * 1000)
+            return f"{s}.{microseconds:06d}"
+        
+        formatter.formatTime = format_time_with_microseconds
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 
     return logger
-
 
 class SolutionRunner:
     def __init__(self, obj_fun: Union[Callable, object]) -> None:
@@ -146,13 +146,8 @@ class SolutionRunner:
 
         return test_cases_dict
 
+
     def run(self, test_cases: Dict[str, Union[Dict, Tuple]], auto_log: bool = True) -> Dict[str, Any]:
-        """
-        执行所有测试用例。
-        :param test_cases: 由 read_test_case 返回的字典
-        :param auto_log: 是否自动记录每个用例的输入/输出到 .log 文件
-        :return: {测试用例 key: 函数返回值}
-        """
         results = {}
         for key, case in test_cases.items():
             logger = None
@@ -164,24 +159,29 @@ class SolutionRunner:
                     input_args = case.get('input', {})
                     if logger:
                         pretty_input = json.dumps(input_args, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n{pretty_input}")
+                        logger.info(f"\n>>> INPUT\n{pretty_input}")
 
+                    # 记录开始时间
+                    start_time = time.perf_counter()
                     result = self.obj_fun(**input_args)
+                    elapsed = time.perf_counter() - start_time
 
                     if logger:
                         pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n{pretty_result}")
+                        logger.info(f"\n<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
 
                 elif isinstance(case, tuple):
                     if logger:
                         pretty_input = json.dumps(list(case), indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n{pretty_input}")
+                        logger.info(f"\n>>> INPUT\n{pretty_input}")
 
+                    start_time = time.perf_counter()
                     result = self.obj_fun(*case)
+                    elapsed = time.perf_counter() - start_time
 
                     if logger:
                         pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n{pretty_result}")
+                        logger.info(f"\n<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
 
                 else:
                     raise ValueError(f"无效的测试用例格式: {type(case)}")
@@ -191,8 +191,6 @@ class SolutionRunner:
             except Exception as e:
                 results[key] = e
                 if logger:
-                    logger.exception("\n执行时发生异常:")  # 会记录 traceback
-                # 或者只记录错误信息：
-                # logger.error(f"\nException: {str(e)}")
+                    logger.exception("\n!!! EXCEPTION OCCURRED:")
 
         return results
