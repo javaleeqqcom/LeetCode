@@ -1,4 +1,4 @@
-from solution_runner import run_solution_from_file
+from tools.solution_runner import run_solution_from_file
 from custom_init import ListNode, Optional
 
 # Definition for singly-linked list.

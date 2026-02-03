@@ -21,12 +21,17 @@ LeetCode 本地自动化测试框架（Python）
   - 使用 ast.literal_eval 安全解析，支持嵌套 list/tuple/dict。
   - 学生不可修改，调试完成后设为只读。
 
-- tools/base_init.py  
-  模拟 LeetCode 默认导入的库（如 List, Optional 等），学生一般无需修改。
+- tools/solution_runner.py  
+  - LeetCode 默认导入的库（如 List, Optional 等），学生一般无需修改。
+  - 将 examples_parser.py 包装成类：
+  - 类初始化需传入学生写的函数，二者选其一：
+    1. 要么传入 Solution 类的对象；
+    2. 要么传入 Solution 类的对象的执行函数。
+  - 如果学生传入的是 Solution类的对象，则需解析出其唯一的执行函数（排除如 __repr__ 等的对象函数，由leetcode默认代码模板提供的）
 
 - tools/custom_init.py  
-  定义 LeetCode 常见自定义数据结构（如 ListNode, TreeNode），并提供友好的 repr 方法便于调试。  
-  ⏳ 下一步将在此文件中注册自动类型转换规则（如将 [1,2,null] 字符串自动转为 TreeNode 对象）。
+  - 定义 LeetCode 常见自定义数据结构（如 ListNode, TreeNode），并提供友好的 repr 方法便于调试。  
+  - 该程序暂时不写，以后完善。
 
 - Q123_V1.py（示例）  
   学生提交的主解法代码。不包含任何 import 自定义模块，可直接复制到 LeetCode 运行。
