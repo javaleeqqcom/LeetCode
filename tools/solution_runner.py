@@ -5,13 +5,62 @@ from pathlib import Path
 import logging
 import json
 import datetime,time
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional
+import inspect
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
 try:
     from examples_parser import parse_test_cases
     from custom_init import input_parser_registry
 except:
     from tools.examples_parser import parse_test_cases
     from tools.custom_init import input_parser_registry
+
+def _convert_case_by_signature( case: Union[Dict, Tuple], sig: inspect.Signature) -> Union[Dict, Tuple]:
+    """
+    对单个测试用例（dict 或 tuple）执行类型转换。
+    - dict：按键（参数名）匹配
+    - tuple：按位置匹配参数顺序
+    所有参数均尝试转换（registry 无匹配则直通原值）。
+    """
+
+    # 获取参数名列表（按顺序）
+    param_names = list(sig.parameters.keys())
+    type_hints = {}
+    try:
+        type_hints = get_type_hints(sig, globalns={}, localns={})
+    except Exception:
+        pass  # 忽略无法解析的类型注解
+
+    if isinstance(case, dict):
+        input_dict = case.get('input', {})
+        converted = {}
+        for name in param_names:
+            if name not in input_dict:
+                continue  # 跳过缺失参数（由 bind 检查合法性）
+            value = input_dict[name]
+            target_type = type_hints.get(name)
+            source_type = type(value)
+            key = (target_type, source_type)
+            converter = input_parser_registry.get(key)
+            converted[name] = converter(value) if converter is not None else value
+        return {**case, 'input': converted}
+
+    elif isinstance(case, tuple):
+        converted_values = []
+        for i, value in enumerate(case):
+            if i >= len(param_names):
+                break
+            name = param_names[i]
+            target_type = type_hints.get(name)
+            source_type = type(value)
+            key = (target_type, source_type)
+            converter = input_parser_registry.get(key)
+            converted_values.append(converter(value) if converter is not None else value)
+        # 补齐未提供但有默认值的参数？——不需要，tuple 应提供完整前缀
+        return tuple(converted_values)
+
+    else:
+        raise ValueError(f"不支持的用例类型: {type(case)}")
+
 
 def _sanitize_filename(name: str) -> str:
     """将字符串转换为安全的文件名（替换非法字符）"""
@@ -67,10 +116,7 @@ class SolutionRunner:
         file_name_pattern: Optional[str] = None
     ) -> Dict[str, Union[Dict, Tuple]]:
         """
-        读取并解析测试用例文件。
-        :param path_list: 文件或文件夹路径（或路径列表）
-        :param file_name_pattern: 用于 glob 匹配的模式，如 "P1234.*"
-        :return: {相对路径: 解析后的测试用例}
+        读取并解析测试用例文件，在此阶段完成所有类型转换。
         """
         from glob import glob
 
@@ -90,10 +136,8 @@ class SolutionRunner:
             else:
                 raise FileNotFoundError(f"路径不存在: {p}")
 
-        # 获取工作目录用于生成相对路径
         cwd = Path.cwd()
         test_cases_dict = {}
-
         sig = inspect.signature(self.obj_fun)
 
         for file_path in all_files:
@@ -102,32 +146,29 @@ class SolutionRunner:
             except Exception as e:
                 raise RuntimeError(f"解析测试文件失败: {file_path}") from e
 
-            for i, case in enumerate(parsed_list):
-                # 构造唯一 key：文件名 + 行号（避免同文件多用例冲突）
+            for i, raw_case in enumerate(parsed_list):
                 rel_path = str(file_path.relative_to(cwd)) if cwd in file_path.parents else str(file_path)
                 key = f"{rel_path}#{i+1}"
 
-                # （待改进，增加尝试使用 input_parser_registry 自动转换）
-                # 检查参数匹配
-                if isinstance(case, dict):
-                    input_args = case.get('input', {})
-                    try:
-                        sig.bind(**input_args)
-                    except TypeError as e:
-                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
-                elif isinstance(case, tuple):
-                    try:
-                        sig.bind(*case)
-                    except TypeError as e:
-                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
-                else:
-                    raise ValueError(f"未知的测试用例格式: {type(case)}")
+                # === 核心修改：在此处执行转换 ===
+                converted_case = _convert_case_by_signature(raw_case, sig)
 
-                test_cases_dict[key] = case
+                # 验证绑定（使用转换后的值）
+                if isinstance(converted_case, dict):
+                    try:
+                        sig.bind(**converted_case.get('input', {}))
+                    except TypeError as e:
+                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
+                else:  # tuple
+                    try:
+                        sig.bind(*converted_case)
+                    except TypeError as e:
+                        raise TypeError(f"测试用例参数与函数签名不匹配 ({key}): {e}")
+
+                test_cases_dict[key] = converted_case
 
         return test_cases_dict
-
-
+    
     def run(
         self,
         test_cases: Dict[str, Union[Dict, Tuple]],

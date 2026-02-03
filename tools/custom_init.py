@@ -1,3 +1,4 @@
+from typing import Any, Dict, Tuple, Callable ,Union,List
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
     def __init__(self, val=0, next=None):
@@ -26,7 +27,7 @@ class TreeNode:
         # 按完全二叉树生成字符串表示，空节点用 null 占位
 
 # ====== 转换函数 ======
-def List2ListNode(lst: list) -> Optional[ListNode]:
+def List2ListNode(lst: List[Any]) -> Optional[ListNode]:
     head = ListNode(lst[0])
     cur = head
     for val in lst[1:]:
@@ -35,7 +36,7 @@ def List2ListNode(lst: list) -> Optional[ListNode]:
     return head
 
 
-def List2TreeNode(level_order: List[Optional[数字]]) -> Optional[TreeNode]:
+def List2TreeNode(level_order: List[Any]) -> Optional[TreeNode]:
     if not level_order or level_order[0] is None:
         return None
     from collections import deque
@@ -55,12 +56,10 @@ def List2TreeNode(level_order: List[Optional[数字]]) -> Optional[TreeNode]:
     return root
 
 # ====== 【核心】注册转换规则 ======
-# 键：(目标类型名, 输入类型签名...)
-# 值：转换函数
-input_parser_registry = {
-    ("ListNode","list"): lambda args: List2ListNode(args[0]),
-    # 要特别注意 TreeNode 的输入如： [1,2,null,4] 的 null 表示占位空节点，用于凑齐完全二叉树，因此其输入类型不是 List，而是应当为 str。
-    ("TreeNode","list"): lambda args: List2TreeNode(args[0]), 
-    # 可继续添加：
-    # ("MyClass", int , str, List[int]): lambda args: MyClass(args[0], args[1], args[2]),
+# 注册表：键 = (目标类型, 源类型)，值 = 转换函数
+input_parser_registry: Dict[Tuple[Any, Any], Callable] = {
+    (ListNode, list): List2ListNode,
+    (TreeNode, list): List2TreeNode,
+    # 可扩展，例如：
+    # (Optional[ListNode], list): lambda x: List2ListNode(x) if x else None,
 }
