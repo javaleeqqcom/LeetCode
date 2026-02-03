@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Set, Optional, Any, Union, Callable, Iterable
+from typing import List, Tuple, Dict, Set, Optional, Any, Union, Callable, Iterable # 若注释掉，会报错：NameError: name 'List' is not defined
 import numpy as np
 class Solution:
     def isTrionic(self, nums: List[int]) -> bool:
