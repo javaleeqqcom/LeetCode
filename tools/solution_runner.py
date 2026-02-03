@@ -9,7 +9,7 @@ import datetime, time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
 import ast
 import types
-from charset_normalizer import from_bytes  # 自动检测编码
+from charset_normalizer.api import from_bytes  # 自动检测编码
 
 try:
     from examples_parser import parse_test_cases
@@ -40,7 +40,6 @@ def _convert_case_by_signature(case: Union[Dict, Tuple], sig: inspect.Signature)
             converter = input_parser_registry.get(key)
             converted[name] = converter(value) if converter is not None else value
         return {**case, 'input': converted}
-
     elif isinstance(case, tuple):
         converted_values = []
         for i, value in enumerate(case):
@@ -77,10 +76,11 @@ def _get_unique_log_path(base_name: str) -> str:
     raise Exception("无法生成唯一日志路径")
 
 class SolutionRunner:
-    def __init__(self, solution_file: str) -> None:
+    def __init__(self, solution_file: str, main_method: Optional[str] = None) -> None:
         """
         初始化 SolutionRunner，自动加载学生代码文件。
         :param solution_file: 学生代码文件路径（如 "P82_V0.py"）
+        :param main_method: 指定主方法名（当Solution有多个方法时），默认None表示自动选择唯一方法
         """
         # 1. 读取并自动检测编码（支持中文）
         with open(solution_file, 'rb') as f:
@@ -107,14 +107,25 @@ class SolutionRunner:
             raise ValueError("学生代码中未定义 Solution 类")
         self.Solution = mod.Solution
         
-        # 5. 提取方法（假设只有一个非魔术方法）
+        # 5. 提取方法
         methods = []
         for name, method in inspect.getmembers(self.Solution, predicate=inspect.isfunction):
             if not (name.startswith('__') and name.endswith('__')):
-                methods.append(method)
-        if len(methods) != 1:
-            raise ValueError(f"Solution类必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个")
-        self.method = methods[0]
+                methods.append((name, method))
+        
+        if main_method is not None:
+            # 使用指定的方法名
+            method_dict = dict(methods)
+            if main_method not in method_dict:
+                raise ValueError(f"指定的主方法 '{main_method}' 不存在于 Solution 类中")
+            self.method_name = main_method
+            self.method = method_dict[main_method]
+        else:
+            # 自动选择唯一方法
+            if len(methods) != 1:
+                method_names = [name for name, _ in methods]
+                raise ValueError(f"Solution类必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个: {method_names}")
+            self.method_name, self.method = methods[0]
 
     def read_test_case(
         self,
@@ -124,7 +135,8 @@ class SolutionRunner:
         """读取并解析测试用例文件（自动完成类型转换）"""
         from glob import glob
         if not isinstance(path_list, list):
-            path_list = [path_list]
+            assert isinstance(path_list, Union[str, Path])
+            path_list = [path_list,]
         
         all_files = []
         for p in path_list:
@@ -141,7 +153,10 @@ class SolutionRunner:
         
         cwd = Path.cwd()
         test_cases_dict = {}
-        sig = inspect.signature(self.method)
+        # 创建一个临时实例来获取绑定方法的签名（排除self参数）
+        temp_instance = self.Solution()
+        bound_method = getattr(temp_instance, self.method_name)
+        sig = inspect.signature(bound_method)
         
         for file_path in all_files:
             try:
@@ -154,7 +169,7 @@ class SolutionRunner:
                 key = f"{rel_path}#{i+1}"
                 converted_case = _convert_case_by_signature(raw_case, sig)
                 
-                # 验证绑定（使用转换后的值）
+                # 验证绑定（使用转换后的值和绑定方法的签名）
                 if isinstance(converted_case, dict):
                     sig.bind(**converted_case.get('input', {}))
                 else:
@@ -222,7 +237,9 @@ class SolutionRunner:
                     logger.exception("\n!!! EXCEPTION OCCURRED:")
             finally:
                 if logger:
-                    for handler in logger.handlers[:]:
+                    # 移除并关闭所有的 handler
+                    while logger.handlers:
+                        handler = logger.handlers[0]
                         handler.close()
-                    logger.removeHandler(handler)
+                        logger.removeHandler(handler)
         return results
