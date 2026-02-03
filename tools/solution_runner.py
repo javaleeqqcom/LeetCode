@@ -9,10 +9,10 @@ import inspect
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
 try:
     from examples_parser import parse_test_cases
-    from custom_init import input_parser_registry
+    from custom_init import input_parser_registry, ListNode ,TreeNode
 except:
     from tools.examples_parser import parse_test_cases
-    from tools.custom_init import input_parser_registry
+    from tools.custom_init import input_parser_registry, ListNode ,TreeNode
 
 def _convert_case_by_signature( case: Union[Dict, Tuple], sig: inspect.Signature) -> Union[Dict, Tuple]:
     """
@@ -24,11 +24,12 @@ def _convert_case_by_signature( case: Union[Dict, Tuple], sig: inspect.Signature
 
     # 获取参数名列表（按顺序）
     param_names = list(sig.parameters.keys())
-    type_hints = {}
+
+    # 👇 关键：使用当前全局命名空间来解析字符串注解
     try:
-        type_hints = get_type_hints(sig, globalns={}, localns={})
+        type_hints = inspect.get_type_hints(sig, globalns=globals(), localns={})
     except Exception:
-        pass  # 忽略无法解析的类型注解
+        type_hints = {}
 
     if isinstance(case, dict):
         input_dict = case.get('input', {})

@@ -1,25 +1,17 @@
-from tools.custom_init import ListNode
+# P82_V0.py
+
 from typing import Optional
-
-# Definition for singly-linked list.
-# class ListNode:
-#     def __init__(self, val=0, next=None):
-#         self.val = val
-#         self.next = next
-
+# 不要 from tools.custom_init import ListNode！
+# 假设 ListNode 已在全局可用（由 runner 注入或提前导入）
 
 class Solution:
     def deleteDuplicates(self, head: Optional[ListNode]) -> Optional[ListNode]:
         pred = head
-        assert isinstance(pred,ListNode)
-        while True:
+        assert isinstance(pred, ListNode) or pred is None
+        while pred and pred.next:
             cur = pred.next
-            if cur:
-                assert isinstance(cur,ListNode)
-                if cur.val == pred.val:
-                    pred.next = cur.next
-                else:
-                    pred=cur
+            if cur.val == pred.val:
+                pred.next = cur.next
             else:
-                break
+                pred = cur
         return head
