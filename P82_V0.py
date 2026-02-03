@@ -1,11 +1,13 @@
-from tools.solution_runner import run_solution_from_file
-from tools.custom_init import ListNode, Optional
+from tools.custom_init import ListNode
+from typing import Optional
 
 # Definition for singly-linked list.
 # class ListNode:
 #     def __init__(self, val=0, next=None):
 #         self.val = val
 #         self.next = next
+
+
 class Solution:
     def deleteDuplicates(self, head: Optional[ListNode]) -> Optional[ListNode]:
         pred = head
@@ -21,7 +23,3 @@ class Solution:
             else:
                 break
         return head
-
-# 运行评测
-if __name__ == "__main__":
-    run_solution_from_file(Solution, "82q1.txt")

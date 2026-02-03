@@ -1,0 +1,22 @@
+17:52:38:	[2026-02-03] Running function 'deleteDuplicates' with test case key: P82q1.txt#2
+17:52:38:	Log file: P82q1.txt#2_V0.1.log
+17:52:38:	>>> INPUT
+{
+  "head": [
+    1,
+    1,
+    1,
+    2,
+    3
+  ]
+}
+17:52:38:	
+!!! EXCEPTION OCCURRED:
+Traceback (most recent call last):
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\tools\solution_runner.py", line 226, in run
+    result = self.obj_fun(**input_args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\P82_V0.py", line 14, in deleteDuplicates
+    assert isinstance(pred,Optional[ListNode])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
