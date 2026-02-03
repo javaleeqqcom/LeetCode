@@ -1,3 +1,4 @@
+from typing import List, Tuple, Dict, Set, Optional, Any, Union, Callable, Iterable
 import numpy as np
 class Solution:
     def isTrionic(self, nums: List[int]) -> bool:
