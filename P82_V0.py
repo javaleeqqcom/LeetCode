@@ -5,7 +5,7 @@ from typing import Optional
 # 假设 ListNode 已在全局可用（由 runner 注入或提前导入）
 
 class Solution:
-    def deleteDuplicates(self, head: Optional[ListNode]) -> Optional[ListNode]:
+    def deleteDuplicates(self, head: Optional['ListNode']) -> Optional['ListNode']:
         pred = head
         assert isinstance(pred, ListNode) or pred is None
         while pred and pred.next:
