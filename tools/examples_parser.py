@@ -6,8 +6,18 @@ from typing import List, Dict, Any, Union
 
 def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
     with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    raw_cases = [case.strip() for case in content.split('\n\n') if case.strip()]
+        content = f.read().strip()
+
+    if not content:
+        return []
+
+    # ===== 关键改进：按 "输入" 分割，但保留分隔符 =====
+    # 使用正向 lookahead 拆分，保留 "输入" 开头的部分
+    import re
+    raw_blocks = re.split(r'(?=输入(?=\s*[^a-zA-Z0-9_]|$))', content)
+    # 过滤掉空块和不以"输入"开头的块
+    raw_cases = [block.strip() for block in raw_blocks if block.strip().startswith("输入")]
+
     test_cases = []
     for raw_case in raw_cases:
         lines = [line.strip() for line in raw_case.split('\n') if line.strip()]
@@ -16,19 +26,16 @@ def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
             if case_dict:
                 test_cases.append(case_dict)
         else:
+            # 元组风格（理论上不会出现在这种连续格式中，但保留兼容）
             args = []
             for line in lines:
-                # ===== 元组格式也需处理 null =====
                 processed_line = leetcode_keywords_to_python(line)
                 try:
                     args.append(ast.literal_eval(processed_line))
                 except (ValueError, SyntaxError):
                     args.append(line)
             if args:
-                if len(args) > 1:
-                    test_cases.append(tuple(args))
-                else:
-                    test_cases.append((args[0],))
+                test_cases.append(tuple(args) if len(args) > 1 else (args[0],))
     return test_cases
 
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
