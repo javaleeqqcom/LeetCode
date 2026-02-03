@@ -133,6 +133,8 @@ class SolutionRunner:
         file_name_pattern: Optional[str] = None
     ) -> Dict[str, Union[Dict, Tuple]]:
         """读取并解析测试用例文件（自动完成类型转换）"""
+# 待新增：支持 .json  （应该用 json5 非常轻松支持）
+
         from glob import glob
         if not isinstance(path_list, list):
             assert isinstance(path_list, Union[str, Path])
@@ -182,9 +184,15 @@ class SolutionRunner:
     def run(
         self,
         test_cases: Dict[str, Union[Dict, Tuple]],
-        log_suffix: Optional[str] = None
+        log_suffix: Optional[str] = None,
+        only_log_wrong = False, # 是否只记录错误结果（通常仅用于大量随机测试样例时）
+        early_stop: Optional[Union[int,float]] = None, # 当测试样例出错达到该阈值时，提前停止执行（通常仅用于大量随机测试）
+        thread = 1,             # 多进程运行（为1则用单进程，通常仅用于大量随机测试，leetcode 算法题的测试样例之间相互独立，因此可以多进程加速，并且应当选用开销小的多进程方法）
+        timeout_s: Optional[float] = 10,  # 超时时间秒（为None则不设置，因为算法题通常都有时间限制，而且设置可以避免死循环，注意多线程时每个线程独立计时，超时返回 None 且判定为错误，需要用错误码区分是那种情况）
     ) -> Dict[str, Any]:
         """执行测试用例（自动处理实例化）"""
+# 待修改！
+
         results = {}
         for key, case in test_cases.items():
             logger = None
@@ -243,3 +251,9 @@ class SolutionRunner:
                         handler.close()
                         logger.removeHandler(handler)
         return results
+    
+    def get_ask_for_cases(self, ask_file=None):
+        ……
+
+    def save_cases(self, cases: Union[function,List[Union[Tuple,Dict[str, Any]]]], file_path=None):
+        ……
