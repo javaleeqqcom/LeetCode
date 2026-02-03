@@ -21,13 +21,18 @@ LeetCode 本地自动化测试框架（Python）
   - 使用 ast.literal_eval 安全解析，支持嵌套 list/tuple/dict。
   - 学生不可修改，调试完成后设为只读。
 
+当然！以下是根据你提供的上下文和最新实现（特别是日志功能优化后）重写并完善后的 README 段落，语言更准确、结构更清晰：
+
 - tools/solution_runner.py  
-  - LeetCode 默认导入的库（如 List, Optional 等），学生一般无需修改。
-  - 将 examples_parser.py 包装成类：
-  - 类初始化需传入学生写的函数，二者选其一：
-    1. 要么传入 Solution 类的对象；
-    2. 要么传入 Solution 类的对象的执行函数。
-  - 如果学生传入的是 Solution类的对象，则需解析出其唯一的执行函数（排除如 __repr__ 等的对象函数，由leetcode默认代码模板提供的）
+  - 封装了测试用例执行与日志记录的核心逻辑，学生通常无需修改。
+  - 自动处理 LeetCode 风格的解法代码：支持传入 函数 或 Solution 类的实例（或类本身，将自动实例化）。
+    - 若传入的是 Solution 类（或其实例），会自动提取其中唯一一个非魔术方法（如 minOperations、maxApples 等），忽略 init、repr 等内置方法。
+  - 提供两个主要方法：
+    - read_test_case(path_list, file_name_pattern=None)：从文件或目录中读取并解析测试用例（支持字典或元组格式）。
+    - run(test_cases, log_suffix=None)：执行所有测试用例。
+      - 若 log_suffix 为 None（默认），则不生成日志；
+      - 若提供字符串（如 "_debug"），则为每个测试用例自动生成日志文件，命名规则为：{测试用例key}{log_suffix}.log（非法字符已转义，重复文件名自动追加序号）。
+      - 日志内容包括：完整输入、函数输出、执行耗时，以及异常时的完整 traceback；首行包含运行日期和函数名，便于追踪。
 
 - tools/custom_init.py  
   - 定义 LeetCode 常见自定义数据结构（如 ListNode, TreeNode），并提供友好的 repr 方法便于调试。  

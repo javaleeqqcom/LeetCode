@@ -1,6 +1,3 @@
-# Solution_init.py
-from base_init import *
-
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
     def __init__(self, val=0, next=None):
@@ -25,6 +22,9 @@ class TreeNode:
         self.left = left
         self.right = right
 
+    def __repr__(self) -> str:
+        # 按完全二叉树生成字符串表示，空节点用 null 占位
+
 # ====== 转换函数 ======
 def List2ListNode(lst: list) -> Optional[ListNode]:
     head = ListNode(lst[0])
@@ -35,7 +35,7 @@ def List2ListNode(lst: list) -> Optional[ListNode]:
     return head
 
 
-def List2TreeNode(level_order: List[Optional[int]]) -> Optional[TreeNode]:
+def List2TreeNode(level_order: List[Optional[数字]]) -> Optional[TreeNode]:
     if not level_order or level_order[0] is None:
         return None
     from collections import deque
@@ -54,14 +54,13 @@ def List2TreeNode(level_order: List[Optional[int]]) -> Optional[TreeNode]:
         i += 1
     return root
 
-
 # ====== 【核心】注册转换规则 ======
 # 键：(目标类型名, 输入类型签名...)
 # 值：转换函数
 input_parser_registry = {
     ("ListNode","list"): lambda args: List2ListNode(args[0]),
     # 要特别注意 TreeNode 的输入如： [1,2,null,4] 的 null 表示占位空节点，用于凑齐完全二叉树，因此其输入类型不是 List，而是应当为 str。
-    ("TreeNode","str"): lambda args: List2TreeNode(args[0]), 
+    ("TreeNode","list"): lambda args: List2TreeNode(args[0]), 
     # 可继续添加：
     # ("MyClass", int , str, List[int]): lambda args: MyClass(args[0], args[1], args[2]),
 }

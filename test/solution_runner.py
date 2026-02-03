@@ -17,7 +17,7 @@ def load_parser_registry():
         pass
 
     try:
-        from custom_init import input_parser_registry
+        from tools.custom_init import input_parser_registry
         registry.update(input_parser_registry)
     except ImportError:
         pass

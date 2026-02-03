@@ -8,8 +8,10 @@ import datetime,time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional
 try:
     from examples_parser import parse_test_cases
+    from custom_init import input_parser_registry
 except:
     from tools.examples_parser import parse_test_cases
+    from tools.custom_init import input_parser_registry
 
 def _sanitize_filename(name: str) -> str:
     """将字符串转换为安全的文件名（替换非法字符）"""
@@ -17,41 +19,19 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-
-def _get_case_logger(key: str) -> logging.Logger:
-    """为给定 key 返回一个专用的 logger，日志写入 {key}_{YYYYMMDD}.log"""
-    logger_name = f"case_logger_{key}"
-    logger = logging.getLogger(logger_name)
-
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        logger.propagate = False
-
-        # 文件名加入日期，避免不同天的测试互相覆盖
-        safe_key = _sanitize_filename(key)
-        date_str = time.strftime("%Y%m%d")
-        log_file = f"{safe_key}_{date_str}.log"
-        
-        fh = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-
-        # 关键修复：不设置 datefmt，让 formatTime 完全控制时间格式
-        formatter = logging.Formatter(fmt='%(asctime)s')
-        
-        # 自定义 formatTime：生成 HH:MM:SS.mmmmmm（微秒）
-        def format_time_with_microseconds(record, datefmt=None):
-            # 使用 record.created (浮点秒) 和 record.msecs
-            ct = time.localtime(record.created)
-            # 格式化到秒
-            s = time.strftime("%H:%M:%S", ct)
-            # 添加微秒（record.msecs 是毫秒小数部分，需 *1000）
-            microseconds = int(record.msecs * 1000)
-            return f"{s}.{microseconds:06d}"
-        
-        formatter.formatTime = format_time_with_microseconds
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-
-    return logger
+def _get_unique_log_path(base_name: str) -> str:
+    """生成不重复的日志路径，如 base.log, base.1.log, base.2.log..."""
+    if not base_name.endswith('.log'):
+        base_name += '.log'
+    if not os.path.exists(base_name):
+        return base_name
+    counter = 1
+    while counter < 1000:
+        candidate = f"{base_name.rstrip('.log')}.{counter}.log"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+    raise Exception("尝试次数过多，无法生成不重复的日志路径，请清理文件夹。")
 
 class SolutionRunner:
     def __init__(self, obj_fun: Union[Callable, object]) -> None:
@@ -83,7 +63,7 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[str, Path, List[Union[str, Path]]],
+        path_list: Union[str, os.PathLike, List[Union[str, Path]]],
         file_name_pattern: Optional[str] = None
     ) -> Dict[str, Union[Dict, Tuple]]:
         """
@@ -127,6 +107,7 @@ class SolutionRunner:
                 rel_path = str(file_path.relative_to(cwd)) if cwd in file_path.parents else str(file_path)
                 key = f"{rel_path}#{i+1}"
 
+                # （待改进，增加尝试使用 input_parser_registry 自动转换）
                 # 检查参数匹配
                 if isinstance(case, dict):
                     input_args = case.get('input', {})
@@ -147,50 +128,91 @@ class SolutionRunner:
         return test_cases_dict
 
 
-    def run(self, test_cases: Dict[str, Union[Dict, Tuple]], auto_log: bool = True) -> Dict[str, Any]:
+    def run(
+        self,
+        test_cases: Dict[str, Union[Dict, Tuple]],
+        log_suffix: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        执行所有测试用例，并可选记录日志。
+        :param test_cases: 测试用例字典
+        :param log_suffix: 日志文件名后缀（如 "_debug"），若为 None 则不记录日志
+        :return: {key: result 或 exception}
+        """
         results = {}
         for key, case in test_cases.items():
             logger = None
-            if auto_log:
-                logger = _get_case_logger(key)
+            log_file = None
+
+            if log_suffix is not None:
+                safe_key = _sanitize_filename(key)
+                log_base_name = f"{safe_key}{log_suffix}"
+                log_file = _get_unique_log_path(log_base_name)
+
+                logger_name = f"runner_logger_{abs(hash(log_file)) % (10**8)}"
+                logger = logging.getLogger(logger_name)
+                logger.setLevel(logging.INFO)
+                logger.propagate = False
+
+                # 移除旧 handlers（避免重复）
+                logger.handlers.clear()
+
+                fh = logging.FileHandler(log_file, encoding='utf-8')
+                formatter = logging.Formatter(fmt='%(asctime)s:\t%(message)s')
+
+                def format_time_with_microseconds(record, datefmt=None):
+                    # 仅输出 HH:MM:SS，微秒已通过 msecs 提供
+                    return time.strftime("%H:%M:%S", time.localtime(record.created))
+
+                formatter.formatTime = format_time_with_microseconds
+                fh.setFormatter(formatter)
+                logger.addHandler(fh)
+
+                # 首条日志：记录完整日期、函数名、日志路径
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                func_name = getattr(self.obj_fun, '__name__', 'unknown_function')
+                logger.info(f"[{today}] Running function '{func_name}' with test case key: {key}")
+                logger.info(f"Log file: {log_file}")
 
             try:
                 if isinstance(case, dict):
                     input_args = case.get('input', {})
                     if logger:
                         pretty_input = json.dumps(input_args, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n>>> INPUT\n{pretty_input}")
+                        logger.info(f">>> INPUT\n{pretty_input}")
 
-                    # 记录开始时间
                     start_time = time.perf_counter()
                     result = self.obj_fun(**input_args)
                     elapsed = time.perf_counter() - start_time
 
-                    if logger:
-                        pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
-
                 elif isinstance(case, tuple):
                     if logger:
                         pretty_input = json.dumps(list(case), indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n>>> INPUT\n{pretty_input}")
+                        logger.info(f">>> INPUT\n{pretty_input}")
 
                     start_time = time.perf_counter()
                     result = self.obj_fun(*case)
                     elapsed = time.perf_counter() - start_time
 
-                    if logger:
-                        pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-                        logger.info(f"\n<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
-
                 else:
-                    raise ValueError(f"无效的测试用例格式: {type(case)}")
+                    raise ValueError(f"Invalid test case format: {type(case)}")
 
                 results[key] = result
+
+                if logger:
+                    pretty_result = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                    logger.info(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{pretty_result}")
 
             except Exception as e:
                 results[key] = e
                 if logger:
                     logger.exception("\n!!! EXCEPTION OCCURRED:")
+
+            finally:
+                if logger:
+                    # 安全关闭 handler
+                    for handler in logger.handlers[:]:
+                        handler.close()
+                        logger.removeHandler(handler)
 
         return results

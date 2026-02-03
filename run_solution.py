@@ -5,5 +5,5 @@ from P3637 import Solution
 run = SolutionRunner(Solution)
 cases = run.read_test_case("P3637.txt")
 print(cases)
-results = run.run(cases)
+results = run.run(cases,log_suffix= "_V0")
 print(results)

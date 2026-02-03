@@ -31,7 +31,7 @@ def preload_custom_modules():
 def load_parser_registry():
     """加载 base_init 和 custom_init 中的解析器注册表"""
     registry = {}
-    import custom_init
+    import tools.custom_init as custom_init
     import base_init
     registry.update(getattr(custom_init, 'input_parser_registry', {}))
     registry.update(getattr(base_init, 'base_input_parser_registry', {}))
