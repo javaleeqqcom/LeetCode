@@ -83,16 +83,11 @@ def cases_generation(
     return test_cases
 
 # 保存测试用例，并自动运行暴力算法生成expected结果
-# 方式1: 通过函数生成测试用例
-brute.save_cases(cases_generation) #, num_test_cases=100, max_array_length=100)
 
-# 方式2: 直接提供测试用例列表
-# custom_cases = [
-#     (1, 2),
-#     (3, 0),
-#     {'input': {'a': 5, 'b': -3}}
-# ]
-# brute.save_cases(custom_cases)
+cases = cases_generation(num_test_cases= 100,max_array_length=100,seed=42)
+output = brute.run(cases,only_log_wrong=True)
+expected_results = brute.get_expected_cases(output)
+brute.save_test_cases(expected_results)
 
 print("\n🎉 暴力测试用例生成完成！现在可以使用这些用例测试优化算法了。")
 print("🔍 下一步: 创建一个新的SolutionRunner实例加载优化算法，然后使用runner.read_test_case()读取生成的JSON测试文件")

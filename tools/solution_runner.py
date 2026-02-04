@@ -183,77 +183,6 @@ class SolutionRunner:
         
         return test_cases_dict
 
-    def run(
-        self,
-        test_cases: Dict[str, Union[Dict, Tuple]],
-        log_suffix: Optional[str] = None,
-        only_log_wrong = False, # 是否只记录错误结果（通常仅用于大量随机测试样例时）
-        early_stop: Optional[Union[int,float]] = None, # 当测试样例出错达到该阈值时，提前停止执行（通常仅用于大量随机测试）
-        thread = 1,             # 多进程运行（为1则用单进程，通常仅用于大量随机测试，leetcode 算法题的测试样例之间相互独立，因此可以多进程加速，并且应当选用开销小的多进程方法）
-        timeout_s: Optional[float] = 10,  # 超时时间秒（为None则不设置，因为算法题通常都有时间限制，而且设置可以避免死循环，注意多线程时每个线程独立计时，超时返回 None 且判定为错误，需要用错误码区分是那种情况）
-    ) -> Dict[str, Any]:
-        """执行测试用例（自动处理实例化）"""
-# 待修改！
-
-        results = {}
-        for key, case in test_cases.items():
-            logger = None
-            log_file = None
-            if log_suffix is not None:
-                safe_key = _sanitize_filename(key)
-                log_base_name = f"{safe_key}{log_suffix}"
-                log_file = _get_unique_log_path(log_base_name)
-                logger_name = f"runner_logger_{abs(hash(log_file)) % (10**8)}"
-                logger = logging.getLogger(logger_name)
-                logger.setLevel(logging.INFO)
-                logger.propagate = False
-                # 移除旧 handlers（避免重复）
-                logger.handlers.clear()
-                fh = logging.FileHandler(log_file, encoding='utf-8')
-                formatter = logging.Formatter(fmt='%(asctime)s:\t%(message)s')
-                # 仅输出 HH:MM:SS，微秒已通过 msecs 提供
-                formatter.formatTime = lambda record, datefmt=None: time.strftime("%H:%M:%S", time.localtime(record.created))
-                fh.setFormatter(formatter)
-                logger.addHandler(fh)
-                today = datetime.datetime.now().strftime("%Y-%m-%d")
-                func_name = getattr(self.method, '__name__', 'unknown_function')
-                logger.info(f"[{today}] Running function '{func_name}' with test case key: {key}")
-                logger.info(f"Log file: {log_file}")
-            
-            try:
-                if isinstance(case, dict):
-                    input_args = case.get('input', {})
-                    if logger:
-                        logger.info(f">>> INPUT\n{json.dumps(input_args, indent=2, ensure_ascii=False, default=str)}")
-                    start_time = time.perf_counter()
-                    instance = self.Solution()
-                    result = self.method(instance, **input_args)
-                    elapsed = time.perf_counter() - start_time
-                elif isinstance(case, tuple):
-                    if logger:
-                        logger.info(f">>> INPUT\n{json.dumps(list(case), indent=2, ensure_ascii=False, default=str)}")
-                    start_time = time.perf_counter()
-                    instance = self.Solution()
-                    result = self.method(instance, *case)
-                    elapsed = time.perf_counter() - start_time
-                else:
-                    raise ValueError(f"Invalid test case format: {type(case)}")
-                results[key] = result
-                if logger:
-                    logger.info(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{json.dumps(result, indent=2, ensure_ascii=False, default=str)}")
-            except Exception as e:
-                results[key] = e
-                if logger:
-                    logger.exception("\n!!! EXCEPTION OCCURRED:")
-            finally:
-                if logger:
-                    # 移除并关闭所有的 handler
-                    while logger.handlers:
-                        handler = logger.handlers[0]
-                        handler.close()
-                        logger.removeHandler(handler)
-        return results
-        
     def get_ask_for_cases(self, ask_file=None):
         """生成用于生成适用于暴力算法的测试用例的token，输出到ask_file中"""
         if ask_file is None:
@@ -327,105 +256,208 @@ def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]
         print(f"✅ 已生成测试用例指引，保存到: {ask_file}")
         return token
 
-    def save_cases(self, cases_or_generator, file_path=None, *args, **kwargs):
-        """保存测试用例，自动运行暴力算法获取expected结果"""
+    def run(
+        self, 
+        test_cases: Union[List[Union[Dict, Tuple]], Dict[str, Union[Dict, Tuple]]], 
+        log_suffix: Optional[str] = None,
+        only_log_wrong = False,
+        early_stop: Optional[Union[int,float]] = None,
+        thread = 1,
+        timeout_s: Optional[float] = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        执行测试用例（自动处理实例化）
+        
+        参数:
+        test_cases: 测试用例列表或字典
+            - 如果是列表: [case1, case2, ...] 其中每个case可以是dict或tuple
+            - 如果是字典: {key: case, ...} 保持原有格式
+        
+        返回:
+        List[Dict]: 每个元素包含原始测试用例信息加上执行结果
+            - 成功: {"input": ..., "output": result, ...}
+            - 失败: {"input": ..., "error": error_msg, "traceback": traceback_str, ...}
+        """
+        # 标准化输入为列表格式
+        if isinstance(test_cases, dict):
+            # 转换字典格式为列表格式，保留原始key信息
+            standardized_cases = []
+            for key, case in test_cases.items():
+                if isinstance(case, dict):
+                    case_with_key = case.copy()
+                    case_with_key['test_case_key'] = key
+                    standardized_cases.append(case_with_key)
+                elif isinstance(case, tuple):
+                    standardized_cases.append({
+                        'input': case,
+                        'test_case_key': key
+                    })
+                else:
+                    standardized_cases.append({
+                        'input': case,
+                        'test_case_key': key
+                    })
+        elif isinstance(test_cases, list):
+            # 确保列表中的每个元素都是字典格式
+            standardized_cases = []
+            for case in test_cases:
+                if isinstance(case, dict):
+                    if 'input' not in case:
+                        # 假设整个字典就是input
+                        standardized_cases.append({'input': case})
+                    else:
+                        standardized_cases.append(case)
+                elif isinstance(case, tuple):
+                    standardized_cases.append({'input': case})
+                else:
+                    standardized_cases.append({'input': case})
+        else:
+            raise ValueError(f"Invalid test_cases format: {type(test_cases)}")
+        
+        results = []
+        error_count = 0
+        
+        for idx, case in enumerate(standardized_cases):
+            # 创建日志记录器（如果需要）
+            logger = None
+            log_file = None
+            if log_suffix is not None:
+                safe_key = _sanitize_filename(case.get('test_case_key', f'case_{idx+1}'))
+                log_base_name = f"{safe_key}{log_suffix}"
+                log_file = _get_unique_log_path(log_base_name)
+                logger_name = f"runner_logger_{abs(hash(log_file)) % (10**8)}"
+                logger = logging.getLogger(logger_name)
+                logger.setLevel(logging.INFO)
+                logger.propagate = False
+                logger.handlers.clear()
+                fh = logging.FileHandler(log_file, encoding='utf-8')
+                formatter = logging.Formatter(fmt='%(asctime)s:\t%(message)s')
+                formatter.formatTime = lambda record, datefmt=None: time.strftime("%H:%M:%S", time.localtime(record.created))
+                fh.setFormatter(formatter)
+                logger.addHandler(fh)
+                
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                func_name = getattr(self.method, '__name__', 'unknown_function')
+                logger.info(f"[{today}] Running function '{func_name}' with test case: {case.get('test_case_key', f'case_{idx+1}')}")
+
+            try:
+                # 准备输入参数
+                if isinstance(case['input'], dict):
+                    input_args = case['input']
+                    if logger:
+                        logger.info(f">>> INPUT\n{json.dumps(input_args, indent=2, ensure_ascii=False, default=str)}")
+                    start_time = time.perf_counter()
+                    instance = self.Solution()
+                    result = self.method(instance, **input_args)
+                    elapsed = time.perf_counter() - start_time
+                elif isinstance(case['input'], tuple):
+                    input_args = case['input']
+                    if logger:
+                        logger.info(f">>> INPUT\n{json.dumps(list(input_args), indent=2, ensure_ascii=False, default=str)}")
+                    start_time = time.perf_counter()
+                    instance = self.Solution()
+                    result = self.method(instance, *input_args)
+                    elapsed = time.perf_counter() - start_time
+                else:
+                    # 单个参数情况
+                    input_args = case['input']
+                    if logger:
+                        logger.info(f">>> INPUT\n{json.dumps(input_args, indent=2, ensure_ascii=False, default=str)}")
+                    start_time = time.perf_counter()
+                    instance = self.Solution()
+                    result = self.method(instance, input_args)
+                    elapsed = time.perf_counter() - start_time
+                
+                # 构建成功结果
+                result_dict = case.copy()  # 保留原始case的所有信息
+                result_dict['output'] = result
+                result_dict['elapsed'] = elapsed
+                
+                if logger:
+                    logger.info(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{json.dumps(result, indent=2, ensure_ascii=False, default=str)}")
+                    
+            except Exception as e:
+                # 构建错误结果
+                result_dict = case.copy()
+                result_dict['error'] = str(e)
+                result_dict['traceback'] = traceback.format_exc()
+                error_count += 1
+                
+                if logger:
+                    logger.exception("\n!!! EXCEPTION OCCURRED:")
+            
+            results.append(result_dict)
+            
+            # 早停机制
+            if early_stop is not None:
+                if isinstance(early_stop, int) and error_count >= early_stop:
+                    print(f"⚠️  Early stopping triggered: {error_count} errors reached threshold {early_stop}")
+                    break
+                elif isinstance(early_stop, float) and len(results) > 0:
+                    error_rate = error_count / len(results)
+                    if error_rate >= early_stop:
+                        print(f"⚠️  Early stopping triggered: error rate {error_rate:.2%} >= threshold {early_stop:.2%}")
+                        break
+        
+            # 清理日志处理器
+            if logger:
+                while logger.handlers:
+                    handler = logger.handlers[0]
+                    handler.close()
+                    logger.removeHandler(handler)
+        
+        return results
+
+    def get_expected_cases(self, run_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        从run方法的结果中过滤出成功的测试用例，并将'output'字段重命名为'expected'
+        
+        参数:
+        run_results: run方法返回的结果列表
+        
+        返回:
+        List[Dict]: 只包含成功执行的测试用例，'output'字段已重命名为'expected'
+        """
+        expected_cases = []
+        success_count = 0
+        total_count = len(run_results)
+        
+        for result in run_results:
+            if 'error' not in result:
+                # 成功的用例，重命名output为expected
+                expected_case = result.copy()
+                expected_case['expected'] = expected_case.pop('output')
+                # 移除运行时信息（可选）
+                expected_case.pop('elapsed', None)
+                expected_cases.append(expected_case)
+                success_count += 1
+            # 失败的用例被忽略
+        
+        print(f"✅ 从 {total_count} 个测试用例中筛选出 {success_count} 个有效用例")
+        return expected_cases
+
+    def save_test_cases(self, test_cases: List[Dict[str, Any]], file_path: Optional[str] = None) -> str:
+        """
+        保存测试用例到JSON文件（辅助方法）
+        
+        参数:
+            test_cases (List[Dict[str, Any]]): 测试用例列表，每个用例应为字典格式
+            file_path (Optional[str]): 保存路径。若为 None，则自动生成与 solution_file 同名的 .json 文件
+        
+        返回:
+            str: 实际保存的文件路径
+        """
         if file_path is None:
+            # 自动从 self.solution_file 生成 JSON 文件名
             base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
             file_path = f"{base_name}.json"
         
+        # 确保目标目录存在
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         
-        if callable(cases_or_generator):
-            cases = cases_or_generator(*args, **kwargs)
-            print(f"✅ 已通过生成函数创建 {len(cases)} 个测试用例")
-        else:
-            cases = cases_or_generator
-            print(f"✅ 已接收 {len(cases)} 个预定义测试用例")
-        
-        if not isinstance(cases, list):
-            raise ValueError("测试用例必须是列表类型")
-        
-        # 更可靠地获取参数信息
-        temp_instance = self.Solution()
-        bound_method = getattr(temp_instance, self.method_name)
-        sig = inspect.signature(bound_method)
-        
-        # 获取所有参数（包括self）
-        all_params = list(sig.parameters.keys())
-        # 排除self参数，获取实际需要的参数名
-        param_names = [name for name in all_params if name != 'self']
-        
-        # 调试信息：打印实际的参数信息
-        print(f"🔍 方法 '{self.method_name}' 的参数信息:")
-        print(f"   所有参数: {all_params}")
-        print(f"   实际参数: {param_names}")
-        print(f"   参数数量: {len(param_names)}")
-        
-        processed_cases = []
-        failures = 0
-        
-        for idx, case in enumerate(cases):
-            processed_case = {}
-            
-            if isinstance(case, tuple):
-                # 元组格式处理
-                if len(case) > len(param_names):
-                    print(f"⚠️  警告: 用例 #{idx+1} 参数数量({len(case)})超过方法定义({len(param_names)})")
-                    print(f"   实际参数名: {param_names}")
-                    print(f"   提供的参数: {case}")
-                    continue
-                
-                # 如果参数数量少于期望数量，也应该警告
-                if len(case) < len(param_names):
-                    print(f"⚠️  警告: 用例 #{idx+1} 参数数量({len(case)})少于方法定义({len(param_names)})")
-                    continue
-                
-                input_dict = {param_names[i]: case[i] for i in range(len(case))}
-                processed_case["input"] = input_dict
-                
-            elif isinstance(case, dict):
-                # 字典格式处理
-                if "input" in case:
-                    processed_case = case.copy()
-                else:
-                    processed_case["input"] = case
-            else:
-                print(f"⚠️  警告: 用例 #{idx+1} 格式不支持: {type(case)}，已跳过")
-                continue
-            
-            if "input" not in processed_case:
-                processed_case["input"] = {}
-            
-            # 运行暴力算法
-            try:
-                instance = self.Solution()
-                if isinstance(processed_case["input"], dict):
-                    # 验证参数
-                    try:
-                        sig.bind(**processed_case["input"])
-                    except TypeError as e:
-                        print(f"⚠️  警告: 用例 #{idx+1} 参数不匹配: {e}，已跳过")
-                        continue
-                    
-                    expected = self.method(instance, **processed_case["input"])
-                else:
-                    expected = self.method(instance, processed_case["input"])
-                processed_case["expected"] = expected
-                print(f"✅ 用例 #{idx+1} 计算成功")
-            except Exception as e:
-                failures += 1
-                processed_case["error"] = str(e)
-                processed_case["traceback"] = traceback.format_exc()
-                print(f"❌ 用例 #{idx+1} 计算失败: {str(e)}")
-            
-            processed_cases.append(processed_case)
-        
+        # 写入 JSON 文件
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(processed_cases, f, indent=2, ensure_ascii=False, default=str)
+            json.dump(test_cases, f, indent=2, ensure_ascii=False, default=str)
         
-        print(f"\n📋 测试用例生成总结:")
-        print(f"   总用例数: {len(cases)}")
-        print(f"   成功用例: {len(processed_cases) - failures}")
-        print(f"   失败用例: {failures}")
-        print(f"💾 已保存测试用例到: {file_path}")
-        return processed_cases
+        print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
+        return file_path
