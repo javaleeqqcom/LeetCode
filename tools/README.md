@@ -215,9 +215,12 @@ results = optimized.run(cases, log_suffix="_optimized")
 | **框架** | 全程透明：编码检测 → 类型注入 → 样例转换 → 执行验证 → 日志输出 |
 
 > 💬 **学生反馈**：  
-> *“终于不用在本地反复删改 ListNode 定义了！代码和 LeetCode 上完全一致，调试效率翻倍！”*  
-> *“中文注释再也不报错了，日志文件清晰展示每一步输入输出，排查 bug 超方便！”*
-
+现在出现了测试用例非法的问题：
+为了适应这种情况，需要对 SolutionRunner 的 run 和 save_cases 的架构进行优化：
+1. 撤销 save_cases 方法，让学生自行调用 cases_generation 得到 cases 代入 run 计算结果
+2. 修改 run 方法，让其以 List[case+{"output":每一个样例的返回结果} if not-error else {"error":错误信息,"traceback":错误} for case in cases] 格式输出结果
+3. 新增一个 get_expected_cases 方法，用于过滤得到无 error 的测试用例，并将其 "output" 改为 "expected"，以便用于暴力算法的标准答案验证。
+4. run的多线程和早停等，可视情况逐步实现
 ---
 
 ✨ **让本地调试体验无限接近 LeetCode 在线环境，专注算法本身，告别环境配置烦恼！** ✨

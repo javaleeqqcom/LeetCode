@@ -328,44 +328,39 @@ def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]
         return token
 
     def save_cases(self, cases_or_generator, file_path=None, *args, **kwargs):
-        """保存测试用例，自动运行暴力算法获取expected结果
-        
-        参数:
-        cases_or_generator: 可以是测试用例列表，也可以是生成测试用例的函数
-        file_path: 保存的文件路径，如果为None，则使用与solution_file同名的json文件
-        *args, **kwargs: 如果cases_or_generator是函数，这些参数将传递给该函数
-        
-        返回:
-        保存的测试用例列表（包含expected结果）
-        """
-        # 确定保存路径
+        """保存测试用例，自动运行暴力算法获取expected结果"""
         if file_path is None:
             base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
             file_path = f"{base_name}.json"
         
-        # 确保目录存在
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         
-        # 判断是函数还是测试用例列表
         if callable(cases_or_generator):
-            # 是生成函数，调用它获取测试用例
             cases = cases_or_generator(*args, **kwargs)
             print(f"✅ 已通过生成函数创建 {len(cases)} 个测试用例")
         else:
-            # 是测试用例列表
             cases = cases_or_generator
             print(f"✅ 已接收 {len(cases)} 个预定义测试用例")
         
-        # 确保cases是列表
         if not isinstance(cases, list):
             raise ValueError("测试用例必须是列表类型")
         
-        # 获取方法签名，用于验证参数
+        # 更可靠地获取参数信息
         temp_instance = self.Solution()
         bound_method = getattr(temp_instance, self.method_name)
         sig = inspect.signature(bound_method)
         
-        # 处理每个测试用例，添加expected结果
+        # 获取所有参数（包括self）
+        all_params = list(sig.parameters.keys())
+        # 排除self参数，获取实际需要的参数名
+        param_names = [name for name in all_params if name != 'self']
+        
+        # 调试信息：打印实际的参数信息
+        print(f"🔍 方法 '{self.method_name}' 的参数信息:")
+        print(f"   所有参数: {all_params}")
+        print(f"   实际参数: {param_names}")
+        print(f"   参数数量: {len(param_names)}")
+        
         processed_cases = []
         failures = 0
         
@@ -373,35 +368,39 @@ def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]
             processed_case = {}
             
             if isinstance(case, tuple):
-                # 元组格式，转换为字典格式
-                param_names = list(sig.parameters.keys())[1:]  # 跳过self参数
-                
+                # 元组格式处理
                 if len(case) > len(param_names):
                     print(f"⚠️  警告: 用例 #{idx+1} 参数数量({len(case)})超过方法定义({len(param_names)})")
+                    print(f"   实际参数名: {param_names}")
+                    print(f"   提供的参数: {case}")
+                    continue
+                
+                # 如果参数数量少于期望数量，也应该警告
+                if len(case) < len(param_names):
+                    print(f"⚠️  警告: 用例 #{idx+1} 参数数量({len(case)})少于方法定义({len(param_names)})")
                     continue
                 
                 input_dict = {param_names[i]: case[i] for i in range(len(case))}
                 processed_case["input"] = input_dict
+                
             elif isinstance(case, dict):
-                # 字典格式
+                # 字典格式处理
                 if "input" in case:
                     processed_case = case.copy()
                 else:
-                    # 假设整个字典是input
                     processed_case["input"] = case
             else:
                 print(f"⚠️  警告: 用例 #{idx+1} 格式不支持: {type(case)}，已跳过")
                 continue
             
-            # 确保有input字段
             if "input" not in processed_case:
                 processed_case["input"] = {}
             
-            # 运行暴力算法获取expected结果
+            # 运行暴力算法
             try:
                 instance = self.Solution()
                 if isinstance(processed_case["input"], dict):
-                    # 验证参数是否匹配
+                    # 验证参数
                     try:
                         sig.bind(**processed_case["input"])
                     except TypeError as e:
@@ -410,7 +409,6 @@ def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]
                     
                     expected = self.method(instance, **processed_case["input"])
                 else:
-                    # 单个参数情况
                     expected = self.method(instance, processed_case["input"])
                 processed_case["expected"] = expected
                 print(f"✅ 用例 #{idx+1} 计算成功")
@@ -422,7 +420,6 @@ def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]
             
             processed_cases.append(processed_case)
         
-        # 保存为JSON文件
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(processed_cases, f, indent=2, ensure_ascii=False, default=str)
         
