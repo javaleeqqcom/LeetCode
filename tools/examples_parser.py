@@ -13,45 +13,7 @@ from collections import defaultdict
 """
 _PARAMS = Dict[str, Any]
 _CASE_TYPE = Dict[str, Union[_PARAMS, Tuple, Any]]
-_PARAMS_CASES = List[Dict[str,Union[_PARAMS ,Any]]]
-_TUPLE_CASES = List[Dict[str,Tuple]]
 # _CASE_TYPE 是单个测试样例附加测试输出、期望输出、错误信息等附加信息的字典
-# Union[_PARAMS_CASES, _TUPLE_CASES] 包含于 List[_CASE_TYPE] （但反之则不成立）
-
-def parse_test_cases(file_path: os.PathLike , params_num = None) -> Union[_PARAMS_CASES, _TUPLE_CASES]:
-    """
-    parse_test_cases 的 Docstring
-    
-    :param file_path: 包含测试样例数据的纯文本文件
-    :type file_path: str
-    :return: 返回 _PARAMS_CASES 或 _TUPLE_CASES 这两种之一类型的测试样例列表
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read().strip()
-
-    if not content:
-        return []
-
-    # ===== 关键改进：按 "输入" 分割，但保留分隔符 =====
-    # 使用正向 lookahead 拆分，保留 "输入" 开头的部分
-    import re
-    raw_blocks = re.split(r'(?=输入(?=\s*[^a-zA-Z0-9_]|$))', content)
-    # 过滤掉空块和不以"输入"开头的块
-    raw_cases = [block.strip() for block in raw_blocks if block.strip().startswith("输入")]
-
-    test_cases = []
-    for raw_case in raw_cases:
-        lines = [line.strip() for line in raw_case.split('\n') if line.strip()]
-        if any(line == "输入" for line in lines):
-            case_dict = _parse_dict_style_case(lines)
-            if case_dict:
-                test_cases.append(case_dict)
-        elif params_num is not None:
-            # 元组风格（理论上不会出现在这种连续格式中，但保留兼容）
-            # 每 params_num 个非空行视为一个测试样例
-        else:
-            ERR
-    return test_cases
 
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
 def json_keywords_to_python(text: str) -> str:
@@ -92,8 +54,6 @@ def json_keywords_to_python(text: str) -> str:
     '''
     return re.sub(pattern, replacer, text, flags=re.VERBOSE)
 
-# ===== 原有函数保持不变，仅在解析前调用 leetcode_keywords_to_python =====
-
 _CASE_DICT = {
     "输入":"input",
     "输出":"output",
@@ -109,11 +69,62 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
             current_section = _CASE_DICT[line]
         elif line.endswith('='):  # 注意：这里仍用原始 line 判断语法结构
             param_name = line[:-1].strip()
-        else:
-            # ===== 对值行做 json → python 替换 =====
-            processed_value = json_keywords_to_python(line)
-            # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
-            case[current_section][param_name] = ast.literal_eval(processed_value)
-        i += 1
+            i += 1
+            if i < len(lines):
+                line = lines[i].strip()
+                # ===== 对值行做 json → python 替换 =====
+                processed_value = json_keywords_to_python(line)
+                # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
+                case[current_section][param_name] = ast.literal_eval(processed_value)
     return case
+
+def _parse_tuple_style_case(lines: List[str]) -> Dict[str,Tuple]:
+    case_input = []
+    for line in filter(len,map(str.strip,lines)):
+        # ===== 对值行做 json → python 替换 =====
+        processed_value = json_keywords_to_python(line.strip())
+        # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
+        case_input.append( ast.literal_eval(processed_value))
+    return {"input":tuple(case_input)}
+
+def parse_test_cases(file_path: os.PathLike , params_num = None) -> List[_CASE_TYPE]:
+    """
+    parse_test_cases 的 Docstring
+    
+    :param file_path: 包含测试样例数据的纯文本文件
+    :type file_path: str
+    :return: 返回 _PARAMS_CASES 或 _TUPLE_CASES 这两种之一类型的测试样例列表
+    """
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read().strip()
+
+    if not content:
+        return []
+
+    # ===== 关键改进：按 "输入" 分割，但保留分隔符 =====
+    # 使用正向 lookahead 拆分，保留 "输入" 开头的部分
+    import re
+    raw_blocks = re.split(r'(?=输入(?=\s*[^a-zA-Z0-9_]|$))', content)
+    # 过滤掉空块和不以"输入"开头的块
+    raw_cases = [block.strip() for block in raw_blocks if block.strip().startswith("输入")]
+
+    test_cases = []
+    if len(raw_cases) >0:
+        for raw_case in raw_cases:
+            lines = [line.strip() for line in raw_case.split('\n') if line.strip()]
+            if any(line.endswith('=') in  for line in lines):
+                case_dict = _parse_dict_style_case(lines)
+                if case_dict:
+                    test_cases.append(case_dict)
+            else: # 元组风格（此种风格仅支持输入）
+                case_tuple = _parse_tuple_style_case(lines 去掉 “输入”)
+                test_cases.append(case_tuple)
+    elif params_num is not None:
+        # 只能是元组风格
+        # 每 params_num 个非空行视为一个测试样例
+        case_tuple = _parse_tuple_style_case(lines)
+        test_cases.append(case_tuple)
+    else:
+        ERR
+    return test_cases
 
