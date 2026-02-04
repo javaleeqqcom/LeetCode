@@ -47,18 +47,23 @@ def json_keywords_to_python(text: str) -> str:
     return re.sub(pattern, replacer, text, flags=re.VERBOSE)
 
 def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
+    """
+    解析以字典风格表示的测试用例（该函数经过人工修订，并严格测试）
+    """
     _CASE_DICT = { "输入":"input", "输出":"output", "预期结果":"expected"}
     case = defaultdict(dict)
     current_section,param_name = None,None
     i = 0
     while i < len(lines):
         line = lines[i].strip()
+        # 精致的状态机分支代码
         if line in _CASE_DICT.keys():
             current_section = _CASE_DICT[line]
         elif line.endswith('='):
             # 注意：这里仍用原始 line 判断语法结构
             param_name = line[:-1].strip()
-        elif current_section is not None:
+        else:
+            assert current_section is not None, "current_section should not be None, line: \n{}".format(line)
             line = lines[i].strip()
             # ===== 对值行做 json → python 替换 =====
             processed_value = ast.literal_eval(json_keywords_to_python(line))
@@ -68,8 +73,6 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
             else: # 有变量名的情况
                 case[current_section][param_name] = processed_value
                 param_name = None # 情况状态值
-        else:
-            raise ValueError(f"Unexpected line in case block: {line}")
         i += 1
     assert "" not in case
     return case

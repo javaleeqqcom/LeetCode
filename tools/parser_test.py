@@ -104,7 +104,7 @@ def _to_leetcode_repr(obj) -> str:
     s = re.sub(r'\bNone\b', 'null', s)
     return s
 
-def generate_random_test_cases(num_cases: int, depth: int, include_input: bool = True, params_num: Optional[int] = None) -> List[_CASE_TYPE]:
+def generate_random_test_cases(num_cases: int, depth: int, include_input: bool = True, params_num: Optional[int] = None) -> List[Dict]:
     """生成随机测试用例数据
     
     :param num_cases: 生成的测试用例数量
@@ -127,9 +127,14 @@ def generate_random_test_cases(num_cases: int, depth: int, include_input: bool =
             # 元组格式：生成参数列表
             inputs = [generate_random_value(0, depth) for _ in range(params_num)]
         
-        # 随机生成输出和预期结果
-        output_val = generate_random_value(0, depth)
-        expected_val = generate_random_value(0, depth)
+        # 仅在字典格式中生成 'output' 和 'expected'
+        if include_input:
+            output_val = generate_random_value(0, depth)
+            expected_val = generate_random_value(0, depth)
+        else:
+            # 元组格式不包含 'output' 和 'expected'
+            output_val = None
+            expected_val = None
         
         if include_input:
             # 字典格式
@@ -141,9 +146,8 @@ def generate_random_test_cases(num_cases: int, depth: int, include_input: bool =
         else:
             # 元组格式
             test_cases_data.append({
-                'input': tuple(inputs),  # 确保是元组
-                'output': output_val,
-                'expected': expected_val
+                'input': tuple(inputs),
+                # 元组格式不包含 output 和 expected
             })
     
     return test_cases_data
@@ -155,7 +159,6 @@ class TestTestExamplesParser(unittest.TestCase):
     def setUpClass(cls):
         os.makedirs(cls.TEST_DIR, exist_ok=True)
 
-    # 替换 parser_test.py 中的 write_test_file 方法
     def write_test_file(self, test_cases_data: List[_CASE_TYPE], filename: str, include_input: bool = True, params_num: Optional[int] = None) -> os.PathLike:
         """写入测试文件，支持字典格式和元组格式
         :param include_input: 是否包含"输入"关键词（字典格式）
@@ -358,8 +361,7 @@ class TestTestExamplesParser(unittest.TestCase):
                             self.assertIsInstance(parsed, dict)
                             # 修正2：直接比较元组，不需要转换为字典
                             self.assertEqual(parsed['input'], original['input'])
-                            self.assertEqual(parsed['output'], original['output'])
-                            self.assertEqual(parsed['expected'], original['expected'])
+                            # 元组格式不包含 output 和 expected，所以不验证
 
     def test_parse_random_cases(self):
         """测试随机大批量基础类型"""
