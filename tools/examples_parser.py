@@ -74,10 +74,9 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
     assert "" not in case
     return case
 
-# 修正 examples_parser.py 中的 _parse_tuple_style_case 函数
 def _parse_tuple_style_case(lines: List[str], trunk_num: int) -> List[Dict[str, Tuple]]:
-    """
-    将连续参数行按 trunk_num 分组，每组生成一个测试用例
+    """将连续参数行按 trunk_num 分组，每组生成一个测试用例
+    
     :param lines: 非空行列表（每行是一个参数值）
     :param trunk_num: 每个测试用例的参数数量
     :return: 测试用例字典列表 [{"input": (p1, p2, ...)}, ...]
@@ -87,10 +86,8 @@ def _parse_tuple_style_case(lines: List[str], trunk_num: int) -> List[Dict[str, 
     
     case_params = []
     for line in filter(len, map(str.strip, lines)):
-        # ===== 对值行做 json → python 替换 =====
-        processed_value = json_keywords_to_python(line.strip())
-        # 用 ast 将字符串转换为 Python 数据结构
-        case_params.append(ast.literal_eval(processed_value))
+        processed_value = ast.literal_eval(json_keywords_to_python(line.strip()))
+        case_params.append(processed_value)
     
     # 严格分组：总参数数必须是 trunk_num 的整数倍
     if len(case_params) % trunk_num != 0:

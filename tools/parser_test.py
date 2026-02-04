@@ -104,10 +104,9 @@ def _to_leetcode_repr(obj) -> str:
     s = re.sub(r'\bNone\b', 'null', s)
     return s
 
-def generate_random_test_cases(num_cases: int, depth: int, 
-                            include_input: bool = True, 
-                            params_num: Optional[int] = None) -> List[Dict]:
+def generate_random_test_cases(num_cases: int, depth: int, include_input: bool = True, params_num: Optional[int] = None) -> List[_CASE_TYPE]:
     """生成随机测试用例数据
+    
     :param num_cases: 生成的测试用例数量
     :param depth: 嵌套深度
     :param include_input: 是否包含"输入"关键词（字典格式）
@@ -116,12 +115,17 @@ def generate_random_test_cases(num_cases: int, depth: int,
     """
     test_cases_data = []
     for _ in range(num_cases):
-        # 随机生成输入参数（1-3个）
-        num_inputs = random.randint(1, 3) if include_input else params_num
-        inputs = {}
-        for i in range(num_inputs):
-            param_name = f"param{i+1}"
-            inputs[param_name] = generate_random_value(0, depth)
+        # 随机生成输入参数
+        if include_input:
+            # 字典格式：生成参数名和值
+            num_inputs = random.randint(1, 3)
+            inputs = {}
+            for i in range(num_inputs):
+                param_name = f"param{i+1}"
+                inputs[param_name] = generate_random_value(0, depth)
+        else:
+            # 元组格式：生成参数列表
+            inputs = [generate_random_value(0, depth) for _ in range(params_num)]
         
         # 随机生成输出和预期结果
         output_val = generate_random_value(0, depth)
@@ -136,13 +140,12 @@ def generate_random_test_cases(num_cases: int, depth: int,
             })
         else:
             # 元组格式
-            # 将输入参数转换为元组
-            input_tuple = tuple(inputs.values())
             test_cases_data.append({
-                'input': input_tuple,
+                'input': tuple(inputs),  # 确保是元组
                 'output': output_val,
                 'expected': expected_val
             })
+    
     return test_cases_data
 
 class TestTestExamplesParser(unittest.TestCase):
@@ -297,67 +300,66 @@ class TestTestExamplesParser(unittest.TestCase):
                 self.assertEqual(parsed['output'], original['output'])
                 self.assertNotIn('expected', parsed)
 
-    # def test_parse_random_cases_with_format(self):
-    #     """测试随机大批量基础类型，包含字典格式和元组格式"""
-    #     # 测试不同嵌套深度
-    #     for depth in [1, 2, 3]:
-    #         with self.subTest(depth=depth):
-    #             # 生成多个测试文件
-    #             for batch in range(3):  # 3个批次
-    #                 # 生成字典格式测试用例
-    #                 dict_cases_data = generate_random_test_cases(
-    #                     num_cases=5, depth=depth, include_input=True
-    #                 )
-    #                 dict_filename = f"random_dict_depth{depth}_batch{batch}.txt"
-    #                 dict_test_file = self.write_test_file(
-    #                     dict_cases_data, dict_filename, include_input=True
-    #                 )
+    def test_parse_random_cases_with_format(self):
+        """测试随机大批量基础类型，包含字典格式和元组格式"""
+        # 测试不同嵌套深度
+        for depth in [1, 2, 3]:
+            with self.subTest(depth=depth):
+                # 生成多个测试文件
+                for batch in range(3):  # 3个批次
+                    # 生成字典格式测试用例
+                    dict_cases_data = generate_random_test_cases(
+                        num_cases=5, depth=depth, include_input=True
+                    )
+                    dict_filename = f"random_dict_depth{depth}_batch{batch}.txt"
+                    dict_test_file = self.write_test_file(
+                        dict_cases_data, dict_filename, include_input=True
+                    )
                     
-    #                 # 生成元组格式测试用例（指定参数数量）
-    #                 params_num = len(next(iter(dict_cases_data[0]['input'].values()))) if dict_cases_data else 1
-    #                 tuple_cases_data = generate_random_test_cases(
-    #                     num_cases=5, depth=depth, include_input=False, params_num=params_num
-    #                 )
-    #                 tuple_filename = f"random_tuple_depth{depth}_batch{batch}.txt"
-    #                 tuple_test_file = self.write_test_file(
-    #                     tuple_cases_data, tuple_filename, include_input=False, params_num=params_num
-    #                 )
+                    # 修正1：正确计算 params_num（参数数量，即字典的长度）
+                    params_num = len(dict_cases_data[0]['input']) if dict_cases_data else 1
                     
-    #                 # 解析字典格式测试文件
-    #                 dict_cases = parse_test_cases(dict_test_file)
-    #                 # 保存解析结果用于调试
-    #                 save_parsed_result(dict_cases, dict_test_file)
+                    # 生成元组格式测试用例（指定参数数量）
+                    tuple_cases_data = generate_random_test_cases(
+                        num_cases=5, depth=depth, include_input=False, params_num=params_num
+                    )
+                    tuple_filename = f"random_tuple_depth{depth}_batch{batch}.txt"
+                    tuple_test_file = self.write_test_file(
+                        tuple_cases_data, tuple_filename, include_input=False, params_num=params_num
+                    )
                     
-    #                 # 验证字典格式解析结果
-    #                 self.assertEqual(
-    #                     len(dict_cases), len(dict_cases_data),
-    #                     f"字典格式: File: {dict_test_file}, Expected {len(dict_cases_data)} cases but got {len(dict_cases)}"
-    #                 )
-    #                 for i, (original, parsed) in enumerate(zip(dict_cases_data, dict_cases)):
-    #                     with self.subTest(case=i, file=dict_test_file, depth=depth, batch=batch, format="dict"):
-    #                         self.assertIsInstance(parsed, dict)
-    #                         self.assertEqual(parsed['input'], original['input'])
-    #                         self.assertEqual(parsed['output'], original['output'])
-    #                         self.assertEqual(parsed['expected'], original['expected'])
+                    # 解析字典格式测试文件
+                    dict_cases = parse_test_cases(dict_test_file)
+                    # 保存解析结果用于调试
+                    save_parsed_result(dict_cases, dict_test_file)
+                    # 验证字典格式解析结果
+                    self.assertEqual(
+                        len(dict_cases), len(dict_cases_data),
+                        f"字典格式: File: {dict_test_file}, Expected {len(dict_cases_data)} cases but got {len(dict_cases)}"
+                    )
+                    for i, (original, parsed) in enumerate(zip(dict_cases_data, dict_cases)):
+                        with self.subTest(case=i, file=dict_test_file, depth=depth, batch=batch, format="dict"):
+                            self.assertIsInstance(parsed, dict)
+                            self.assertEqual(parsed['input'], original['input'])
+                            self.assertEqual(parsed['output'], original['output'])
+                            self.assertEqual(parsed['expected'], original['expected'])
                     
-    #                 # 解析元组格式测试文件
-    #                 tuple_cases = parse_test_cases(tuple_test_file, params_num=params_num)
-    #                 # 保存解析结果用于调试
-    #                 save_parsed_result(tuple_cases, tuple_test_file)
-                    
-    #                 # 验证元组格式解析结果
-    #                 self.assertEqual(
-    #                     len(tuple_cases), len(tuple_cases_data),
-    #                     f"元组格式: File: {tuple_test_file}, Expected {len(tuple_cases_data)} cases but got {len(tuple_cases)}"
-    #                 )
-    #                 for i, (original, parsed) in enumerate(zip(tuple_cases_data, tuple_cases)):
-    #                     with self.subTest(case=i, file=tuple_test_file, depth=depth, batch=batch, format="tuple"):
-    #                         self.assertIsInstance(parsed, dict)
-    #                         # 元组格式的输入是元组，需要转换为字典格式比较
-    #                         input_dict = {f"param{i+1}": val for i, val in enumerate(original['input'])}
-    #                         self.assertEqual(parsed['input'], input_dict)
-    #                         self.assertEqual(parsed['output'], original['output'])
-    #                         self.assertEqual(parsed['expected'], original['expected'])
+                    # 解析元组格式测试文件
+                    tuple_cases = parse_test_cases(tuple_test_file, params_num=params_num)
+                    # 保存解析结果用于调试
+                    save_parsed_result(tuple_cases, tuple_test_file)
+                    # 验证元组格式解析结果
+                    self.assertEqual(
+                        len(tuple_cases), len(tuple_cases_data),
+                        f"元组格式: File: {tuple_test_file}, Expected {len(tuple_cases_data)} cases but got {len(tuple_cases)}"
+                    )
+                    for i, (original, parsed) in enumerate(zip(tuple_cases_data, tuple_cases)):
+                        with self.subTest(case=i, file=tuple_test_file, depth=depth, batch=batch, format="tuple"):
+                            self.assertIsInstance(parsed, dict)
+                            # 修正2：直接比较元组，不需要转换为字典
+                            self.assertEqual(parsed['input'], original['input'])
+                            self.assertEqual(parsed['output'], original['output'])
+                            self.assertEqual(parsed['expected'], original['expected'])
 
     def test_parse_random_cases(self):
         """测试随机大批量基础类型"""
