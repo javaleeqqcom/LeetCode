@@ -46,11 +46,10 @@ def json_keywords_to_python(text: str) -> str:
                  |\b(?:null|true|false)\b # 关键字（单词边界） '''
     return re.sub(pattern, replacer, text, flags=re.VERBOSE)
 
-_CASE_DICT = { "输入":"input", "输出":"output", "预期结果":"expected"}
-
 def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
+    _CASE_DICT = { "输入":"input", "输出":"output", "预期结果":"expected"}
     case = defaultdict(dict)
-    current_section,param_name = "",""
+    current_section,param_name = None,None
     i = 0
     while i < len(lines):
         line = lines[i].strip()
@@ -59,16 +58,23 @@ def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
         elif line.endswith('='):
             # 注意：这里仍用原始 line 判断语法结构
             param_name = line[:-1].strip()
-            i += 1
-            if i < len(lines):
-                line = lines[i].strip()
-                # ===== 对值行做 json → python 替换 =====
-                processed_value = json_keywords_to_python(line)
-                # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
-                case[current_section][param_name] = ast.literal_eval(processed_value)
+        elif current_section is not None:
+            line = lines[i].strip()
+            # ===== 对值行做 json → python 替换 =====
+            processed_value = ast.literal_eval(json_keywords_to_python(line))
+            # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
+            if param_name is None: # 无变量名的情况
+                case[current_section] = processed_value
+            else: # 有变量名的情况
+                case[current_section][param_name] = processed_value
+                param_name = None # 情况状态值
+        else:
+            raise ValueError(f"Unexpected line in case block: {line}")
         i += 1
+    assert "" not in case
     return case
 
+# 修正 examples_parser.py 中的 _parse_tuple_style_case 函数
 def _parse_tuple_style_case(lines: List[str], trunk_num: int) -> List[Dict[str, Tuple]]:
     """
     将连续参数行按 trunk_num 分组，每组生成一个测试用例
@@ -81,10 +87,12 @@ def _parse_tuple_style_case(lines: List[str], trunk_num: int) -> List[Dict[str, 
     
     case_params = []
     for line in filter(len, map(str.strip, lines)):
+        # ===== 对值行做 json → python 替换 =====
         processed_value = json_keywords_to_python(line.strip())
+        # 用 ast 将字符串转换为 Python 数据结构
         case_params.append(ast.literal_eval(processed_value))
     
-    # 严格分组：总参数数必须是 trunk_num 的整数倍（LeetCode 样例保证完整性）
+    # 严格分组：总参数数必须是 trunk_num 的整数倍
     if len(case_params) % trunk_num != 0:
         raise ValueError(
             f"参数总数({len(case_params)})不是 trunk_num({trunk_num})的整数倍，"
@@ -140,7 +148,6 @@ def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -
     
     return test_cases
 
-# 在文件顶部导入区域（已有 json 导入后）添加
 class CompactLeafListEncoder(json.JSONEncoder):
     """自定义JSON编码器：外层结构缩进，但最内层纯基本类型的列表不换行"""
     def __init__(self, *args, **kwargs):
@@ -165,7 +172,6 @@ class CompactLeafListEncoder(json.JSONEncoder):
                 items.append(f"{indent_str}{key_str}: {value_str}")
             inner = ",\n".join(items)
             return "{\n" + inner + "\n" + " " * current_indent + "}"
-        
         elif isinstance(obj, list):
             if not obj:
                 return "[]"
@@ -185,7 +191,16 @@ class CompactLeafListEncoder(json.JSONEncoder):
                     items.append(indent_str + item_str)
                 inner = ",\n".join(items)
                 return "[\n" + inner + "\n" + " " * current_indent + "]"
-        
         else:
             return json.dumps(obj)
 
+# 修改末尾的全局辅助函数
+def _compact_json(obj: List[_CASE_TYPE]) -> str:
+    """智能JSON序列化：外层缩进，叶子节点紧凑"""
+    return json.dumps(
+        obj,
+        cls=CompactLeafListEncoder,
+        indent=2,
+        ensure_ascii=False,
+        default=str
+    )

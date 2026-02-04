@@ -1,0 +1,75 @@
+[
+  {
+    "input": [
+      false,
+      {
+        "key_0": null
+      }
+    ]
+  },
+  {
+    "input": [
+      [
+        {
+          "key_0": null,
+          "key_1": "Crxx",
+          "key_2": true,
+          "key_3": 91
+        },
+        {
+          "key_0": "R",
+          "key_1": "XjLpyFVpe",
+          "key_2": "EnZ"
+        },
+        null,
+        null
+      ],
+      [
+        {
+          "key_0": "fC3kJ4",
+          "key_1": "",
+          "key_2": 18
+        },
+        true,
+        "2Qi",
+        null
+      ]
+    ]
+  },
+  {
+    "input": [
+      true,
+      false
+    ]
+  },
+  {
+    "input": [
+      [
+        null,
+        []
+      ],
+      [
+        "iAIT6Yn",
+        true
+      ]
+    ]
+  },
+  {
+    "input": [
+      -48,
+      {
+        "key_0": "aiLSb",
+        "key_1": [
+          34,
+          -78,
+          37,
+          true
+        ],
+        "key_2": [
+          true
+        ],
+        "key_3": false
+      }
+    ]
+  }
+]

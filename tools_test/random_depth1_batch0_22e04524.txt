@@ -1,0 +1,65 @@
+输入
+
+param1 =
+'DHkaxJ'
+
+param2 =
+
+null
+
+param3 =
+
+null
+输出
+()
+预期结果
+{'key_0': 24}
+输入
+param1 =
+{'key_0': null, 'key_1': null, 'key_2': -34, 'key_3': -11}
+param2 =
+
+-6
+输出
+(true, 70)
+预期结果
+(19, false, null, null)
+输入
+param1 =
+
+('',)
+
+输出
+
+null
+预期结果
+
+'2E'
+输入
+param1 =
+
+45
+
+param2 =
+
+'a4'
+输出
+
+null
+
+预期结果
+
+-4
+输入
+
+param1 =
+
+-64
+param2 =
+[]
+输出
+
+[58, 's6jYv', 'tth3b', null, 87]
+
+预期结果
+true

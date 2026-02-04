@@ -1,0 +1,73 @@
+输入
+param1 =
+([[], 'p4ezdKpCg', true], {'key_0': (false, 'S4UjuySJ')})
+
+param2 =
+
+(99, [(null, false, true, -13), null], [-36, [-26, false], 'FBH7', {}, null], {'key_0': false}, -55)
+
+param3 =
+
+{}
+
+输出
+
+null
+预期结果
+
+null
+输入
+param1 =
+[false, ([false, false],), false]
+
+param2 =
+
+([-82, (false, null, 'NL')],)
+param3 =
+
+('wmVlDt', 93)
+
+输出
+'t1v'
+预期结果
+
+63
+
+输入
+
+param1 =
+
+'bvxxp'
+
+param2 =
+-87
+param3 =
+-95
+
+输出
+8
+预期结果
+
+[-28]
+输入
+param1 =
+{}
+
+输出
+
+'ju9lSf'
+预期结果
+'0xOx'
+输入
+param1 =
+
+null
+param2 =
+null
+输出
+
+false
+
+预期结果
+
+null

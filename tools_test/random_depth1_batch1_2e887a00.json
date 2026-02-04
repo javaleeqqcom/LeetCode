@@ -1,0 +1,52 @@
+[
+  {
+    "input": {
+      "param1": -17,
+      "param2": [
+        -97,
+        true,
+        false,
+        false
+      ]
+    },
+    "output": "N",
+    "expected": "nxIMZSiI"
+  },
+  {
+    "input": {
+      "param1": null
+    },
+    "output": [],
+    "expected": "WDzGR7qw7"
+  },
+  {
+    "input": {
+      "param1": -66
+    },
+    "output": true,
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": [
+        -31,
+        -50,
+        true,
+        null
+      ]
+    },
+    "output": true,
+    "expected": 91
+  },
+  {
+    "input": {
+      "param1": [
+        true
+      ],
+      "param2": null,
+      "param3": ""
+    },
+    "output": 3,
+    "expected": true
+  }
+]

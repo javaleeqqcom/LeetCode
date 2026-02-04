@@ -1,0 +1,63 @@
+输入
+
+param1 =
+
+-91
+param2 =
+'l1rQGIF'
+param3 =
+6
+输出
+[null]
+
+预期结果
+
+null
+输入
+param1 =
+
+(null, null, 'MQM9skv09a', '')
+
+输出
+'f8bjCmf'
+预期结果
+
+{}
+
+输入
+param1 =
+41
+输出
+
+('YCBOt',)
+预期结果
+true
+输入
+
+param1 =
+
+{'key_0': 'OKp', 'key_1': -100}
+
+param2 =
+
+[(), {}, {'key_0': null, 'key_1': '04', 'key_2': false, 'key_3': -31}]
+
+输出
+
+{'key_0': {}}
+
+预期结果
+
+null
+
+输入
+
+param1 =
+
+(20, {'key_0': true, 'key_1': null}, null, null, (0, null, null, -90))
+输出
+{'key_0': '930', 'key_1': 'ob'}
+
+预期结果
+
+'xdXzsV4fjo'

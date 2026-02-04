@@ -1,0 +1,60 @@
+输入
+param1 =
+()
+输出
+
+'Ugas'
+预期结果
+
+{'key_0': '', 'key_1': (), 'key_2': -26, 'key_3': 'ZM5Ar'}
+输入
+
+param1 =
+
+null
+param2 =
+
+71
+输出
+[]
+
+预期结果
+false
+
+输入
+
+param1 =
+null
+输出
+
+[{}]
+预期结果
+
+null
+
+输入
+
+param1 =
+'xAAtJ2Ifs'
+
+param2 =
+
+false
+
+输出
+((false,), -78, {'key_0': -67}, ([],))
+预期结果
+null
+输入
+
+param1 =
+[(), null, 10, 'cX1YD']
+param2 =
+[]
+输出
+
+null
+
+预期结果
+
+null

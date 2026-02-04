@@ -1,0 +1,64 @@
+输入
+
+param1 =
+
+-72
+
+输出
+('TImsmDhD', 100, 74)
+预期结果
+
+true
+
+输入
+
+param1 =
+'s7Oxkdze'
+
+param2 =
+[null, true, null, null]
+输出
+''
+
+预期结果
+
+(null, null, null)
+
+输入
+
+param1 =
+
+63
+输出
+
+null
+
+预期结果
+[]
+输入
+param1 =
+
+false
+
+param2 =
+
+null
+
+输出
+null
+
+预期结果
+
+(-88, null, 'R898')
+输入
+param1 =
+
+[false, 0]
+
+输出
+
+'Vv68Ut2'
+
+预期结果
+
+'HAlUH'

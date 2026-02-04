@@ -1,0 +1,147 @@
+[
+  {
+    "input": {
+      "param1": true,
+      "param2": {
+        "key_0": true,
+        "key_1": {
+          "key_0": "b2hyuyThh",
+          "key_1": "CCbabpR",
+          "key_2": null,
+          "key_3": [
+            true
+          ]
+        }
+      }
+    },
+    "output": [
+      [
+        {
+          "key_0": -1,
+          "key_1": false,
+          "key_2": null
+        },
+        "UfNxmU",
+        [
+          -9
+        ],
+        true,
+        50
+      ]
+    ],
+    "expected": [
+      [
+        [
+          false,
+          45
+        ],
+        -71,
+        false
+      ],
+      null,
+      "Y6jY5C8"
+    ]
+  },
+  {
+    "input": {
+      "param1": false
+    },
+    "output": 8,
+    "expected": 83
+  },
+  {
+    "input": {
+      "param1": {
+        "key_0": [
+          [
+            -43,
+            null,
+            -8,
+            "8"
+          ],
+          "Aaa",
+          [
+            "RMBHBa6qi",
+            "WW"
+          ],
+          false,
+          null
+        ],
+        "key_1": [
+          []
+        ],
+        "key_2": {
+          "key_0": null,
+          "key_1": "LRfEUxJp"
+        },
+        "key_3": {
+          "key_0": null,
+          "key_1": [
+            true,
+            false,
+            "udvAij"
+          ],
+          "key_2": -64
+        }
+      }
+    },
+    "output": [
+      [
+        [
+          ""
+        ],
+        [
+          null
+        ],
+        -51,
+        {
+          "key_0": -64,
+          "key_1": null,
+          "key_2": "ulHnyscuI9"
+        },
+        null
+      ],
+      null,
+      [
+        [
+          null,
+          -4,
+          "Dev"
+        ],
+        [],
+        {},
+        [
+          "",
+          "olmDOr6s"
+        ],
+        "C"
+      ],
+      [
+        {
+          "key_0": "wqQzc"
+        },
+        -96
+      ]
+    ],
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": null,
+      "param2": -63,
+      "param3": null
+    },
+    "output": "EtHp7s",
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": false
+    },
+    "output": true,
+    "expected": [
+      true,
+      null
+    ]
+  }
+]

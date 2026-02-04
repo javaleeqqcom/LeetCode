@@ -1,0 +1,84 @@
+[
+  {
+    "input": {
+      "param1": null,
+      "param2": 91
+    },
+    "output": null,
+    "expected": true
+  },
+  {
+    "input": {
+      "param1": ""
+    },
+    "output": null,
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": "R8UOYns",
+      "param2": [
+        null,
+        {
+          "key_0": {
+            "key_0": null,
+            "key_1": true,
+            "key_2": null
+          },
+          "key_1": [
+            60,
+            "guuFctuvs"
+          ]
+        }
+      ],
+      "param3": "XGhf"
+    },
+    "output": "CQKq9W8ord",
+    "expected": "Hlsnw"
+  },
+  {
+    "input": {
+      "param1": [],
+      "param2": 10
+    },
+    "output": [
+      [
+        [],
+        null,
+        "",
+        [
+          -7
+        ]
+      ],
+      "hTCQHJJD",
+      true,
+      "7LhLF",
+      -55
+    ],
+    "expected": "uicqACh"
+  },
+  {
+    "input": {
+      "param1": true,
+      "param2": [
+        -46,
+        "2mmOUgdD",
+        {
+          "key_0": {},
+          "key_1": [
+            null,
+            -11,
+            "McuoP23C",
+            null,
+            false
+          ]
+        },
+        []
+      ]
+    },
+    "output": true,
+    "expected": [
+      true
+    ]
+  }
+]

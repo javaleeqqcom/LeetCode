@@ -4,7 +4,7 @@ import random
 import unittest
 import hashlib
 from typing import Any, Dict, List, Tuple, Union, Optional
-from examples_parser import parse_test_cases,CompactLeafListEncoder
+from examples_parser import parse_test_cases,CompactLeafListEncoder,_CASE_TYPE
 import json
 import re
 import string
@@ -59,23 +59,25 @@ def generate_random_value(current_depth: int, max_depth: int):
         return 0  # fallback
     
 
-def save_parsed_result(parsed_cases: List, original_filename: str):
-    """将解析结果保存为JSON文件用于调试"""
+def save_parsed_result(parsed_cases: List[_CASE_TYPE], original_filename: str):
+    """将解析结果保存为JSON文件用于调试，使用CompactLeafListEncoder优化格式"""
     json_file = os.path.splitext(original_filename)[0] + '.json'
+    
     # 转换不可序列化的对象为字符串
     serializable_cases = []
     for case in parsed_cases:
         if isinstance(case, dict):
             serializable_case = {}
             for k, v in case.items():
-                if k == 'input':
-                    serializable_case[k] = {}
-                    for ik, iv in v.items():
+                if isinstance(v, dict):
+                    serializable_subdict = {}
+                    for sk, sv in v.items():
                         try:
-                            json.dumps(iv)
-                            serializable_case[k][ik] = iv
+                            json.dumps(sv)
+                            serializable_subdict[sk] = sv
                         except (TypeError, ValueError):
-                            serializable_case[k][ik] = repr(iv)
+                            serializable_subdict[sk] = repr(sv)
+                    serializable_case[k] = serializable_subdict
                 else:
                     try:
                         json.dumps(v)
@@ -83,7 +85,7 @@ def save_parsed_result(parsed_cases: List, original_filename: str):
                     except (TypeError, ValueError):
                         serializable_case[k] = repr(v)
             serializable_cases.append(serializable_case)
-        else:  # tuple or other
+        else:
             try:
                 json.dumps(case)
                 serializable_cases.append(case)
@@ -91,7 +93,7 @@ def save_parsed_result(parsed_cases: List, original_filename: str):
                 serializable_cases.append(repr(case))
     
     with open(json_file, 'w', encoding='utf-8') as f:
-        json.dump(serializable_cases, f, indent=2, ensure_ascii=False)
+        json.dump(serializable_cases, f, indent=2, ensure_ascii=False, cls=CompactLeafListEncoder)
 
 def _to_leetcode_repr(obj) -> str:
     """将 Python 对象转为 LeetCode 风格字符串（None→null, True→true, False→false）"""
@@ -150,9 +152,8 @@ class TestTestExamplesParser(unittest.TestCase):
     def setUpClass(cls):
         os.makedirs(cls.TEST_DIR, exist_ok=True)
 
-
-    def write_test_file(self, test_cases_data: List[Dict], filename: str, 
-                    include_input: bool = True, params_num: Optional[int] = None):
+    # 替换 parser_test.py 中的 write_test_file 方法
+    def write_test_file(self, test_cases_data: List[_CASE_TYPE], filename: str, include_input: bool = True, params_num: Optional[int] = None) -> os.PathLike:
         """写入测试文件，支持字典格式和元组格式
         :param include_input: 是否包含"输入"关键词（字典格式）
         :param params_num: 元组格式的参数数量
@@ -195,13 +196,14 @@ class TestTestExamplesParser(unittest.TestCase):
             f.write(content)
         return test_file
 
+    # 重写测试方法，确保正确设置测试数据
     def test_parse_boolean_and_null(self):
         """测试 LeetCode 风格的 true/false/null 被正确转换"""
         test_cases_data = [
             {
                 'input': {
                     'n': 7,
-                    'edges': [[0,1],[0,2],[1,4],[1,5],[2,3],[2,6]],
+                    'edges': [[0, 1], [0, 2], [1, 4], [1, 5], [2, 3], [2, 6]],
                     'hasApple': [False, False, True, False, True, True, False]
                 },
                 'output': 8,
@@ -213,19 +215,23 @@ class TestTestExamplesParser(unittest.TestCase):
                 'expected': True
             }
         ]
+        
         test_file = self.write_test_file(test_cases_data, "test_bool_null.txt")
         cases = parse_test_cases(test_file)
-
+        
         # 保存解析结果用于调试
         save_parsed_result(cases, test_file)
         
         # 验证解析结果
+        self.assertEqual(len(cases), 2)
+        
         case0 = cases[0]
         self.assertEqual(case0['input']['n'], 7)
+        self.assertEqual(case0['input']['edges'], [[0, 1], [0, 2], [1, 4], [1, 5], [2, 3], [2, 6]])
         self.assertEqual(case0['input']['hasApple'], [False, False, True, False, True, True, False])
         self.assertEqual(case0['output'], 8)
         self.assertIsNone(case0['expected'])
-
+        
         case1 = cases[1]
         self.assertTrue(case1['input']['flag'])
         self.assertIsNone(case1['input']['value'])
@@ -234,7 +240,6 @@ class TestTestExamplesParser(unittest.TestCase):
 
     def test_parse_dict_style_basic(self):
         """测试字典风格的基本解析"""
-        # 原始测试数据
         test_cases_data = [
             {
                 'input': {'nums': [1, 5, 2]},
@@ -255,7 +260,8 @@ class TestTestExamplesParser(unittest.TestCase):
         save_parsed_result(cases, test_file)
         
         # 验证解析结果
-        self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
+        self.assertEqual(len(cases), len(test_cases_data))
+        
         for i, (original, parsed) in enumerate(zip(test_cases_data, cases)):
             with self.subTest(case=i, file=test_file):
                 self.assertIsInstance(parsed, dict)
@@ -282,7 +288,8 @@ class TestTestExamplesParser(unittest.TestCase):
         # 保存解析结果用于调试
         save_parsed_result(cases, test_file)
         
-        self.assertEqual(len(cases), len(test_cases_data), f"File: {test_file}")
+        self.assertEqual(len(cases), len(test_cases_data))
+        
         for i, (original, parsed) in enumerate(zip(test_cases_data, cases)):
             with self.subTest(case=i, file=test_file):
                 self.assertIsInstance(parsed, dict)
@@ -352,78 +359,78 @@ class TestTestExamplesParser(unittest.TestCase):
     #                         self.assertEqual(parsed['output'], original['output'])
     #                         self.assertEqual(parsed['expected'], original['expected'])
 
-    # def test_parse_random_cases(self):
-    #     """测试随机大批量基础类型"""
-    #     # 测试不同嵌套深度
-    #     for depth in [1, 2, 3]:
-    #         with self.subTest(depth=depth):
-    #             # 生成多个测试文件
-    #             for batch in range(3):  # 3个批次
-    #                 # 创建测试用例数据
-    #                 test_cases_data = []
-    #                 for _ in range(5):  # 每个文件5个测试用例
-    #                     # 随机生成输入参数（1-3个）
-    #                     num_inputs = random.randint(1, 3)
-    #                     inputs = {}
-    #                     for i in range(num_inputs):
-    #                         param_name = f"param{i+1}"
-    #                         inputs[param_name] = generate_random_value(0, depth)
-    #                     # 随机生成输出和预期结果
-    #                     output_val = generate_random_value(0, depth)
-    #                     expected_val = generate_random_value(0, depth)
-    #                     test_cases_data.append({
-    #                         'input': inputs,
-    #                         'output': output_val,
-    #                         'expected': expected_val
-    #                     })
+    def test_parse_random_cases(self):
+        """测试随机大批量基础类型"""
+        # 测试不同嵌套深度
+        for depth in [1, 2, 3]:
+            with self.subTest(depth=depth):
+                # 生成多个测试文件
+                for batch in range(3):  # 3个批次
+                    # 创建测试用例数据
+                    test_cases_data = []
+                    for _ in range(5):  # 每个文件5个测试用例
+                        # 随机生成输入参数（1-3个）
+                        num_inputs = random.randint(1, 3)
+                        inputs = {}
+                        for i in range(num_inputs):
+                            param_name = f"param{i+1}"
+                            inputs[param_name] = generate_random_value(0, depth)
+                        # 随机生成输出和预期结果
+                        output_val = generate_random_value(0, depth)
+                        expected_val = generate_random_value(0, depth)
+                        test_cases_data.append({
+                            'input': inputs,
+                            'output': output_val,
+                            'expected': expected_val
+                        })
                     
-    #                 # 生成哈希文件名
-    #                 content_for_hash = str(test_cases_data).encode('utf-8')
-    #                 hash_obj = hashlib.md5(content_for_hash)
-    #                 filename = f"random_depth{depth}_batch{batch}_{hash_obj.hexdigest()[:8]}.txt"
+                    # 生成哈希文件名
+                    content_for_hash = str(test_cases_data).encode('utf-8')
+                    hash_obj = hashlib.md5(content_for_hash)
+                    filename = f"random_depth{depth}_batch{batch}_{hash_obj.hexdigest()[:8]}.txt"
                     
-    #                 # 写入文件并解析
-    #                 test_file = self.write_test_file(test_cases_data, filename)
-    #                 parsed_cases = parse_test_cases(test_file)
+                    # 写入文件并解析
+                    test_file = self.write_test_file(test_cases_data, filename)
+                    parsed_cases = parse_test_cases(test_file)
                     
-    #                 # 保存解析结果用于调试
-    #                 save_parsed_result(parsed_cases, test_file)
+                    # 保存解析结果用于调试
+                    save_parsed_result(parsed_cases, test_file)
                     
-    #                 # 验证解析结果
-    #                 self.assertEqual(
-    #                     len(parsed_cases), 
-    #                     len(test_cases_data),
-    #                     f"File: {test_file}, Expected {len(test_cases_data)} cases but got {len(parsed_cases)}"
-    #                 )
+                    # 验证解析结果
+                    self.assertEqual(
+                        len(parsed_cases), 
+                        len(test_cases_data),
+                        f"File: {test_file}, Expected {len(test_cases_data)} cases but got {len(parsed_cases)}"
+                    )
                     
-    #                 for i, (original, parsed) in enumerate(zip(test_cases_data, parsed_cases)):
-    #                     with self.subTest(case=i, file=test_file, depth=depth, batch=batch):
-    #                         self.assertIsInstance(parsed, dict)
-    #                         # 验证输入字典
-    #                         self.assertEqual(set(parsed['input'].keys()), set(original['input'].keys()))
-    #                         for k in original['input'].keys():
-    #                             # 对于可安全解析的类型直接比较，否则比较 repr 字符串
-    #                             orig_val = original['input'][k]
-    #                             parsed_val = parsed['input'][k]
+                    for i, (original, parsed) in enumerate(zip(test_cases_data, parsed_cases)):
+                        with self.subTest(case=i, file=test_file, depth=depth, batch=batch):
+                            self.assertIsInstance(parsed, dict)
+                            # 验证输入字典
+                            self.assertEqual(set(parsed['input'].keys()), set(original['input'].keys()))
+                            for k in original['input'].keys():
+                                # 对于可安全解析的类型直接比较，否则比较 repr 字符串
+                                orig_val = original['input'][k]
+                                parsed_val = parsed['input'][k]
                                 
-    #                             if isinstance(orig_val, (int, float, str, bool, type(None))):
-    #                                 self.assertEqual(parsed_val, orig_val)
-    #                             elif isinstance(orig_val, (list, tuple, dict)):
-    #                                 if isinstance(parsed_val, str):
-    #                                     # 如果解析失败保持字符串，比较 repr
-    #                                     self.assertEqual(parsed_val, repr(orig_val))
-    #                                 else:
-    #                                     # 如果成功解析，直接比较
-    #                                     self.assertEqual(parsed_val, orig_val)
-    #                             else:
-    #                                 # 其他类型（如 set）可能无法完美解析，比较 repr
-    #                                 if isinstance(parsed_val, str):
-    #                                     self.assertEqual(parsed_val, repr(orig_val))
+                                if isinstance(orig_val, (int, float, str, bool, type(None))):
+                                    self.assertEqual(parsed_val, orig_val)
+                                elif isinstance(orig_val, (list, tuple, dict)):
+                                    if isinstance(parsed_val, str):
+                                        # 如果解析失败保持字符串，比较 repr
+                                        self.assertEqual(parsed_val, repr(orig_val))
+                                    else:
+                                        # 如果成功解析，直接比较
+                                        self.assertEqual(parsed_val, orig_val)
+                                else:
+                                    # 其他类型（如 set）可能无法完美解析，比较 repr
+                                    if isinstance(parsed_val, str):
+                                        self.assertEqual(parsed_val, repr(orig_val))
                             
-    #                         # 验证输出 (直接比较对象)
-    #                         self.assertEqual(parsed['output'], original['output'])
-    #                         # 验证预期结果 (直接比较对象)
-    #                         self.assertEqual(parsed['expected'], original['expected'])
+                            # 验证输出 (直接比较对象)
+                            self.assertEqual(parsed['output'], original['output'])
+                            # 验证预期结果 (直接比较对象)
+                            self.assertEqual(parsed['expected'], original['expected'])
 
 if __name__ == '__main__':
     unittest.main()

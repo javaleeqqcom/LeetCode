@@ -1,0 +1,62 @@
+输入
+param1 =
+
+-17
+param2 =
+[-97, true, false, false]
+输出
+'N'
+
+预期结果
+
+'nxIMZSiI'
+输入
+
+param1 =
+
+null
+
+输出
+
+()
+
+预期结果
+'WDzGR7qw7'
+
+输入
+param1 =
+
+-66
+
+输出
+true
+
+预期结果
+
+null
+输入
+
+param1 =
+(-31, -50, true, null)
+
+输出
+true
+预期结果
+
+91
+
+输入
+
+param1 =
+(true,)
+
+param2 =
+
+null
+
+param3 =
+''
+输出
+3
+预期结果
+true

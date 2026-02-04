@@ -6,7 +6,9 @@
         5,
         2
       ]
-    }
+    },
+    "output": 0,
+    "expected": 2
   },
   {
     "input": {
@@ -18,6 +20,8 @@
         1
       ],
       "k": 3
-    }
+    },
+    "output": 1,
+    "expected": 4
   }
 ]

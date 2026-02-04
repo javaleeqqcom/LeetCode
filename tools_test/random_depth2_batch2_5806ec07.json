@@ -1,0 +1,89 @@
+[
+  {
+    "input": {
+      "param1": 78,
+      "param2": "q"
+    },
+    "output": {},
+    "expected": 66
+  },
+  {
+    "input": {
+      "param1": null,
+      "param2": null,
+      "param3": [
+        {
+          "key_0": "",
+          "key_1": null,
+          "key_2": "sS7"
+        },
+        false,
+        [
+          6,
+          "J9"
+        ],
+        false
+      ]
+    },
+    "output": 33,
+    "expected": ""
+  },
+  {
+    "input": {
+      "param1": "2xs",
+      "param2": [
+        true,
+        "3FViUtW4A",
+        [],
+        true
+      ],
+      "param3": true
+    },
+    "output": [
+      [],
+      {
+        "key_0": false,
+        "key_1": null,
+        "key_2": -16
+      },
+      [
+        14
+      ],
+      "NJ",
+      {
+        "key_0": null,
+        "key_1": true,
+        "key_2": null
+      }
+    ],
+    "expected": "ra"
+  },
+  {
+    "input": {
+      "param1": null,
+      "param2": {
+        "key_0": "Ewz6zx"
+      },
+      "param3": false
+    },
+    "output": {},
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": null,
+      "param2": null,
+      "param3": "VcReu"
+    },
+    "output": [
+      false
+    ],
+    "expected": {
+      "key_0": "2uHJV",
+      "key_1": {
+        "key_0": null,
+        "key_1": true
+      }
+    }
+  }
+]

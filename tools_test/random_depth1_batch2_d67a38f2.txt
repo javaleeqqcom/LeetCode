@@ -1,0 +1,70 @@
+输入
+
+param1 =
+null
+param2 =
+[true, -84, false, 21, false]
+
+param3 =
+null
+
+输出
+false
+预期结果
+
+['rh5O', 6]
+输入
+param1 =
+
+-69
+
+param2 =
+
+(null,)
+
+输出
+
+'jWTo9Al'
+预期结果
+
+-3
+
+输入
+
+param1 =
+
+null
+输出
+
+{}
+预期结果
+56
+输入
+
+param1 =
+
+{'key_0': null, 'key_1': 'cLC'}
+
+param2 =
+false
+param3 =
+
+{'key_0': 'S9OZsiYVO'}
+输出
+
+null
+
+预期结果
+false
+输入
+
+param1 =
+
+true
+param2 =
+
+null
+输出
+'h9iEuel'
+预期结果
+null
