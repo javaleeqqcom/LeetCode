@@ -1,10 +1,31 @@
 # tools/examples_parser.py
 import ast
-import re
+import re,os
 from typing import List, Any, Union
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Tuple
+from collections import defaultdict
+"""
+一个标准的测试样例的格式 _CASE_TYPE 可以是：
+    - 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
+    - 其中的 case 可以是：
+        - 字典 _PARAMS：其键为被测函数的变量名，其值则为变量值
+        - 元组：按被测函数的变量顺序排列的变量值
+"""
+_PARAMS = Dict[str, Any]
+_CASE_TYPE = Dict[str, Union[_PARAMS, Tuple, Any]]
+_PARAMS_CASES = List[Dict[str,Union[_PARAMS ,Any]]]
+_TUPLE_CASES = List[Dict[str,Tuple]]
+# _CASE_TYPE 是单个测试样例附加测试输出、期望输出、错误信息等附加信息的字典
+# Union[_PARAMS_CASES, _TUPLE_CASES] 包含于 List[_CASE_TYPE] （但反之则不成立）
 
-def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
+def parse_test_cases(file_path: os.PathLike , params_num = None) -> Union[_PARAMS_CASES, _TUPLE_CASES]:
+    """
+    parse_test_cases 的 Docstring
+    
+    :param file_path: 包含测试样例数据的纯文本文件
+    :type file_path: str
+    :return: 返回 _PARAMS_CASES 或 _TUPLE_CASES 这两种之一类型的测试样例列表
+    """
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read().strip()
 
@@ -25,21 +46,15 @@ def parse_test_cases(file_path: str) -> List[Union[Dict, tuple]]:
             case_dict = _parse_dict_style_case(lines)
             if case_dict:
                 test_cases.append(case_dict)
-        else:
+        elif params_num is not None:
             # 元组风格（理论上不会出现在这种连续格式中，但保留兼容）
-            args = []
-            for line in lines:
-                processed_line = leetcode_keywords_to_python(line)
-                try:
-                    args.append(ast.literal_eval(processed_line))
-                except (ValueError, SyntaxError):
-                    args.append(line)
-            if args:
-                test_cases.append(tuple(args) if len(args) > 1 else (args[0],))
+            # 每 params_num 个非空行视为一个测试样例
+        else:
+            ERR
     return test_cases
 
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
-def leetcode_keywords_to_python(text: str) -> str:
+def json_keywords_to_python(text: str) -> str:
     """
     将字符串中所有非字符串字面量的 'null', 'true', 'false'
     替换为 Python 对应的 'None', 'True', 'False'。
@@ -79,47 +94,26 @@ def leetcode_keywords_to_python(text: str) -> str:
 
 # ===== 原有函数保持不变，仅在解析前调用 leetcode_keywords_to_python =====
 
-def _parse_dict_style_case(lines: List[str]) -> Dict[str, Any]:
-    case = {'input': {}}
-    current_section = None
+_CASE_DICT = {
+    "输入":"input",
+    "输出":"output",
+    "预期结果":"expected"
+}
+def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
+    case = defaultdict(dict)
+    current_section,param_name = "",""
     i = 0
     while i < len(lines):
-        line = lines[i]
-        if line == "输入":
-            current_section = "input"
-        elif line == "输出":
-            current_section = "output"
-        elif line == "预期结果":
-            current_section = "expected"
+        line = lines[i].strip()
+        if line in _CASE_DICT.keys():
+            current_section = _CASE_DICT[line]
+        elif line.endswith('='):  # 注意：这里仍用原始 line 判断语法结构
+            param_name = line[:-1].strip()
         else:
-            # ===== 关键修改：预处理 line =====
-            processed_line = leetcode_keywords_to_python(line)
-
-            if current_section == "input":
-                if line.endswith(' ='):  # 注意：这里仍用原始 line 判断语法结构
-                    param_name = line[:-2]
-                    if i + 1 < len(lines):
-                        i += 1
-                        value_line = lines[i]
-                        # ===== 对值行也做 null → None 替换 =====
-                        processed_value = leetcode_keywords_to_python(value_line)
-                        try:
-                            case['input'][param_name] = ast.literal_eval(processed_value)
-                        except (ValueError, SyntaxError):
-                            case['input'][param_name] = value_line  # 保留原始（失败时）
-                    else:
-                        case['input'][param_name] = None
-                else:
-                    # 孤立值行（不推荐，但兼容）
-                    try:
-                        case['input'] = ast.literal_eval(processed_line)
-                    except:
-                        pass
-            elif current_section in ["output", "expected"]:
-                try:
-                    case[current_section] = ast.literal_eval(processed_line)
-                except (ValueError, SyntaxError):
-                    case[current_section] = line
+            # ===== 对值行做 json → python 替换 =====
+            processed_value = json_keywords_to_python(line)
+            # 用 ast 将字符串转换为 Python 数据结构（如果失败则自然抛出错误，由上级捕获异常）
+            case[current_section][param_name] = ast.literal_eval(processed_value)
         i += 1
     return case
 
