@@ -85,16 +85,103 @@ output:
 [2,3]
 ```
 
+## 🔥 暴力算法测试用例生成
+
+框架支持通过暴力算法生成可靠的测试用例，用于验证优化算法的正确性。
+
+### 📝 步骤1: 创建暴力解法
+
+创建`brute.py`文件，实现暴力解法（时间复杂度可能较高，但保证正确）:
+
+```python
+class Solution:
+    def yourMethod(self, param1, param2):
+        # 暴力解法实现
+        ...
+```
+
+### 🚀 步骤2: 生成测试用例
+
+创建`run_brute.py`文件:
+
+```python
+from tools.solution_runner import SolutionRunner
+
+# 初始化暴力解法运行器
+brute = SolutionRunner("brute.py")
+
+# 生成测试用例指引
+brute.get_ask_for_cases()  # 生成brute.txt文件，包含生成测试用例的指引
+
+# 定义测试用例生成函数
+def cases_generation(max_size=5, num_cases=10):
+    # 生成测试用例的逻辑
+    ...
+
+# 保存测试用例，并自动运行暴力算法生成expected结果
+brute.save_cases(cases_generation, max_size=10, num_cases=20)
+```
+
+### ✅ 步骤3: 测试优化算法
+
+创建`run_optimized.py`文件测试优化算法:
+
+```python
+from tools.solution_runner import SolutionRunner
+
+# 加载优化算法
+optimized = SolutionRunner("optimized.py")
+
+# 读取生成的测试用例
+cases = optimized.read_test_case("brute.json")  # 由brute.save_cases()生成
+
+# 运行测试
+results = optimized.run(cases, log_suffix="_optimized")
+```
+
+### 💡 为什么这种方式更好？
+
+| 问题 | 传统方案 | 本框架方案 |
+| --- | --- | --- |
+| 测试用例正确性 | 人工编写，易出错 | 由暴力算法自动生成，100%正确 |
+| 测试用例多样性 | 有限的手动测试 | 参数化生成，覆盖边界条件 |
+| 算法对比 | 需手动对比结果 | 自动对比expected与output |
+| 调试效率 | 逐个测试 | 批量验证，快速定位问题 |
+
+### 📊 测试用例格式说明
+
+暴力算法生成的测试用例保存为JSON格式，包含：
+
+```json
+[
+  {
+    "input": {"param1": value1, "param2": value2},
+    "expected": result_value,
+    // 或当出错时:
+    "error": "错误信息",
+    "traceback": "详细堆栈"
+  },
+  ...
+]
+```
+测试用例数据是一个列表`List`，其中的每个元素代表一个次调用测试函数的输入，支持两种输入格式:
+- **元组格式**: `(arg1, arg2, ...)` - 适用于参数顺序明确的情况
+- **字典格式**: `{"arg1": val1, "arg2": val2}` - 适用于参数名重要或可选参数的情况
+- **注意**: 需要在外面再包裹一层`List`（哪怕只有1次测试）才是最终的测试数据结构。 
+```
+
 ---
 
 ## 💡 为什么能完美工作？
-| 问题 | 传统方案 | 本框架方案 |
-|------|----------|------------|
-| **类型不一致** | 导致 `isinstance` 失败 | 虚拟模块注入 → **同一内存对象** |
-| **中文编码错误** | 手动指定 encoding | `charset-normalizer` 智能检测 |
-| **学生代码需修改** | 删除注释/调整导入 | **零修改**，保留 LeetCode 原生写法 |
-| **self 参数绑定** | 签名验证失败 | 使用 **绑定方法签名**（自动排除 self） |
 
+这些修改完善了框架对暴力算法测试用例的支持，使开发者可以:
+1. 自动生成测试用例指引
+2. 通过函数或直接提供方式创建测试用例
+3. 自动运行暴力算法获取正确结果
+4. 将测试用例保存为JSON格式
+5. 用这些用例验证优化算法
+
+这种设计符合框架核心价值：无需修改学生代码、自动处理编码问题、无需担心类型冲突，完全模拟LeetCode在线环境，同时增加了算法对比的能力。
 ---
 
 ## 🌈 当前进展

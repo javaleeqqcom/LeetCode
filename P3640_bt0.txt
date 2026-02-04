@@ -1,0 +1,50 @@
+假设你是算法测试专家。
+现在需要生产测试样例以测试代码。
+测试用例数据是一个列表List，其中的每个元素代表一次调用测试函数的输入，支持两种输入格式:
+- 元组格式: (arg1, arg2, ...) - 适用于参数顺序明确的情况，仅有1个参数时则选用；
+- 字典格式: {"arg1": val1, "arg2": val2} - 适用于参数名重要或可选参数的情况。
+- 注意: 需要在外面再包裹一层List（哪怕只有1次测试）才是最终的测试数据结构。 
+你需要写出 cases_generation 函数（不是直接写测试数据！），该函数返回上述格式的测试用例，模板如下：
+```python3
+def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]:
+    # 生成测试样例的代码
+    ……
+    return test_cases
+```
+被测试的程序如下，需要分析被测函数的参数和返回值类型，以及函数的功能，以及复杂度，以此计算出测试数据的输出。：
+```python3
+import numpy as np
+from typing import List, Optional
+# 已经通过测试的函数
+def isTrionic(nums: List[int]) -> bool:
+    d = np.diff(nums)
+    m = len(d)
+    print(d)
+    p = 0
+    while d[p]>0:
+        p+=1
+        if p == m:
+            return False
+    if 0==p: return False
+    q = p
+    while d[q]<0:
+        q+=1
+        if q == m:
+            return False
+    if q==p:return False
+    return all(d[q:]>0)
+class Solution:
+    def maxSumTrionic(self, nums: List[int]) -> int:
+        preSum = np.cumsum( [0] + nums )
+        n = len(nums)
+        # print(preSum)
+        res = float('-inf')
+        for l in range(n-3):
+            for r in range(l+3,n):
+                if isTrionic(nums[l:r+1]):
+                    res = max(res, preSum[r+1]-preSum[l])
+                else:
+                    break
+        return int(round(res))
+```
+    

@@ -7,8 +7,9 @@ import logging
 import json
 import datetime, time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
-import ast
+import ast,re
 import types
+import traceback
 from charset_normalizer.api import from_bytes  # 自动检测编码
 
 try:
@@ -106,6 +107,7 @@ class SolutionRunner:
         if 'Solution' not in mod.__dict__:
             raise ValueError("学生代码中未定义 Solution 类")
         self.Solution = mod.Solution
+        self.solution_file = solution_file  # 保存solution_file路径
         
         # 5. 提取方法
         methods = []
@@ -251,9 +253,182 @@ class SolutionRunner:
                         handler.close()
                         logger.removeHandler(handler)
         return results
-    
+        
     def get_ask_for_cases(self, ask_file=None):
-        ……
+        """生成用于生成适用于暴力算法的测试用例的token，输出到ask_file中"""
+        if ask_file is None:
+            # 使用与solution_file同名的txt文件
+            base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
+            ask_file = f"{base_name}.txt"
+        
+        # 生成唯一token
+        token = f"BRUTE_TOKEN_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(os.path.abspath(ask_file)), exist_ok=True)
+        
+        # 获取方法签名和参数信息
+        temp_instance = self.Solution()
+        bound_method = getattr(temp_instance, self.method_name)
+        sig = inspect.signature(bound_method)
+        param_names = list(sig.parameters.keys())[1:]  # 排除self参数
+        
+        # 尝试读取原始solution文件内容用于展示
+        try:
+            with open(self.solution_file, 'rb') as f:
+                raw = f.read()
+                result = from_bytes(raw).best()
+                brute_code = str(result) if result else raw.decode('utf-8', errors='ignore')
+                # 👇 关键修复：清理首尾空白，避免 f-string 中产生多余空行
+                brute_code = re.sub(r'[\n\s*]+\n', '\n', brute_code.strip())
+        except:
+            brute_code = "# 无法读取原始文件内容"
+        
+        # 构建参数描述
+        if param_names:
+            param_descriptions = []
+            for name in param_names:
+                param = sig.parameters[name]
+                if param.annotation != inspect.Parameter.empty:
+                    if hasattr(param.annotation, 'name'):
+                        annotation_str = param.annotation.name
+                    else:
+                        annotation_str = str(param.annotation)
+                    param_descriptions.append(f"{name}: {annotation_str}")
+                else:
+                    param_descriptions.append(f"{name}: Any")
+            parameters_info = ", ".join(param_descriptions)
+        else:
+            parameters_info = "无参数"
+        
+        # 按照指定格式生成指引内容
+        guidance_content = f"""假设你是算法测试专家。
+现在需要生产测试样例以测试代码。
+测试用例数据是一个列表List，其中的每个元素代表一次调用测试函数的输入，支持两种输入格式:
+- 元组格式: (arg1, arg2, ...) - 适用于参数顺序明确的情况，仅有1个参数时则选用；
+- 字典格式: {{"arg1": val1, "arg2": val2}} - 适用于参数名重要或可选参数的情况。
+- 注意: 需要在外面再包裹一层List（哪怕只有1次测试）才是最终的测试数据结构。 
+你需要写出 cases_generation 函数（不是直接写测试数据！），该函数返回上述格式的测试用例，模板如下：
+```python3
+def cases_generation(规模参数，随机种子等) -> List[Union[Tuple, Dict]]:
+    # 生成测试样例的代码
+    ……
+    return test_cases
+```
+被测试的程序如下，需要分析被测函数的参数和返回值类型，以及函数的功能，以及复杂度，以此计算出测试数据的输出。：
+```python3
+{brute_code}
+```"""
 
-    def save_cases(self, cases: Union[function,List[Union[Tuple,Dict[str, Any]]]], file_path=None):
-        ……
+        # 将内容写入文件
+        with open(ask_file, 'w', encoding='utf-8') as f:
+            f.write(guidance_content)
+        
+        print(f"✅ 已生成测试用例指引，保存到: {ask_file}")
+        return token
+
+    def save_cases(self, cases_or_generator, file_path=None, *args, **kwargs):
+        """保存测试用例，自动运行暴力算法获取expected结果
+        
+        参数:
+        cases_or_generator: 可以是测试用例列表，也可以是生成测试用例的函数
+        file_path: 保存的文件路径，如果为None，则使用与solution_file同名的json文件
+        *args, **kwargs: 如果cases_or_generator是函数，这些参数将传递给该函数
+        
+        返回:
+        保存的测试用例列表（包含expected结果）
+        """
+        # 确定保存路径
+        if file_path is None:
+            base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
+            file_path = f"{base_name}.json"
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        
+        # 判断是函数还是测试用例列表
+        if callable(cases_or_generator):
+            # 是生成函数，调用它获取测试用例
+            cases = cases_or_generator(*args, **kwargs)
+            print(f"✅ 已通过生成函数创建 {len(cases)} 个测试用例")
+        else:
+            # 是测试用例列表
+            cases = cases_or_generator
+            print(f"✅ 已接收 {len(cases)} 个预定义测试用例")
+        
+        # 确保cases是列表
+        if not isinstance(cases, list):
+            raise ValueError("测试用例必须是列表类型")
+        
+        # 获取方法签名，用于验证参数
+        temp_instance = self.Solution()
+        bound_method = getattr(temp_instance, self.method_name)
+        sig = inspect.signature(bound_method)
+        
+        # 处理每个测试用例，添加expected结果
+        processed_cases = []
+        failures = 0
+        
+        for idx, case in enumerate(cases):
+            processed_case = {}
+            
+            if isinstance(case, tuple):
+                # 元组格式，转换为字典格式
+                param_names = list(sig.parameters.keys())[1:]  # 跳过self参数
+                
+                if len(case) > len(param_names):
+                    print(f"⚠️  警告: 用例 #{idx+1} 参数数量({len(case)})超过方法定义({len(param_names)})")
+                    continue
+                
+                input_dict = {param_names[i]: case[i] for i in range(len(case))}
+                processed_case["input"] = input_dict
+            elif isinstance(case, dict):
+                # 字典格式
+                if "input" in case:
+                    processed_case = case.copy()
+                else:
+                    # 假设整个字典是input
+                    processed_case["input"] = case
+            else:
+                print(f"⚠️  警告: 用例 #{idx+1} 格式不支持: {type(case)}，已跳过")
+                continue
+            
+            # 确保有input字段
+            if "input" not in processed_case:
+                processed_case["input"] = {}
+            
+            # 运行暴力算法获取expected结果
+            try:
+                instance = self.Solution()
+                if isinstance(processed_case["input"], dict):
+                    # 验证参数是否匹配
+                    try:
+                        sig.bind(**processed_case["input"])
+                    except TypeError as e:
+                        print(f"⚠️  警告: 用例 #{idx+1} 参数不匹配: {e}，已跳过")
+                        continue
+                    
+                    expected = self.method(instance, **processed_case["input"])
+                else:
+                    # 单个参数情况
+                    expected = self.method(instance, processed_case["input"])
+                processed_case["expected"] = expected
+                print(f"✅ 用例 #{idx+1} 计算成功")
+            except Exception as e:
+                failures += 1
+                processed_case["error"] = str(e)
+                processed_case["traceback"] = traceback.format_exc()
+                print(f"❌ 用例 #{idx+1} 计算失败: {str(e)}")
+            
+            processed_cases.append(processed_case)
+        
+        # 保存为JSON文件
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(processed_cases, f, indent=2, ensure_ascii=False, default=str)
+        
+        print(f"\n📋 测试用例生成总结:")
+        print(f"   总用例数: {len(cases)}")
+        print(f"   成功用例: {len(processed_cases) - failures}")
+        print(f"   失败用例: {failures}")
+        print(f"💾 已保存测试用例到: {file_path}")
+        return processed_cases
