@@ -1,0 +1,87 @@
+[
+  {
+    "input": {
+      "param1": -65
+    },
+    "output": true,
+    "expected": [
+      30,
+      null,
+      null,
+      "t"
+    ]
+  },
+  {
+    "input": {
+      "param1": [
+        false,
+        "x13uf",
+        null,
+        [
+          {
+            "key_0": -89,
+            "key_1": -45,
+            "key_2": null
+          },
+          71
+        ],
+        [
+          "GX7",
+          [
+            null,
+            false,
+            -91,
+            true
+          ]
+        ]
+      ],
+      "param2": 38,
+      "param3": null
+    },
+    "output": null,
+    "expected": []
+  },
+  {
+    "input": {
+      "param1": "kdksABf"
+    },
+    "output": true,
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": false,
+      "param2": [
+        "AtO",
+        {
+          "key_0": null,
+          "key_1": {
+            "key_0": false,
+            "key_1": 97
+          },
+          "key_2": null
+        },
+        -74,
+        -69
+      ],
+      "param3": true
+    },
+    "output": [
+      [
+        null,
+        [
+          null
+        ],
+        82
+      ]
+    ],
+    "expected": []
+  },
+  {
+    "input": {
+      "param1": []
+    },
+    "output": 91,
+    "expected": true
+  }
+]

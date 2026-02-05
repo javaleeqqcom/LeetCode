@@ -1,0 +1,61 @@
+输入
+
+param1 =
+-65
+输出
+true
+
+预期结果
+
+[30, null, null, 't']
+输入
+param1 =
+
+[false, 'x13uf', null, ({'key_0': -89, 'key_1': -45, 'key_2': null}, 71), ('GX7', (null, false, -91, true))]
+param2 =
+38
+
+param3 =
+null
+输出
+null
+预期结果
+()
+
+输入
+param1 =
+
+'kdksABf'
+
+输出
+true
+预期结果
+
+null
+
+输入
+
+param1 =
+
+false
+param2 =
+
+('AtO', {'key_0': null, 'key_1': {'key_0': false, 'key_1': 97}, 'key_2': null}, -74, -69)
+param3 =
+
+true
+输出
+
+([null, (null,), 82],)
+
+预期结果
+()
+输入
+param1 =
+
+[]
+输出
+91
+
+预期结果
+true

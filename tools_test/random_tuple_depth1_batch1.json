@@ -1,42 +1,34 @@
 [
   {
     "input": [
-      [
-        false
-      ],
-      "aYhCxu"
+      96
     ]
   },
   {
     "input": [
-      false,
-      [
-        99
-      ]
+      "Rlgjvt"
     ]
   },
   {
     "input": [
-      true,
-      -90
+      {
+        "key_0": true
+      }
     ]
   },
   {
     "input": [
-      null,
-      null
+      {
+        "key_0": "A5MeRre6iQ",
+        "key_1": true,
+        "key_2": -35,
+        "key_3": null
+      }
     ]
   },
   {
     "input": [
-      false,
-      [
-        null,
-        -24,
-        false,
-        -86,
-        null
-      ]
+      true
     ]
   }
 ]

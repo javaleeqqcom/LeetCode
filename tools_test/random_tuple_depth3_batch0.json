@@ -1,59 +1,66 @@
 [
   {
     "input": [
-      56,
-      null,
-      false
+      "45P"
     ]
   },
   {
     "input": [
-      {
-        "key_0": 98,
-        "key_1": true
-      },
-      null,
       [
+        {
+          "key_0": {
+            "key_0": 97
+          }
+        },
+        {
+          "key_0": null,
+          "key_1": "M"
+        },
         [
-          96,
           [
-            -56,
-            true,
-            "5Jj",
+            "P0YkZ",
             null,
-            "Zfyij5I"
+            true
           ],
-          null,
-          true,
-          "VUHK7bYhe"
-        ]
+          [],
+          [
+            null,
+            -14,
+            -15
+          ],
+          [
+            null,
+            true,
+            88,
+            41,
+            true
+          ],
+          null
+        ],
+        {
+          "key_0": [
+            58
+          ],
+          "key_1": null
+        }
       ]
-    ]
-  },
-  {
-    "input": [
-      {
-        "key_0": "",
-        "key_1": "Krh1FtlE"
-      },
-      {},
-      true
-    ]
-  },
-  {
-    "input": [
-      null,
-      [],
-      true
     ]
   },
   {
     "input": [
       [
         null
-      ],
-      null,
-      false
+      ]
+    ]
+  },
+  {
+    "input": [
+      -18
+    ]
+  },
+  {
+    "input": [
+      null
     ]
   }
 ]

@@ -1,66 +1,59 @@
 输入
 param1 =
 
-true
-param2 =
-
-false
+'Uk1'
 输出
-true
+[]
 
 预期结果
-(true, -68, 'IGN2SFf', true)
+
+false
 输入
-
 param1 =
--47
-param2 =
+'ouu'
 
-'bc2QY'
-
-param3 =
-
-'9n8VVuj9Eu'
 输出
 null
 
 预期结果
-null
-
-输入
-param1 =
-
-[null, null, null, null, null]
-
-输出
--55
-预期结果
-'ZeM03NIe'
-输入
-param1 =
-[null, -38, true, 52]
-
-输出
-
 false
-
-预期结果
-
-{'key_0': null, 'key_1': 76, 'key_2': -83}
 输入
-
 param1 =
 
 true
 
 param2 =
-80
-param3 =
-true
+null
 
+param3 =
+
+null
 输出
 
-[false, 34, null, true]
+false
+预期结果
+
+-58
+
+输入
+param1 =
+{'key_0': null, 'key_1': 'hiJMi', 'key_2': -38, 'key_3': false}
+
+param2 =
+['hxBB', null, -33, null, '7y']
+param3 =
+[54, false, true, '']
+输出
+null
+预期结果
+[]
+
+输入
+param1 =
+(null, null, true, -93, null)
+输出
+
+''
 
 预期结果
--69
+{'key_0': true}

@@ -1,36 +1,32 @@
 [
   {
     "input": [
-      7
-    ]
-  },
-  {
-    "input": [
       {
-        "key_0": "Oa5",
-        "key_1": false,
-        "key_2": 100
+        "key_0": 57,
+        "key_1": false
       }
     ]
   },
   {
     "input": [
-      [
-        null,
-        -35
-      ]
+      93
+    ]
+  },
+  {
+    "input": [
+      {
+        "key_0": 21
+      }
+    ]
+  },
+  {
+    "input": [
+      "KK6ibX6"
     ]
   },
   {
     "input": [
       null
-    ]
-  },
-  {
-    "input": [
-      [
-        null
-      ]
     ]
   }
 ]

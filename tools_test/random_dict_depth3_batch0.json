@@ -2,85 +2,81 @@
   {
     "input": {
       "param1": [
-        true,
-        49,
-        [
-          -25
-        ]
-      ],
-      "param2": {
-        "key_0": [
-          [
-            "rj36cmx",
-            11,
-            -32,
-            null
-          ],
-          [],
-          -87,
-          []
-        ]
-      },
-      "param3": []
+        {}
+      ]
     },
-    "output": "",
+    "output": [
+      null
+    ],
+    "expected": 54
+  },
+  {
+    "input": {
+      "param1": "mX0LA"
+    },
+    "output": "npz",
     "expected": [
-      false
+      {
+        "key_0": 81,
+        "key_1": {
+          "key_0": 42,
+          "key_1": 76,
+          "key_2": null
+        },
+        "key_2": null,
+        "key_3": "4qzGSlRV23"
+      },
+      87
     ]
   },
   {
     "input": {
-      "param1": "Tc2V",
-      "param2": [
-        95,
-        "aiy9J",
-        [
-          {
-            "key_0": null,
-            "key_1": true,
-            "key_2": false
-          },
-          null,
-          -50
-        ]
-      ]
+      "param1": {}
     },
-    "output": {},
-    "expected": -83
+    "output": "",
+    "expected": "G"
   },
   {
     "input": {
-      "param1": [
-        [
+      "param1": "d"
+    },
+    "output": {
+      "key_0": null,
+      "key_1": false,
+      "key_2": {
+        "key_0": [
+          "LsnZ",
+          false,
           null,
-          null,
-          74,
-          -97
+          -18
         ],
-        "68VVc4",
-        false
-      ],
-      "param2": false,
-      "param3": -70
+        "key_1": null
+      },
+      "key_3": {
+        "key_0": true,
+        "key_1": {
+          "key_0": -27
+        },
+        "key_2": true,
+        "key_3": [
+          null,
+          null
+        ]
+      }
     },
-    "output": false,
-    "expected": ""
+    "expected": null
   },
   {
     "input": {
-      "param1": 89
+      "param1": -52,
+      "param2": "Gqo0cIv",
+      "param3": {
+        "key_0": true,
+        "key_1": 64,
+        "key_2": null
+      }
     },
-    "output": "vjAmr",
+    "output": "UI1",
     "expected": true
-  },
-  {
-    "input": {
-      "param1": [],
-      "param2": -55
-    },
-    "output": null,
-    "expected": {
-      "key_0": "hCWFF1MWeQ"
-    }
   }
 ]

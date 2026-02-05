@@ -1,67 +1,65 @@
 [
   {
     "input": {
-      "param1": true,
-      "param2": false
+      "param1": "Uk1"
     },
-    "output": true,
-    "expected": [
-      true,
-      -68,
-      "IGN2SFf",
-      true
-    ]
+    "output": [],
+    "expected": false
   },
   {
     "input": {
-      "param1": -47,
-      "param2": "bc2QY",
-      "param3": "9n8VVuj9Eu"
+      "param1": "ouu"
     },
     "output": null,
-    "expected": null
+    "expected": false
+  },
+  {
+    "input": {
+      "param1": true,
+      "param2": null,
+      "param3": null
+    },
+    "output": false,
+    "expected": -58
+  },
+  {
+    "input": {
+      "param1": {
+        "key_0": null,
+        "key_1": "hiJMi",
+        "key_2": -38,
+        "key_3": false
+      },
+      "param2": [
+        "hxBB",
+        null,
+        -33,
+        null,
+        "7y"
+      ],
+      "param3": [
+        54,
+        false,
+        true,
+        ""
+      ]
+    },
+    "output": null,
+    "expected": []
   },
   {
     "input": {
       "param1": [
         null,
         null,
-        null,
-        null,
+        true,
+        -93,
         null
       ]
     },
-    "output": -55,
-    "expected": "ZeM03NIe"
-  },
-  {
-    "input": {
-      "param1": [
-        null,
-        -38,
-        true,
-        52
-      ]
-    },
-    "output": false,
+    "output": "",
     "expected": {
-      "key_0": null,
-      "key_1": 76,
-      "key_2": -83
+      "key_0": true
     }
-  },
-  {
-    "input": {
-      "param1": true,
-      "param2": 80,
-      "param3": true
-    },
-    "output": [
-      false,
-      34,
-      null,
-      true
-    ],
-    "expected": -69
   }
 ]

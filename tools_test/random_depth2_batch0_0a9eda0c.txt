@@ -1,0 +1,63 @@
+输入
+
+param1 =
+
+true
+
+输出
+
+'1pNFFMa1'
+预期结果
+
+{'key_0': (null, false), 'key_1': 'XkAtgLQVbx'}
+
+输入
+param1 =
+false
+
+输出
+
+'yGjfpw4'
+
+预期结果
+[[], ('6zQzY58I', null, null, 60, false)]
+输入
+param1 =
+
+''
+param2 =
+[false]
+输出
+(null, -33, ('RbEu3B',))
+预期结果
+
+'DCqxAi9'
+
+输入
+
+param1 =
+false
+
+输出
+
+{'key_0': {'key_0': null, 'key_1': 72}, 'key_1': null, 'key_2': {'key_0': 'PdGpMsoXi'}}
+预期结果
+
+'lyTSK'
+输入
+param1 =
+
+null
+
+param2 =
+'6vq5aQNqGV'
+
+param3 =
+false
+
+输出
+-64
+
+预期结果
+
+'Sqqvk'

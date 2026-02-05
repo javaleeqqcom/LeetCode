@@ -1,32 +1,31 @@
 [
   {
     "input": [
-      []
-    ]
-  },
-  {
-    "input": [
-      [
-        "31P",
-        "62fLJVLV"
-      ]
-    ]
-  },
-  {
-    "input": [
       null
     ]
   },
   {
     "input": [
-      {}
+      68
+    ]
+  },
+  {
+    "input": [
+      "mbUAHoHy"
     ]
   },
   {
     "input": [
       [
-        -93
+        null,
+        -19,
+        65
       ]
+    ]
+  },
+  {
+    "input": [
+      -9
     ]
   }
 ]
