@@ -1,65 +1,69 @@
 输入
 param1 =
-'NFjfPbkdk0'
-输出
-null
 
-预期结果
-
-false
-
-输入
-
-param1 =
-null
-
-输出
-[true, [{}, 64, 'ouEdD6v21P'], null]
-
-预期结果
-[79, -45, 55, 90, 'qf2']
-
-输入
-param1 =
-
-('GXN8NXYTK', -94)
-
+(true, 49, (-25,))
 param2 =
 
-{}
-输出
-
-(-77, {'key_0': {'key_0': 'ei', 'key_1': 54, 'key_2': -98, 'key_3': -77}, 'key_1': 14, 'key_2': null, 'key_3': 0}, 58)
-预期结果
-
-false
-
-输入
-
-param1 =
+{'key_0': (['rj36cmx', 11, -32, null], [], -87, ())}
+param3 =
 ()
 
+输出
+''
+预期结果
+[false]
+
+输入
+
+param1 =
+'Tc2V'
 param2 =
-'WpSyU'
+
+(95, 'aiy9J', [{'key_0': null, 'key_1': true, 'key_2': false}, null, -50])
+
+输出
+
+{}
+
+预期结果
+-83
+
+输入
+param1 =
+[[null, null, 74, -97], '68VVc4', false]
+
+param2 =
+
+false
+
+param3 =
+
+-70
+
 输出
 false
 
 预期结果
-
-{'key_0': [('Z', -52, true, false), null, null, null], 'key_1': {'key_0': null, 'key_1': true, 'key_2': (null, true, 34, null), 'key_3': (-10, 84, 59)}, 'key_2': null, 'key_3': {'key_0': 'ai'}}
+''
 输入
 
 param1 =
 
-((true, false, 'G'), true, {}, null)
-param2 =
-{}
-param3 =
+89
+输出
+'vjAmr'
+预期结果
 
-{}
+true
+输入
+param1 =
+
+()
+param2 =
+-55
 输出
 
 null
-预期结果
 
-[['7G', (false,), 40], '8l9', false]
+预期结果
+{'key_0': 'hCWFF1MWeQ'}

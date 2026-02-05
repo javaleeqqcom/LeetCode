@@ -221,7 +221,9 @@ class SolutionRunner:
         func_name: str,
         today: str
     ) -> Tuple[_CASE_TYPE, List[str]]:
-        """执行单个测试用例（核心封装）"""
+        """执行单个测试用例（核心封装）
+        待改进：支持自定义类型的自动转换，或者修改为在读取样例时进行转换
+        """
         log_lines = []
         result_dict = case.copy()
         

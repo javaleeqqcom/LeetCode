@@ -1,8 +1,8 @@
+7
+{'key_0': 'Oa5', 'key_1': false, 'key_2': 100}
+
+(null, -35)
+
 null
 
-('pawQfMkF4e', true, null, null, -51)
-
--33
-
-true
-true
+(null,)

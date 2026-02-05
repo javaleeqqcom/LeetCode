@@ -1,16 +1,18 @@
 输入
+
 n =
 7
 edges =
 
 [[0, 1], [0, 2], [1, 4], [1, 5], [2, 3], [2, 6]]
-
 hasApple =
+
 [false, false, true, false, true, true, false]
 输出
-
 8
+
 预期结果
+
 null
 
 输入
@@ -18,6 +20,7 @@ null
 flag =
 true
 value =
+
 null
 
 输出

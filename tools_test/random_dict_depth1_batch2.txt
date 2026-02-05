@@ -1,73 +1,62 @@
 输入
-
 param1 =
-{'key_0': null, 'key_1': null}
+12
 
 输出
 
-68
+(true, -12)
 预期结果
 
-'NrIr5kk'
-
+null
 输入
 
 param1 =
 
-{}
-
-param2 =
 null
 
-输出
-49
-
-预期结果
-
-{}
-输入
-param1 =
-true
 param2 =
-null
 
-输出
-'jMtVfqxYI'
-
-预期结果
-null
-
-输入
-
-param1 =
-{'key_0': null, 'key_1': -78}
-
-param2 =
-(null, -74, true, null, null)
+(null,)
 
 param3 =
--11
+['scNJHjbuEc', true, null, true, '']
+输出
+null
+预期结果
+
+69
+输入
+
+param1 =
+
+{'key_0': 12, 'key_1': 'jS'}
 
 输出
 
-'3c'
-
+13
 预期结果
-'DWAdJWbsWy'
+(71, null)
+
+输入
+
+param1 =
+null
+
+param2 =
+86
+
+输出
+(true, 'iWK0N', -33, 'gZp1jw', null)
+预期结果
+[-90, null]
+
 输入
 param1 =
 
-false
-param2 =
-
-[null]
-
-param3 =
-
-{'key_0': null, 'key_1': true, 'key_2': 22}
+(false, true, -8)
 
 输出
+'qrQN'
 
-'K231F'
 预期结果
-'2EdZu'
+{'key_0': '', 'key_1': null}

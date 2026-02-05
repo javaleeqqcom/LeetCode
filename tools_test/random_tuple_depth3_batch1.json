@@ -1,102 +1,67 @@
 [
   {
     "input": [
-      [
-        true,
-        [
-          null,
-          -62
-        ],
-        true
-      ],
-      [
-        {
-          "key_0": [
-            "Sbwn4ogr",
-            null,
-            "h5wB",
-            95
-          ],
-          "key_1": true,
-          "key_2": {
-            "key_0": "SnY",
-            "key_1": null
-          }
-        },
-        {
-          "key_0": ""
-        },
-        null,
-        [
-          58,
-          54,
-          false,
-          59,
-          {
-            "key_0": -3
-          }
-        ],
-        "VuU"
-      ]
+      "VHW"
     ]
   },
   {
     "input": [
-      [],
-      [
-        [
-          {},
+      {
+        "key_0": "Gu",
+        "key_1": [
+          [
+            null,
+            "nDi",
+            65,
+            "ZRiV"
+          ]
+        ],
+        "key_2": [
+          -5,
+          "bd9y39Wd",
           [
             false,
-            true,
-            true,
-            "",
-            -41
+            -93,
+            73,
+            null,
+            false
           ]
         ],
+        "key_3": null
+      }
+    ]
+  },
+  {
+    "input": [
+      [
         {
-          "key_0": "UHsMw",
-          "key_1": [
-            "KmdAkUCVei",
-            null,
-            -31,
-            "h2JXOxBea"
-          ]
+          "key_0": {
+            "key_0": null,
+            "key_1": "nCc",
+            "key_2": "GZ",
+            "key_3": true
+          }
         },
-        [
-          false
-        ],
-        [
-          53,
-          [
-            "PYT27vH",
-            null,
-            null,
-            "YiIqJnEy0",
-            35
-          ],
-          null,
-          86
-        ]
+        "EF95gkPp",
+        null,
+        {
+          "key_0": -79,
+          "key_1": {
+            "key_0": 69
+          }
+        },
+        10
       ]
     ]
   },
   {
     "input": [
-      [],
-      null
+      {}
     ]
   },
   {
     "input": [
-      -15,
-      ""
-    ]
-  },
-  {
-    "input": [
-      false,
-      true
+      "XtGgQ7KcQ"
     ]
   }
 ]

@@ -1,33 +1,36 @@
 [
   {
     "input": [
+      7
+    ]
+  },
+  {
+    "input": [
+      {
+        "key_0": "Oa5",
+        "key_1": false,
+        "key_2": 100
+      }
+    ]
+  },
+  {
+    "input": [
+      [
+        null,
+        -35
+      ]
+    ]
+  },
+  {
+    "input": [
       null
     ]
   },
   {
     "input": [
       [
-        "pawQfMkF4e",
-        true,
-        null,
-        null,
-        -51
+        null
       ]
-    ]
-  },
-  {
-    "input": [
-      -33
-    ]
-  },
-  {
-    "input": [
-      true
-    ]
-  },
-  {
-    "input": [
-      true
     ]
   }
 ]

@@ -1,0 +1,60 @@
+输入
+
+param1 =
+
+'1sAWkr'
+
+param2 =
+()
+param3 =
+
+['ojxvl', null, false, 'vWrANC']
+
+输出
+{}
+
+预期结果
+
+(('', (false, -52, 28, '3xfXyHyJ', -65), -8, false, false), false)
+输入
+
+param1 =
+'K28'
+
+输出
+null
+
+预期结果
+
+[(), 'm', null, null]
+输入
+param1 =
+
+'F'
+输出
+47
+
+预期结果
+'2VBKXdJP'
+输入
+
+param1 =
+(null, [[true]], -51, null)
+
+输出
+()
+
+预期结果
+
+null
+
+输入
+param1 =
+
+false
+
+输出
+((null,), -61, (), [], [])
+
+预期结果
+{'key_0': (), 'key_1': null, 'key_2': 'Wfh', 'key_3': 34}

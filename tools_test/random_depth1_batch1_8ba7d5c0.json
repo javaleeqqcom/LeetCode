@@ -1,0 +1,58 @@
+[
+  {
+    "input": {
+      "param1": false,
+      "param2": -60,
+      "param3": true
+    },
+    "output": [
+      true
+    ],
+    "expected": [
+      84,
+      true,
+      35,
+      true
+    ]
+  },
+  {
+    "input": {
+      "param1": null
+    },
+    "output": [
+      -24,
+      -40,
+      ""
+    ],
+    "expected": ""
+  },
+  {
+    "input": {
+      "param1": true,
+      "param2": [
+        null,
+        -21,
+        null,
+        "aMaprw"
+      ],
+      "param3": false
+    },
+    "output": -30,
+    "expected": 34
+  },
+  {
+    "input": {
+      "param1": -73
+    },
+    "output": [],
+    "expected": 3
+  },
+  {
+    "input": {
+      "param1": 17,
+      "param2": true
+    },
+    "output": null,
+    "expected": true
+  }
+]

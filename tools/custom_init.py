@@ -27,6 +27,9 @@ def List2ListNode(lst: List[Any]) -> Optional[ListNode]:
         cur = cur.next
     return head
 
+# 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比
+def ListNode2List(node: Optional[ListNode]) -> List[Any]:
+    ...
 
 # Definition for a binary tree node.
 class TreeNode:
@@ -168,8 +171,9 @@ def List2TreeNode(level_order: List[Any]) -> Optional[TreeNode]:
 # ====== 【核心】注册转换规则 ======
 # 注册表：键 = (目标类型, 源类型)，值 = 转换函数
 input_parser_registry: Dict[Tuple[Any, Any], Callable] = {
-    (ListNode, list): List2ListNode,
-    (TreeNode, list): List2TreeNode,
+    (list, ListNode): List2ListNode,
+    (list, TreeNode): List2TreeNode,
+    (ListNode, list):ListNode2List,
     # 可扩展，例如：
     # (Optional[ListNode], list): lambda x: List2ListNode(x) if x else None,
 }

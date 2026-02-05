@@ -1,50 +1,42 @@
 [
   {
     "input": [
-      45,
-      {
-        "key_0": true,
-        "key_1": "NUxJ1sAGDc",
-        "key_2": false,
-        "key_3": -77
-      }
-    ]
-  },
-  {
-    "input": [
       [
         false
       ],
-      ""
+      "aYhCxu"
     ]
   },
   {
     "input": [
+      false,
       [
-        "JVdK5qp",
-        false,
-        false,
-        "AK"
-      ],
-      null
-    ]
-  },
-  {
-    "input": [
-      {
-        "key_0": -78,
-        "key_1": true
-      },
-      [
-        null,
-        false
+        99
       ]
     ]
   },
   {
     "input": [
-      73,
-      "wXaaHXh9n"
+      true,
+      -90
+    ]
+  },
+  {
+    "input": [
+      null,
+      null
+    ]
+  },
+  {
+    "input": [
+      false,
+      [
+        null,
+        -24,
+        false,
+        -86,
+        null
+      ]
     ]
   }
 ]

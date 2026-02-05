@@ -2,171 +2,207 @@
   {
     "input": {
       "param1": [
-        [],
-        {
-          "key_0": {},
-          "key_1": false
-        },
-        false,
         [
+          [
+            37,
+            -100,
+            null,
+            null
+          ],
           null,
-          "PQLSXkX"
-        ]
-      ],
-      "param2": {
-        "key_0": "yxomAfWfgT",
-        "key_1": false
-      }
+          [
+            "JMRiV",
+            null,
+            null
+          ]
+        ],
+        null,
+        {
+          "key_0": "wWZx",
+          "key_1": "M8VkR1F",
+          "key_2": "v7nyksa",
+          "key_3": "N"
+        }
+      ]
+    },
+    "output": {},
+    "expected": true
+  },
+  {
+    "input": {
+      "param1": {
+        "key_0": true,
+        "key_1": [
+          "1OGLKSQsT8",
+          null,
+          {}
+        ],
+        "key_2": []
+      },
+      "param2": "8NeHyJ"
     },
     "output": [
       null,
+      true,
+      [
+        "s1PFc",
+        [
+          "QB1SwEMNT"
+        ],
+        "jn9f66z"
+      ],
       {
-        "key_0": "b",
+        "key_0": {
+          "key_0": null,
+          "key_1": true,
+          "key_2": null,
+          "key_3": null
+        },
         "key_1": [
           null,
-          false,
-          -75,
-          "TYBu1"
-        ]
+          true,
+          "3nC",
+          -86,
+          -100
+        ],
+        "key_2": null
       },
-      {
-        "key_0": {},
-        "key_1": -54,
-        "key_2": [],
-        "key_3": 40
-      },
-      -9
+      true
     ],
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": true,
+      "param2": [
+        true,
+        [
+          34,
+          [
+            "",
+            true,
+            false,
+            null,
+            null
+          ],
+          null,
+          "pxJ9F"
+        ],
+        {
+          "key_0": 88,
+          "key_1": [
+            false,
+            21,
+            "i7tx4ajN1N"
+          ],
+          "key_2": null,
+          "key_3": [
+            false,
+            null,
+            86,
+            -31
+          ]
+        },
+        "kF",
+        [
+          -10,
+          -96,
+          [
+            true
+          ],
+          [
+            true,
+            null,
+            false,
+            "gaUX",
+            "MdyFK2"
+          ]
+        ]
+      ],
+      "param3": [
+        [
+          [
+            null,
+            "2Bt",
+            -22,
+            null
+          ],
+          "xrR5NXV",
+          -27
+        ],
+        [
+          "csETRTk"
+        ],
+        "vG",
+        99
+      ]
+    },
+    "output": "CJlzoSS",
     "expected": [
-      null,
-      "4SK"
+      {
+        "key_0": {
+          "key_0": "XZXt",
+          "key_1": -10,
+          "key_2": "7roC1vzPS"
+        },
+        "key_1": [
+          true
+        ],
+        "key_2": 55,
+        "key_3": -9
+      }
     ]
   },
   {
     "input": {
       "param1": [
-        [
-          [
-            false,
-            -24,
-            false,
-            null
-          ]
-        ],
-        false
-      ]
+        null,
+        [],
+        9
+      ],
+      "param2": 26,
+      "param3": 6
     },
-    "output": [
-      -29,
-      null,
-      "cUgafx"
-    ],
+    "output": "TmDDfYjCf",
     "expected": {
-      "key_0": null,
-      "key_1": [
-        {
-          "key_0": 73,
-          "key_1": null
-        },
-        [
-          2,
-          67,
-          false,
-          "M0bnIVy"
-        ]
-      ]
+      "key_0": 73,
+      "key_1": {}
     }
   },
   {
     "input": {
-      "param1": "LG",
-      "param2": [
-        false,
-        null
-      ]
-    },
-    "output": "",
-    "expected": null
-  },
-  {
-    "input": {
-      "param1": false,
-      "param2": false,
-      "param3": [
-        "8xPYoJVr",
-        {
+      "param1": null,
+      "param2": {
+        "key_0": {
           "key_0": [
-            null,
-            null
+            ""
           ],
-          "key_1": {
-            "key_0": true,
-            "key_1": false,
-            "key_2": false,
-            "key_3": -42
-          },
-          "key_2": "UPmC6Qx",
-          "key_3": "KhsUE8wD"
-        },
-        [
-          true,
-          null,
-          true,
-          36
-        ],
-        [
-          [
-            false
-          ]
-        ],
-        {
-          "key_0": "Vx",
-          "key_1": null,
-          "key_2": -95,
-          "key_3": [
-            36,
-            -10,
-            40,
-            75
-          ]
+          "key_1": null
         }
-      ]
+      },
+      "param3": {}
     },
-    "output": null,
-    "expected": "GfSi8DYash"
-  },
-  {
-    "input": {
-      "param1": [
-        -58,
+    "output": -85,
+    "expected": {
+      "key_0": [
+        "p049zzB",
+        -34,
         [
-          {
-            "key_0": true,
-            "key_1": -78,
-            "key_2": null,
-            "key_3": -52
-          },
-          [
-            8,
-            null
-          ],
-          [
-            "xXWGa",
-            -12
-          ]
+          null,
+          false,
+          null
         ],
-        false
-      ],
-      "param2": true,
-      "param3": [
-        {},
-        true,
-        28
+        [
+          18,
+          null,
+          -12,
+          "IzbPq"
+        ],
+        [
+          true,
+          null
+        ]
       ]
-    },
-    "output": [
-      true
-    ],
-    "expected": false
+    }
   }
 ]

@@ -17,6 +17,78 @@ _CASE_TYPE = Dict[str, Union[_PARAMS, Tuple, Any]]
 
 # _CASE_TYPE 是单个测试样例附加测试输出、期望输出、错误信息等附加信息的字典
 
+
+class CompactLeafListEncoder(json.JSONEncoder):
+    """
+    JSON编码器：外层结构保持缩进，但所有纯基本类型的叶子列表（含None）强制单行输出
+    - 无长度限制：超长列表也合并为单行（依赖编辑器自动换行）
+    - 无字符串截断：完整保留原始内容
+    - 精确判断：仅当列表所有元素均为 (int/float/str/bool/None) 时视为叶子列表
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._indent = kwargs.get('indent', None)
+    
+    def default(self, o):
+        # 用于验证 CompactLeafListEncoder 是否被正确调用
+        raise SyntaxError("CompactLeafListEncoder.default() is working!")
+        return super().default(o)
+
+    # def encode(self, obj):
+    #     # 用于验证 CompactLeafListEncoder 完全没有正常工作
+    #     raise SyntaxError("Is you seed the error, means that CompactLeafListEncoder is working.")
+    #     return "" 
+    #     if self._indent is None:
+    #         return super().encode(obj)
+    #     return self._custom_encode(obj, current_indent=0)
+
+    # def _custom_encode(self, obj, current_indent: int) -> str:
+    #     if isinstance(obj, dict):
+    #         if not obj:
+    #             return "{}"
+    #         indent_str = " " * (current_indent + self._indent)
+    #         items = [
+    #             f'{indent_str}{json.dumps(k)}: {self._custom_encode(v, current_indent + self._indent)}'
+    #             for k, v in obj.items()
+    #         ]
+    #         return "{\n" + ",\n".join(items) + "\n" + " " * current_indent + "}"
+        
+    #     elif isinstance(obj, list):
+    #         if not obj:
+    #             return "[]"
+            
+    #         # 精确判断：所有元素必须是基础类型或None
+    #         is_leaf_list = all(
+    #             isinstance(item, (int, float, str, bool)) or item is None
+    #             for item in obj
+    #         )
+            
+    #         if is_leaf_list:
+    #             # 核心优化：无条件单行输出（无论10个还是10000个元素）
+    #             return "[" + ", ".join(json.dumps(item) for item in obj) + "]"
+    #         else:
+    #             # 非叶子列表：保持标准缩进格式
+    #             indent_str = " " * (current_indent + self._indent)
+    #             items = [
+    #                 indent_str + self._custom_encode(item, current_indent + self._indent)
+    #                 for item in obj
+    #             ]
+    #             return "[\n" + ",\n".join(items) + "\n" + " " * current_indent + "]"
+        
+    #     else:
+    #         return json.dumps(obj)
+
+# 修改末尾的全局辅助函数
+def _compact_json(obj: List[_CASE_TYPE]) -> str:
+    """智能JSON序列化：外层缩进，叶子节点紧凑"""
+    return json.dumps(
+        obj,
+        cls=CompactLeafListEncoder,
+        indent=2,
+        ensure_ascii=False,
+        default=str
+    )
+
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
 def json_keywords_to_python(text: str) -> str:
     """ 将字符串中所有非字符串字面量的 'null', 'true', 'false' 替换为 Python 对应的 'None', 'True', 'False'。
@@ -147,61 +219,3 @@ def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -
             test_cases.extend(case_tuples)
     
     return test_cases
-
-# 该函数未能达到智能换行缩进的功能，以后再完善
-class CompactLeafListEncoder(json.JSONEncoder):
-    """自定义JSON编码器：外层结构缩进，但最内层纯基本类型的列表不换行"""
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._indent = kwargs.get('indent', None)
-    
-    def encode(self, obj):
-        if not self._indent:
-            return super().encode(obj)
-        return self._custom_encode(obj, current_indent=0)
-    
-    def _custom_encode(self, obj, current_indent: int) -> str:
-        if isinstance(obj, dict):
-            if not obj:
-                return "{}"
-            items = []
-            indent_str = " " * (current_indent + self._indent)
-            next_indent = current_indent + self._indent
-            for key, value in obj.items():
-                key_str = json.dumps(key)
-                value_str = self._custom_encode(value, next_indent)
-                items.append(f"{indent_str}{key_str}: {value_str}")
-            inner = ",\n".join(items)
-            return "{\n" + inner + "\n" + " " * current_indent + "}"
-        elif isinstance(obj, list):
-            if not obj:
-                return "[]"
-            is_leaf_list = all(
-                isinstance(item, (int, float, str, bool)) or item is None
-                for item in obj
-            )
-            if is_leaf_list:
-                items = [json.dumps(item) for item in obj]
-                return "[" + ", ".join(items) + "]"
-            else:
-                items = []
-                indent_str = " " * (current_indent + self._indent)
-                next_indent = current_indent + self._indent
-                for item in obj:
-                    item_str = self._custom_encode(item, next_indent)
-                    items.append(indent_str + item_str)
-                inner = ",\n".join(items)
-                return "[\n" + inner + "\n" + " " * current_indent + "]"
-        else:
-            return json.dumps(obj)
-
-# 修改末尾的全局辅助函数
-def _compact_json(obj: List[_CASE_TYPE]) -> str:
-    """智能JSON序列化：外层缩进，叶子节点紧凑"""
-    return json.dumps(
-        obj,
-        cls=CompactLeafListEncoder,
-        indent=2,
-        ensure_ascii=False,
-        default=str
-    )

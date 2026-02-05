@@ -1,35 +1,59 @@
 [
   {
     "input": [
-      6
+      56,
+      null,
+      false
     ]
   },
   {
     "input": [
-      ""
-    ]
-  },
-  {
-    "input": [
+      {
+        "key_0": 98,
+        "key_1": true
+      },
+      null,
       [
         [
-          true
-        ],
-        [],
-        -62
+          96,
+          [
+            -56,
+            true,
+            "5Jj",
+            null,
+            "Zfyij5I"
+          ],
+          null,
+          true,
+          "VUHK7bYhe"
+        ]
       ]
+    ]
+  },
+  {
+    "input": [
+      {
+        "key_0": "",
+        "key_1": "Krh1FtlE"
+      },
+      {},
+      true
+    ]
+  },
+  {
+    "input": [
+      null,
+      [],
+      true
     ]
   },
   {
     "input": [
       [
-        true
-      ]
-    ]
-  },
-  {
-    "input": [
-      {}
+        null
+      ],
+      null,
+      false
     ]
   }
 ]

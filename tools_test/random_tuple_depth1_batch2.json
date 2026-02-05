@@ -1,30 +1,31 @@
 [
   {
     "input": [
-      true
-    ]
-  },
-  {
-    "input": [
-      -95
-    ]
-  },
-  {
-    "input": [
-      null
-    ]
-  },
-  {
-    "input": [
-      null
+      []
     ]
   },
   {
     "input": [
       [
-        true,
-        "fW5EdDaNLw",
-        "rWnYelHYDm"
+        "31P",
+        "62fLJVLV"
+      ]
+    ]
+  },
+  {
+    "input": [
+      null
+    ]
+  },
+  {
+    "input": [
+      {}
+    ]
+  },
+  {
+    "input": [
+      [
+        -93
       ]
     ]
   }

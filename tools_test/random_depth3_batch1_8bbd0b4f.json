@@ -1,0 +1,86 @@
+[
+  {
+    "input": {
+      "param1": "1sAWkr",
+      "param2": [],
+      "param3": [
+        "ojxvl",
+        null,
+        false,
+        "vWrANC"
+      ]
+    },
+    "output": {},
+    "expected": [
+      [
+        "",
+        [
+          false,
+          -52,
+          28,
+          "3xfXyHyJ",
+          -65
+        ],
+        -8,
+        false,
+        false
+      ],
+      false
+    ]
+  },
+  {
+    "input": {
+      "param1": "K28"
+    },
+    "output": null,
+    "expected": [
+      [],
+      "m",
+      null,
+      null
+    ]
+  },
+  {
+    "input": {
+      "param1": "F"
+    },
+    "output": 47,
+    "expected": "2VBKXdJP"
+  },
+  {
+    "input": {
+      "param1": [
+        null,
+        [
+          [
+            true
+          ]
+        ],
+        -51,
+        null
+      ]
+    },
+    "output": [],
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": false
+    },
+    "output": [
+      [
+        null
+      ],
+      -61,
+      [],
+      [],
+      []
+    ],
+    "expected": {
+      "key_0": [],
+      "key_1": null,
+      "key_2": "Wfh",
+      "key_3": 34
+    }
+  }
+]

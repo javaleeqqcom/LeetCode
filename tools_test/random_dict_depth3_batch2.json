@@ -1,107 +1,66 @@
 [
   {
     "input": {
-      "param1": {},
-      "param2": false,
-      "param3": "Fele"
+      "param1": "6HU"
     },
-    "output": false,
-    "expected": [
-      [
-        true,
+    "output": null,
+    "expected": {
+      "key_0": [
+        -3,
         null,
-        [
-          "K"
-        ],
-        []
-      ],
-      "SP",
-      67,
-      [
-        true,
-        [
-          true
-        ],
-        -69,
-        null,
+        "AWM",
         null
-      ],
-      "P4rjmc4n"
-    ]
+      ]
+    }
+  },
+  {
+    "input": {
+      "param1": true
+    },
+    "output": {
+      "key_0": null,
+      "key_1": [
+        98,
+        null,
+        [
+          null,
+          "eADqVi",
+          97
+        ]
+      ]
+    },
+    "expected": false
   },
   {
     "input": {
       "param1": "",
-      "param2": true
+      "param2": []
     },
-    "output": false,
+    "output": {
+      "key_0": null
+    },
     "expected": [
-      [
-        {
-          "key_0": "S0t",
-          "key_1": true,
-          "key_2": "Bz",
-          "key_3": false
-        },
-        [
-          "D",
-          -18,
-          null
-        ],
-        32,
-        true
-      ],
-      [
-        false
-      ],
-      [
-        30
-      ],
-      [
-        {},
-        true,
-        79,
-        {
-          "key_0": true,
-          "key_1": true,
-          "key_2": false
-        }
-      ],
-      [
-        "Me"
-      ]
+      -11,
+      true,
+      false
     ]
   },
   {
     "input": {
-      "param1": "x8Cm7gm3QN"
+      "param1": "YPYwE"
     },
-    "output": "E7JAo",
-    "expected": []
+    "output": 14,
+    "expected": [
+      true
+    ]
   },
   {
     "input": {
-      "param1": [
-        89,
-        {
-          "key_0": 71
-        },
-        {
-          "key_0": "ZQ4LQa"
-        },
-        null
-      ],
-      "param2": null,
-      "param3": null
+      "param1": {},
+      "param2": true,
+      "param3": []
     },
-    "output": false,
-    "expected": 86
-  },
-  {
-    "input": {
-      "param1": null
-    },
-    "output": false,
-    "expected": null
+    "output": [],
+    "expected": false
   }
 ]

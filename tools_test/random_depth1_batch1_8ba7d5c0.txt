@@ -1,0 +1,68 @@
+输入
+param1 =
+false
+
+param2 =
+
+-60
+param3 =
+
+true
+
+输出
+[true]
+预期结果
+(84, true, 35, true)
+
+输入
+
+param1 =
+
+null
+
+输出
+
+(-24, -40, '')
+
+预期结果
+''
+输入
+
+param1 =
+
+true
+param2 =
+
+[null, -21, null, 'aMaprw']
+
+param3 =
+false
+
+输出
+-30
+
+预期结果
+
+34
+
+输入
+param1 =
+
+-73
+
+输出
+[]
+预期结果
+
+3
+输入
+param1 =
+17
+
+param2 =
+
+true
+输出
+null
+预期结果
+true
