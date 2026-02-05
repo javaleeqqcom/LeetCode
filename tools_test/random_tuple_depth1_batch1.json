@@ -1,0 +1,50 @@
+[
+  {
+    "input": [
+      45,
+      {
+        "key_0": true,
+        "key_1": "NUxJ1sAGDc",
+        "key_2": false,
+        "key_3": -77
+      }
+    ]
+  },
+  {
+    "input": [
+      [
+        false
+      ],
+      ""
+    ]
+  },
+  {
+    "input": [
+      [
+        "JVdK5qp",
+        false,
+        false,
+        "AK"
+      ],
+      null
+    ]
+  },
+  {
+    "input": [
+      {
+        "key_0": -78,
+        "key_1": true
+      },
+      [
+        null,
+        false
+      ]
+    ]
+  },
+  {
+    "input": [
+      73,
+      "wXaaHXh9n"
+    ]
+  }
+]

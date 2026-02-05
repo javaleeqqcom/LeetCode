@@ -1,0 +1,58 @@
+输入
+param1 =
+
+'bdfkZvjS'
+param2 =
+({'key_0': '', 'key_1': -13, 'key_2': 'r'},)
+param3 =
+{'key_0': false}
+
+输出
+
+{'key_0': false, 'key_1': null, 'key_2': 'FZ61'}
+
+预期结果
+true
+
+输入
+
+param1 =
+-36
+输出
+
+()
+
+预期结果
+'dmsr'
+输入
+
+param1 =
+'taNnCeQgsA'
+param2 =
+()
+输出
+[]
+预期结果
+null
+输入
+param1 =
+{'key_0': 'iSv211', 'key_1': [null, 'sNy9YFhljt', 95, 'qy'], 'key_2': true}
+
+param2 =
+-56
+输出
+16
+预期结果
+
+[[null, -16, null, null]]
+输入
+param1 =
+
+''
+
+输出
+((-75, null, null, null, -66), null, (false, '6oI', null, null, false), 'ZmMLPYqIk', false)
+
+预期结果
+
+{'key_0': 'G0tSlJ', 'key_1': [null, null], 'key_2': null}

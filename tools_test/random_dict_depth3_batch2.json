@@ -1,0 +1,107 @@
+[
+  {
+    "input": {
+      "param1": {},
+      "param2": false,
+      "param3": "Fele"
+    },
+    "output": false,
+    "expected": [
+      [
+        true,
+        null,
+        [
+          "K"
+        ],
+        []
+      ],
+      "SP",
+      67,
+      [
+        true,
+        [
+          true
+        ],
+        -69,
+        null,
+        null
+      ],
+      "P4rjmc4n"
+    ]
+  },
+  {
+    "input": {
+      "param1": "",
+      "param2": true
+    },
+    "output": false,
+    "expected": [
+      [
+        {
+          "key_0": "S0t",
+          "key_1": true,
+          "key_2": "Bz",
+          "key_3": false
+        },
+        [
+          "D",
+          -18,
+          null
+        ],
+        32,
+        true
+      ],
+      [
+        false
+      ],
+      [
+        30
+      ],
+      [
+        {},
+        true,
+        79,
+        {
+          "key_0": true,
+          "key_1": true,
+          "key_2": false
+        }
+      ],
+      [
+        "Me"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "param1": "x8Cm7gm3QN"
+    },
+    "output": "E7JAo",
+    "expected": []
+  },
+  {
+    "input": {
+      "param1": [
+        89,
+        {
+          "key_0": 71
+        },
+        {
+          "key_0": "ZQ4LQa"
+        },
+        null
+      ],
+      "param2": null,
+      "param3": null
+    },
+    "output": false,
+    "expected": 86
+  },
+  {
+    "input": {
+      "param1": null
+    },
+    "output": false,
+    "expected": null
+  }
+]

@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 import datetime, time
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
-import ast, re
+import ast, re, json
 import types
 import traceback
 from charset_normalizer.api import from_bytes  # 自动检测编码
@@ -182,7 +182,7 @@ class SolutionRunner:
         # ========== 1. 验证输入格式 ==========
         for idx, case in enumerate(test_cases):
             if not isinstance(case, dict):
-                raise ValueError(f"测试用例 {idx} 必须是字典格式")
+                raise ValueError(f"测试用例 {idx} 必须至少含有 'input' 键的字典类型")
             if 'input' not in case:
                 raise ValueError(f"测试用例 {idx} 缺少 'input' 键")
             if not isinstance(case['input'], (dict, tuple)):
@@ -320,3 +320,45 @@ class SolutionRunner:
         
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return file_path
+    
+    def tuple_to_cases(self, cases: List[Tuple]) -> List[_CASE_TYPE]:
+        """将元组形式的测试样例转换为字典形式
+        临时函数：以后优化：需要增加参数类型识别，并且能够自动转换自定义类型
+        """
+        # 获取被测函数的参数名
+        temp_instance = self.Solution()
+        bound_method = getattr(temp_instance, self.method_name)
+        sig = inspect.signature(bound_method)
+        params = list(sig.parameters.keys())
+        
+        # 排除 self 参数
+        if params and params[0] == 'self':
+            params = params[1:]
+        
+        m = len(params)
+        if m == 0:
+            raise ValueError("被测函数没有参数，无法转换元组格式测试用例")
+        
+        # 展平所有元组
+        flat_values = []
+        for case in cases:
+            if not isinstance(case, tuple):
+                raise ValueError(f"测试用例必须是元组格式，得到: {type(case)}")
+            flat_values.extend(case)
+        
+        # 检查总参数数量是否为参数个数的整数倍
+        total_values = len(flat_values)
+        if total_values % m != 0:
+            raise ValueError(f"总参数数量 {total_values} 不能被参数个数 {m} 整除")
+        
+        # 按参数数量分块
+        result = []
+        num_cases = total_values // m
+        for i in range(num_cases):
+            start_idx = i * m
+            chunk = flat_values[start_idx:start_idx + m]
+            input_dict = dict(zip(params, chunk))
+            result.append({"input": input_dict})
+        
+        return result
+            

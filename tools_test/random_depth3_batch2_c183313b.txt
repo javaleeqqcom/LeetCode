@@ -1,0 +1,67 @@
+输入
+
+param1 =
+true
+param2 =
+true
+param3 =
+[({'key_0': '', 'key_1': true},), 56, 'eUHXfCM2', '']
+输出
+88
+
+预期结果
+'gUBtdkzKN'
+
+输入
+
+param1 =
+
+[null, [[-74, null], 22], [true, 'cz8ns'], ()]
+param2 =
+()
+param3 =
+[]
+
+输出
+('xFZl', (false, null), [[null, 42, -53], 'mku', true, ['2G'], ['ych2', null, false, null]])
+预期结果
+
+{'key_0': {'key_0': 'n6x1', 'key_1': -65, 'key_2': true, 'key_3': null}, 'key_1': '5bzvkFDVH'}
+
+输入
+param1 =
+'H'
+param2 =
+
+true
+
+输出
+[]
+
+预期结果
+
+'0ushoKgpEY'
+
+输入
+param1 =
+(-13, ((null, true, 19, 56, '9JeB3Tgnx'),), -80)
+
+param2 =
+{'key_0': true, 'key_1': (23, {'key_0': -97, 'key_1': 'B2S6BDJ7X', 'key_2': null}, false, -98)}
+
+param3 =
+'VxZX8VJz'
+
+输出
+(false, null, ['wDeJL', [], (true, 'q5YwEDqy', null), [false, 'du2aHH8R', 'nRcOuWrEQN', ''], null])
+预期结果
+
+-72
+输入
+param1 =
+-12
+输出
+
+[null, null]
+预期结果
+[-40, 'MbxtwO']

@@ -1,0 +1,64 @@
+输入
+
+param1 =
+
+'5f1GMK'
+
+输出
+'VPgDoVSei5'
+预期结果
+[true, 13, true]
+输入
+
+param1 =
+{'key_0': 49}
+param2 =
+
+'eJ7g'
+
+param3 =
+
+null
+输出
+false
+
+预期结果
+
+null
+输入
+param1 =
+
+('IdBQG3', 58, null, false, false)
+输出
+
+{}
+预期结果
+'9K8O'
+
+输入
+
+param1 =
+
+{'key_0': 81, 'key_1': 'Rq'}
+param2 =
+'HTE7hb0LD'
+
+param3 =
+'qJez'
+
+输出
+
+70
+
+预期结果
+-91
+
+输入
+param1 =
+'fBrvp'
+
+输出
+-87
+
+预期结果
+[true, '', '', 88, '']

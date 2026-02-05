@@ -1,0 +1,51 @@
+输入
+param1 =
+
+false
+
+输出
+(null, null, true)
+
+预期结果
+'Zud'
+输入
+param1 =
+{'key_0': true, 'key_1': 51, 'key_2': false}
+
+输出
+
+{}
+预期结果
+
+{'key_0': 'qU4kMwBi6', 'key_1': 'wQE0mBiDm', 'key_2': 'tiDG', 'key_3': false}
+输入
+
+param1 =
+{'key_0': false, 'key_1': null, 'key_2': null, 'key_3': 'iR2vDeOw'}
+输出
+'SqJJ8l0Ba'
+预期结果
+
+(94, null, '1OhUvu', -93)
+输入
+
+param1 =
+
+null
+
+输出
+('dvuDy', -21)
+
+预期结果
+
+null
+
+输入
+param1 =
+3
+输出
+
+false
+
+预期结果
+null

@@ -1,0 +1,74 @@
+输入
+
+param1 =
+null
+
+param2 =
+
+(-87,)
+输出
+
+null
+预期结果
+
+31
+输入
+param1 =
+
+true
+param2 =
+
+[false, 17, null, -46, -86]
+
+param3 =
+{'key_0': 20, 'key_1': true, 'key_2': -69}
+输出
+
+[]
+预期结果
+
+-81
+
+输入
+
+param1 =
+97
+
+param2 =
+'3lGGEakM'
+
+输出
+
+false
+
+预期结果
+['OfB', null]
+
+输入
+
+param1 =
+{'key_0': -91}
+
+param2 =
+
+(true, null, null, false)
+
+输出
+
+(false, null, null, '', -46)
+
+预期结果
+('QXC2RgsA', 4, false)
+
+输入
+
+param1 =
+-30
+param2 =
+[false, '0et05']
+输出
+
+()
+预期结果
+
+true

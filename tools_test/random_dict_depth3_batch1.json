@@ -1,0 +1,172 @@
+[
+  {
+    "input": {
+      "param1": [
+        [],
+        {
+          "key_0": {},
+          "key_1": false
+        },
+        false,
+        [
+          null,
+          "PQLSXkX"
+        ]
+      ],
+      "param2": {
+        "key_0": "yxomAfWfgT",
+        "key_1": false
+      }
+    },
+    "output": [
+      null,
+      {
+        "key_0": "b",
+        "key_1": [
+          null,
+          false,
+          -75,
+          "TYBu1"
+        ]
+      },
+      {
+        "key_0": {},
+        "key_1": -54,
+        "key_2": [],
+        "key_3": 40
+      },
+      -9
+    ],
+    "expected": [
+      null,
+      "4SK"
+    ]
+  },
+  {
+    "input": {
+      "param1": [
+        [
+          [
+            false,
+            -24,
+            false,
+            null
+          ]
+        ],
+        false
+      ]
+    },
+    "output": [
+      -29,
+      null,
+      "cUgafx"
+    ],
+    "expected": {
+      "key_0": null,
+      "key_1": [
+        {
+          "key_0": 73,
+          "key_1": null
+        },
+        [
+          2,
+          67,
+          false,
+          "M0bnIVy"
+        ]
+      ]
+    }
+  },
+  {
+    "input": {
+      "param1": "LG",
+      "param2": [
+        false,
+        null
+      ]
+    },
+    "output": "",
+    "expected": null
+  },
+  {
+    "input": {
+      "param1": false,
+      "param2": false,
+      "param3": [
+        "8xPYoJVr",
+        {
+          "key_0": [
+            null,
+            null
+          ],
+          "key_1": {
+            "key_0": true,
+            "key_1": false,
+            "key_2": false,
+            "key_3": -42
+          },
+          "key_2": "UPmC6Qx",
+          "key_3": "KhsUE8wD"
+        },
+        [
+          true,
+          null,
+          true,
+          36
+        ],
+        [
+          [
+            false
+          ]
+        ],
+        {
+          "key_0": "Vx",
+          "key_1": null,
+          "key_2": -95,
+          "key_3": [
+            36,
+            -10,
+            40,
+            75
+          ]
+        }
+      ]
+    },
+    "output": null,
+    "expected": "GfSi8DYash"
+  },
+  {
+    "input": {
+      "param1": [
+        -58,
+        [
+          {
+            "key_0": true,
+            "key_1": -78,
+            "key_2": null,
+            "key_3": -52
+          },
+          [
+            8,
+            null
+          ],
+          [
+            "xXWGa",
+            -12
+          ]
+        ],
+        false
+      ],
+      "param2": true,
+      "param3": [
+        {},
+        true,
+        28
+      ]
+    },
+    "output": [
+      true
+    ],
+    "expected": false
+  }
+]

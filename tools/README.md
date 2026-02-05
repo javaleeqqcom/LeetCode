@@ -90,20 +90,15 @@ output:
 框架支持通过暴力算法生成可靠的测试用例，用于验证优化算法的正确性。
 
 ### 📝 步骤1: 创建暴力解法
-
 创建`brute.py`文件，实现暴力解法（时间复杂度可能较高，但保证正确）:
-
 ```python
 class Solution:
     def yourMethod(self, param1, param2):
-        # 暴力解法实现
-        ...
+        # 暴力解法实现 ...
 ```
 
 ### 🚀 步骤2: 生成测试用例
-
 创建`run_brute.py`文件:
-
 ```python
 from tools.solution_runner import SolutionRunner
 
@@ -115,17 +110,14 @@ brute.get_ask_for_cases()  # 生成brute.txt文件，包含生成测试用例的
 
 # 定义测试用例生成函数
 def cases_generation(max_size=5, num_cases=10):
-    # 生成测试用例的逻辑
-    ...
+    # 生成测试用例的逻辑 ...
 
 # 保存测试用例，并自动运行暴力算法生成expected结果
 brute.save_cases(cases_generation, max_size=10, num_cases=20)
 ```
 
 ### ✅ 步骤3: 测试优化算法
-
 创建`run_optimized.py`文件测试优化算法:
-
 ```python
 from tools.solution_runner import SolutionRunner
 
@@ -140,7 +132,6 @@ results = optimized.run(cases, log_suffix="_optimized")
 ```
 
 ### 💡 为什么这种方式更好？
-
 | 问题 | 传统方案 | 本框架方案 |
 | --- | --- | --- |
 | 测试用例正确性 | 人工编写，易出错 | 由暴力算法自动生成，100%正确 |
@@ -148,27 +139,40 @@ results = optimized.run(cases, log_suffix="_optimized")
 | 算法对比 | 需手动对比结果 | 自动对比expected与output |
 | 调试效率 | 逐个测试 | 批量验证，快速定位问题 |
 
+###  💡 **元组格式说明**：
+- 在生成测试用例时，如需使用元组格式（无"输入"关键词），请确保每个测试用例的参数数量一致，并在调用`read_test_case`时提供`params_num`参数。
+
 ### 📊 测试用例格式说明
 
-暴力算法生成的测试用例保存为JSON格式，包含：
-
-```json
-[
-  {
-    "input": {"param1": value1, "param2": value2},
-    "expected": result_value,
-    // 或当出错时:
-    "error": "错误信息",
-    "traceback": "详细堆栈"
-  },
-  ...
-]
-```
 测试用例数据是一个列表`List`，其中的每个元素代表一个次调用测试函数的输入，支持两种输入格式:
-- **元组格式**: `(arg1, arg2, ...)` - 适用于参数顺序明确的情况
-- **字典格式**: `{"arg1": val1, "arg2": val2}` - 适用于参数名重要或可选参数的情况
-- **注意**: 需要在外面再包裹一层`List`（哪怕只有1次测试）才是最终的测试数据结构。 
-```
+
+1. **字典格式**（含"输入"关键词）:
+   ```
+   输入
+   n = 7
+   edges = [[0, 1], [0, 2], [1, 4], [1, 5], [2, 3], [2, 6]]
+   hasApple = [False, False, True, False, True, True, False]
+   输出
+   8
+   预期结果
+   null
+   ```
+
+2. **元组格式**（无"输入"关键词，仅包含连续参数行）:
+   ```
+   7
+   [[0, 1], [0, 2], [1, 4], [1, 5], [2, 3], [2, 6]]
+   [False, False, True, False, True, True, False]
+   ```
+   
+   **元组格式要求**:
+   - 文件**不包含**"输入"关键词
+   - 仅包含连续的参数行
+   - 需要指定每个测试用例的参数数量（`params_num`）
+   - 每 `params_num` 行组成一个测试用例
+   - **不包含**"输出"和"预期结果"部分（这些信息应通过其他方式提供）
+
+注意: 需要在外面再包裹一层`List`（哪怕只有1次测试）才是最终的测试数据结构。
 
 ---
 
@@ -210,8 +214,8 @@ results = optimized.run(cases, log_suffix="_optimized")
 ## 📌 使用规范
 | 角色 | 操作 |
 |------|------|
-| **学生** | 1. 编写标准 LeetCode 风格代码（含 `Solution` 类）2. 创建极简 `run_solution.py`3. 运行测试，查看日志 |
-| **教师** | 1. 提供测试样例文件（`.txt`）2. 框架自动处理类型转换与执行 |
+| **学生** | 1. 编写标准 LeetCode 风格代码（含 `Solution` 类）<br>2. 创建极简 `run_solution.py`<br>3. 运行测试，查看日志 |
+| **教师** | 1. 提供测试样例文件（`.txt`）<br>   - **字典格式**：包含"输入"关键词，每个测试用例包含输入、输出和预期结果<br>   - **元组格式**：不包含"输入"关键词，仅包含连续参数行，需指定参数数量（`params_num`）<br>2. 框架自动处理类型转换与执行 |
 | **框架** | 全程透明：编码检测 → 类型注入 → 样例转换 → 执行验证 → 日志输出 |
 
 > 💬 **学生反馈**：  

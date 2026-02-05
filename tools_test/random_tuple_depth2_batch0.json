@@ -1,0 +1,69 @@
+[
+  {
+    "input": [
+      "",
+      [
+        [
+          false,
+          false,
+          false
+        ],
+        -70,
+        {
+          "key_0": true,
+          "key_1": 28,
+          "key_2": null
+        }
+      ],
+      -18
+    ]
+  },
+  {
+    "input": [
+      "44",
+      {
+        "key_0": {
+          "key_0": null,
+          "key_1": 74
+        },
+        "key_1": [
+          29,
+          75,
+          null
+        ],
+        "key_2": -96
+      },
+      {
+        "key_0": -46,
+        "key_1": null
+      }
+    ]
+  },
+  {
+    "input": [
+      [
+        false
+      ],
+      "DrUr5VHt8Y",
+      false
+    ]
+  },
+  {
+    "input": [
+      -70,
+      null,
+      ""
+    ]
+  },
+  {
+    "input": [
+      null,
+      [
+        "DP",
+        [],
+        "U"
+      ],
+      "iWFy5uWzVO"
+    ]
+  }
+]

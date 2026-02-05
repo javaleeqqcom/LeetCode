@@ -148,6 +148,7 @@ def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -
     
     return test_cases
 
+# 该函数未能达到智能换行缩进的功能，以后再完善
 class CompactLeafListEncoder(json.JSONEncoder):
     """自定义JSON编码器：外层结构缩进，但最内层纯基本类型的列表不换行"""
     def __init__(self, *args, **kwargs):

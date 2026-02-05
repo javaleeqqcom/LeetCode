@@ -1,0 +1,20 @@
+[
+  {
+    "input": {
+      "nums": [
+        1,
+        5,
+        2
+      ]
+    },
+    "output": 0
+  },
+  {
+    "input": {
+      "data": {
+        "a": 1
+      }
+    },
+    "output": null
+  }
+]

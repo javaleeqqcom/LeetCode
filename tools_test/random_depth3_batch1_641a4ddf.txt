@@ -1,0 +1,57 @@
+输入
+
+param1 =
+
+{'key_0': -100, 'key_1': false}
+
+输出
+[{'key_0': '0kGFI7bgd'}, true, ([-60, null, null], [false, null]), null, ((null, 'Ik8KF', -84, false, 'UE5S'), true, 'GBfCkPJs')]
+预期结果
+{'key_0': 'O', 'key_1': true}
+
+输入
+param1 =
+
+{'key_0': ([true, 'J2Njm1RVP'], {'key_0': false, 'key_1': null}, {'key_0': false, 'key_1': -65, 'key_2': null}), 'key_1': true}
+
+param2 =
+
+''
+param3 =
+[98, 2, [()], (null, ['Vl6YOV6FIA', 'u8ZDJO56O', 84, '1Dia1ZXFVc'], [true], null)]
+输出
+({}, 'RewiPH')
+预期结果
+{'key_0': null}
+输入
+param1 =
+('cr7C97', {'key_0': (), 'key_1': -20, 'key_2': (null, 'X', false, 'z3MmE'), 'key_3': {'key_0': -78, 'key_1': -66}}, false)
+输出
+
+-71
+预期结果
+{}
+输入
+param1 =
+
+true
+
+param2 =
+(-85, {}, 65, {'key_0': [false, 'W'], 'key_1': [null, null], 'key_2': [false, false, 'peY', -51], 'key_3': null})
+输出
+{'key_0': {'key_0': (true,), 'key_1': [true, -86], 'key_2': (null,), 'key_3': [null, true, null]}}
+预期结果
+false
+
+输入
+param1 =
+
+null
+param2 =
+-74
+输出
+{'key_0': false, 'key_1': null, 'key_2': {'key_0': [null, 'LLzf91p', -38, -93], 'key_1': true}, 'key_3': [-34]}
+
+预期结果
+
+[21, false]
