@@ -1,81 +1,8 @@
-附件中代码中的 CompactLeafListEncoder 设计是失败的，因为 json 会优先在父类匹配原生类型的编码，不会执行子类的 default 函数。
-关键证据在于 json_test(Inheritance).py 即便用原生类型的继承，也不会触发 自定义类，
-而包装类型 json_test(wrapper).py 则可以触发自定义类。
-现在我需要设计一套 json <-> _CASE_TYPE 互转的系统，要求仅函基础类型的数组采用压缩json格式（不换行）。并且能够保存、读取自定义类型如 ListNode到json文件。
-对于如下方案的可行性：
-1. 单向序列化：
-   1.1 对于叶子层数组，最好是限制数组元素除了 None 只有一种类型，包装为自定义的 array 类型，但是转换后的格式与常规数组不indent时保持一致。如此可仅以实现单向序列化，即只支持 array 转 json，但 json 读取时会误认为是普通数组。
-   1.2 对于自定义类型，务必要能双向序列化。
-   - 优点：json文件直观反映自定义类型；
-   - 缺点：实现复杂
-已经得到了初步验证（执行程序如下）：
-```
-(base) PS D:\Users\java_lee\Documents\GitHub\LeetCode> & C:/Users/john/anaconda3/python.exe "d:/Users/java_lee/Documents/GitHub/LeetCode/tools/json_test(directed).py"
-============================================================
-生成的JSON（叶子数组单行，结构保留缩进）:
-============================================================
-{
-  "short_int": [1, 2, 3],
-  "long_int": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
-  "str_arr": ["apple", "banana", "cherry"],
-  "mixed_prim": [1, "text", null, true, 3.14, false],
-  "nested": {
-    "inner_leaf": [10, 20, 30],
-    "inner_non_leaf": [
-      {
-        "a": 1
-      },
-      {
-        "b": [4, 5]
-      }
-    ]
-  },
-  "edge_cases": {
-    "empty": [],
-    "all_none": [null, null, null],
-    "single": [42]
-  },
-  "non_leaf_preserved": [
-    {
-      "name": "item1",
-      "tags": ["x", "y"]
-    },
-    {
-    },
-    },
-    },
-    },
-    {
-      "name": "item2"
-    }
-  ]
-}
-============================================================
-✓ 验证1：反序列化数据与原始数据完全一致
-✓ 验证2：所有叶子数组在JSON中均为单行
-✓ 验证3：非叶子结构保留缩进格式
-✓ 验证4：长数组（50元素）完整单行，无换行
+import json
+import re
+import uuid
+from typing import Any, List, Tuple
 
-✅ 所有测试通过！定向序列化方案验证成功
-💡 核心优势：
-   • 序列化：叶子数组单行（人工友好），结构保留缩进
-   • 反序列化：JSON库自然解析为普通列表（零成本）
-   • 无侵入：不修改原始数据，不依赖第三方库
-   • 安全：UUID标记避免冲突，精确字符串替换
-(base) PS D:\Users\java_lee\Documents\GitHub\LeetCode>
-```
-现在需要继续实现 1.2，现在有如下方案：
-2. 使用 `json.dumps` 原生的自定义类转字典，和钩子函数实现（参考json_Complex_test）：
-   - 优点：简单
-   - 缺点：不美观
-3. 使用自定义格式实现，更美观，并且与字典不可能混淆：
-   - 例如 ListNode 类型转化为如下文本："<ListNode>(1,2,3,4,5,null)"
-   - 优点：美观
-   - 缺点：json 转回自定义格式可能无法实现，或者需要第三方库。
-
-
-我已经用类包装了，但是你的程序有可能导致哈希爆炸，即随机压力测试可能死循环：
-```py
 # ==================== 核心类实现 ====================
 class CompactedJson:
     """
@@ -175,6 +102,41 @@ class CompactedJson:
         
         return "".join(parts)
 
+# ==================== 使用示例与验证 ====================
+def test_class_implementation():
+    """验证类实现的正确性"""
+    # 测试默认配置
+    cj_default = CompactedJson()
+    test_obj = {
+        "short": [1, 2, 3],
+        "long": list(range(50)),
+        "nested": {"inner": [10, 20, 30]},
+        "trap": "@abcd1234"  # 包含陷阱字符串
+    }
+    
+    result1 = cj_default.dump(test_obj, indent=2)
+    std_result = json.dumps(test_obj, indent=2)
+    
+    # 验证反序列化一致性
+    assert json.loads(result1) == json.loads(std_result)
+    
+    # 验证叶子数组单行
+    assert '"short": [1, 2, 3]' in result1
+    assert '"long": [0, 1, 2,' in result1 and '48, 49]' in result1
+    
+    # 测试自定义配置 (_hex_count=4, alias_prefix="#")
+    cj_custom = CompactedJson(hex_len=4, alias_prefix="#")
+    test_obj2 = {"data": ["a", "b", "c"], "trap": "#12ab"}
+    result2 = cj_custom.dump(test_obj2, indent=2)
+    assert json.loads(result2) == json.loads(json.dumps(test_obj2, indent=2))
+    
+    print("✅ 类实现验证通过！")
+
+# -------------------- 随机压力测试 --------------------------------
+import random
+import string
+from multiprocessing import Pool, cpu_count
+
 # 字符集：包含 '"{}[]@' 和 0-9,A-Z,a-z
 CHARSET = '"' + "'" + "{}[]@" + string.digits + string.ascii_letters
 
@@ -238,7 +200,7 @@ def generate_random_obj(depth=0, max_depth=8, hex_count=4):
             generate_random_string(5): generate_random_obj(depth+1, max_depth, hex_count)
             for _ in range(size)
         }
-      
+
 def single_test_case(args):
     """单次测试：生成随机对象 → 验证 dump 与 json.dumps 反序列化一致性"""
     seed, hex_count = args
@@ -266,33 +228,54 @@ def single_test_case(args):
     except Exception as e:
         return False, f"异常: {type(e).__name__}: {e} | 对象: {obj}"
 
-```
-修改思路：
-1. 用一个 depth 倒数来代替 depth, max_depth ，倒数为0时禁止递归。
-2. generate_random_obj 放入 single_test_case 内作为内部函数，并维持一个 total_leaf_num 记录叶子结点总数（定义在single_test_case 中，但是generate_random_obj可以读写）。
-3. 简化 generate_random_obj 的逻辑：
-```
-total_leaf_num
-total_leaf_max
-generate_random_obj(depth):
-  if depth == 0{
-    仅生成基础类型
-  }else{
-    生成字典或数组，长度为随机数 sub_len
-    // 注意在递归前先统计 total_leaf_num，其中字典的 key 也要算 total_leaf_num
-    new_num = total_leaf_num + sub_len * (1数组 or 2字典)
-    if new_num > total_leaf_max{
-      total_leaf_num += 1 # 超了 total_leaf_max 一点也不怕，因为 None 的增加不会占用哈希数
-      return None（不再生成字典或数组）
-    }else{
-      total_leaf_num = new_num
-      return 复合类型(递归 generate_random_obj(depth - 1))
-    }
-  }
-```
-4. 用几何级数期望来设置初始 depth：
-  - 设递归数组概率为 x，期望长度为 nx ；递归字典概率为 y，期望长度为 ny，（x+y<1）；深度 depth 的叶子结点数期望为 E(depth)，E(0)=1
-  - 则： E(depth) = 1 * (1-x-y) + E(depth-1) * nx * x + E(depth-1) *2*ny *y
-  - 不难发现存在 d和r，使得 E(depth) + d = [E(depth-1) + d] * r = [E(0) + d]*r^depth
-  - 因此可以预估得到 depth = log(E(depth)/(1+d))/log(r)
-  - 取 depth = floor(log(total_leaf_max/(1+d))/log(r)) 即可
+def run_massive_test(total_tests=100000, hex_count=4 ,thread = 8):
+    """运行大规模压力测试"""
+    print(f"开始压力测试：hex_count={hex_count} ({16**hex_count}种占位符)")
+    print(f"单次对象规模控制：叶子数组总数 < 50000")
+    print(f"测试次数: {total_tests}")
+    print("-" * 60)
+    
+    # 准备参数：每个测试用例需要 (seed, hex_count)
+    test_args = [(i, hex_count) for i in range(total_tests)]
+    
+    # 使用多进程加速
+    workers = min(cpu_count(), thread)
+    passed = 0
+    failed_cases = []
+    
+    with Pool(workers) as pool:
+        # 修正：使用 starmap 处理多参数，或保持 imap 但传入元组
+        results = pool.imap(single_test_case, test_args, chunksize=1000)
+        for i, (ok, msg) in enumerate(results, 1):
+            if ok:
+                passed += 1
+            else:
+                failed_cases.append((i, msg))
+                if len(failed_cases) >= 5:  # 记录前5个失败案例
+                    break
+            if i % 10000 == 0:
+                print(f"已测试: {i}/{total_tests} | 通过率: {passed/i*100:.2f}%")
+    
+    print("-" * 60)
+    if failed_cases:
+        print(f"❌ 测试失败 ({len(failed_cases)} 例):")
+        for idx, msg in failed_cases[:3]:
+            print(f"  用例 {idx}: {msg}")
+    else:
+        print(f"✅ 所有 {total_tests} 次测试通过！")
+        print(f"结论：在 hex_count={hex_count} 且单次叶子数组<50000 的约束下，dump 行为正确。")
+    
+    return len(failed_cases) == 0
+
+if __name__ == "__main__":
+    # 先运行基础验证
+    test_class_implementation()
+    
+    # 再运行压力测试（使用4位hex进行高强度测试）
+    print("\n" + "="*70)
+    print("启动大规模压力测试（hex_count=4）...")
+    print("="*70)
+    success = run_massive_test(total_tests=100000, hex_count=4)
+    
+    if not success:
+        exit(1)

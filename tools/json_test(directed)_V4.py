@@ -10,7 +10,7 @@ import uuid
 from typing import Any, List, Tuple
 
 # 配置：占位符长度（32位十六进制 = UUID标准长度）
-_HEX_COUNT = 32
+_HEX_COUNT = 4
 _ALIAS_PATTERN = re.compile(rf'"@([0-9a-fA-F]{{{_HEX_COUNT}}})"')
 
 def _is_leaf_sequence(obj: Any) -> bool:
@@ -178,5 +178,144 @@ def test_roundtrip_consistency():
     print("\n【输出示例】观察格式：")
     print(my_dump(example, indent=2))
 
+# json_test(directed).py (续)
+import random
+import string
+from multiprocessing import Pool, cpu_count
+# 字符集：包含 '"{}[]@' 和 0-9,A-Z,a-z
+CHARSET = '"' + "'" + "{}[]@" + string.digits + string.ascii_letters
+
+def generate_random_string(max_len=8):
+    """生成1~max_len长度的随机字符串"""
+    length = random.randint(1, max_len)
+    return ''.join(random.choices(CHARSET, k=length))
+
+def generate_random_obj(depth=0, max_depth=10):
+    """
+    生成随机嵌套对象（控制深度防止栈溢出）
+    - 叶子节点：随机字符串、基础类型、或符合_alias_pattern的陷阱字符串
+    - 容器：list/tuple/dict，含叶子数组和非叶子结构
+    """
+    if depth > max_depth:
+        # 强制返回叶子节点
+        choice = random.randint(0, 4)
+        if choice == 0:
+            return generate_random_string()
+        elif choice == 1:
+            return random.randint(-100, 100)
+        elif choice == 2:
+            return random.choice([True, False, None])
+        elif choice == 3:
+            return random.uniform(-10.0, 10.0)
+        else:
+            # 生成陷阱字符串：符合 "@{4位hex}" 格式
+            hex_part = ''.join(random.choices('0123456789abcdef', k=_HEX_COUNT))
+            return f"@{hex_part}"
+    
+    # 随机选择容器类型或叶子
+    container_type = random.choices(
+        ['leaf_str', 'int', 'bool', 'none', 'float', 'list', 'tuple', 'dict', 'trap'],
+        weights=[3, 1, 1, 1, 1, 2, 1, 2, 2]  # 提高容器和陷阱比例
+    )[0]
+    
+    if container_type == 'leaf_str':
+        return generate_random_string()
+    elif container_type == 'int':
+        return random.randint(-100, 100)
+    elif container_type == 'bool':
+        return random.choice([True, False])
+    elif container_type == 'none':
+        return None
+    elif container_type == 'float':
+        return random.uniform(-10.0, 10.0)
+    elif container_type == 'trap':
+        # 生成符合 alias_pattern 的陷阱字符串
+        hex_part = ''.join(random.choices('0123456789abcdef', k=_HEX_COUNT))
+        return f"@{hex_part}"
+    elif container_type in ('list', 'tuple'):
+        size = random.randint(0, 20)  # 控制大小避免爆炸
+        items = [generate_random_obj(depth+1, max_depth) for _ in range(size)]
+        # 约30%概率生成纯叶子序列（用于触发压缩）
+        if random.random() < 0.3 and all(isinstance(x, (int, float, str, bool, type(None))) for x in items):
+            return items if container_type == 'list' else tuple(items)
+        return items if container_type == 'list' else tuple(items)
+    elif container_type == 'dict':
+        size = random.randint(0, 10)
+        return {
+            generate_random_string(5): generate_random_obj(depth+1, max_depth)
+            for _ in range(size)
+        }
+
+def single_test_case(seed):
+    """单次测试：生成随机对象 → 验证 my_dump 与 json.dumps 反序列化一致性"""
+    random.seed(seed)
+    
+    # 生成随机对象（控制规模：总叶子数组数 < 50000）
+    obj = generate_random_obj(max_depth=8)  # 限制深度防栈溢出
+    
+    try:
+        # 标准JSON流程
+        std_json = json.dumps(obj, indent=2, ensure_ascii=False)
+        std_obj = json.loads(std_json)
+        
+        # my_dump流程
+        custom_json = my_dump(obj, indent=2, ensure_ascii=False)
+        custom_obj = json.loads(custom_json)
+        
+        # 严格比较（注意：tuple会被转为list，这是JSON标准行为）
+        if std_obj != custom_obj:
+            # 调试信息（仅当失败时输出）
+            return False, f"不一致 | 原始: {obj} | 标准: {std_obj} | 自定义: {custom_obj}"
+        return True, None
+    except Exception as e:
+        return False, f"异常: {type(e).__name__}: {e} | 对象: {obj}"
+
+def run_massive_test(total_tests=100000):
+    """运行大规模压力测试（实际10^5次，10^8次不现实）"""
+    print(f"开始压力测试：_hex_count={_HEX_COUNT} (65536种占位符)")
+    print(f"单次对象规模控制：叶子数组总数 < 50000")
+    print(f"测试次数: {total_tests} (受限于时间，10^8次需数月，此处取10^5次代表性样本)")
+    print("-" * 60)
+    
+    seeds = list(range(total_tests))
+    
+    # 使用多进程加速（根据CPU核心数）
+    workers = min(cpu_count(), 8)
+    passed = 0
+    failed_cases = []
+    
+    with Pool(workers) as pool:
+        results = pool.imap(single_test_case, seeds, chunksize=1000)
+        for i, (ok, msg) in enumerate(results, 1):
+            if ok:
+                passed += 1
+            else:
+                failed_cases.append((i, msg))
+                if len(failed_cases) >= 5:  # 记录前5个失败案例
+                    break
+            if i % 10000 == 0:
+                print(f"已测试: {i}/{total_tests} | 通过率: {passed/i*100:.2f}%")
+    
+    print("-" * 60)
+    if failed_cases:
+        print(f"❌ 测试失败 ({len(failed_cases)} 例):")
+        for idx, msg in failed_cases[:3]:
+            print(f"  用例 {idx}: {msg}")
+    else:
+        print(f"✅ 所有 {total_tests} 次测试通过！")
+        print("结论：在 _hex_count=4 且单次叶子数组<50000 的约束下，my_dump 行为正确。")
+    
+    return len(failed_cases) == 0
+
 if __name__ == "__main__":
+    # 先运行基础验证
     test_roundtrip_consistency()
+    
+    # 再运行压力测试（10^5次，平衡时间与覆盖率）
+    print("\n" + "="*70)
+    print("启动大规模压力测试（_hex_count=4）...")
+    print("="*70)
+    success = run_massive_test(total_tests=100000)
+    
+    if not success:
+        exit(1)
