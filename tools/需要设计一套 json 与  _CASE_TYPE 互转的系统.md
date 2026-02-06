@@ -74,7 +74,7 @@
    - 缺点：json 转回自定义格式可能无法实现，或者需要第三方库。
 
 
-我已经用类包装了，但是你的程序有可能导致哈希爆炸，即随机压力测试可能死循环：
+你的程序有可能导致哈希爆炸，即随机压力测试可能死循环。为了更科学的测试，测试通过后即可使用，我已经用类包装了（如下代码若无错误则不改动，即不用输出）：
 ```py
 # ==================== 核心类实现 ====================
 class CompactedJson:
@@ -84,7 +84,7 @@ class CompactedJson:
     保证：dump输出反序列化结果 ≡ json.dumps输出反序列化结果
     """
     
-    def __init__(self, hex_len: int = 32, alias_prefix: str = "@") -> None:
+    def __init__(self, hex_len: int = 32, load_factor_threshold = 0.7, alias_prefix: str = "@" ) -> None:
         """
         初始化配置
         
@@ -98,7 +98,7 @@ class CompactedJson:
             raise ValueError("alias_prefix cannot be empty")
             
         self._hex_len = hex_len
-        self._max_hash_num = 一个合理的哈希容量比例（适合再哈希法，一旦超过该比例，应考虑扩容） * (16**hex_len)
+        self._max_hash_num = load_factor_threshold * (16**hex_len)
         self._alias_prefix = alias_prefix
         # 动态构建正则表达式（转义特殊字符）
         escaped_prefix = re.escape(alias_prefix)
@@ -137,8 +137,8 @@ class CompactedJson:
                     placeholder = self._alias_prefix + hash_code
                     if placeholder not in alias_set:
                         break
-                    else:
-                        assert len(alias_set) < self._max_hash_num, 哈希数超过了限制，无法继续生成新的占位符
+                    else: # 仅当出现哈希冲突时再检查负载因子，减少正常情况下的查询开销
+                        assert len(alias_set) < self._max_hash_num, "The load factor has reached the threshold, and it is forbidden to insert a hash table, so please increase the hex_len size"
                 alias_set.add(placeholder)
                 # 记录：占位符的JSON表示（带引号） + 紧凑数组JSON
                 alias_obj_list.append((
@@ -174,125 +174,168 @@ class CompactedJson:
         parts.append(json_str1[start:])
         
         return "".join(parts)
-
-# 字符集：包含 '"{}[]@' 和 0-9,A-Z,a-z
-CHARSET = '"' + "'" + "{}[]@" + string.digits + string.ascii_letters
-
-def generate_random_string(max_len=8):
-    """生成1~max_len长度的随机字符串"""
-    length = random.randint(1, max_len)
-    return ''.join(random.choices(CHARSET, k=length))
-
-def generate_random_obj(depth=0, max_depth=8, hex_count=4):
-    """
-    生成随机嵌套对象（控制深度防止栈溢出）
-    - 叶子节点：随机字符串、基础类型、或符合_alias_pattern的陷阱字符串
-    - 容器：list/tuple/dict，含叶子数组和非叶子结构
-    """
-    if depth > max_depth:
-        # 强制返回叶子节点
-        choice = random.randint(0, 4)
-        if choice == 0:
-            return generate_random_string()
-        elif choice == 1:
-            return random.randint(-100, 100)
-        elif choice == 2:
-            return random.choice([True, False, None])
-        elif choice == 3:
-            return random.uniform(-10.0, 10.0)
-        else:
-            # 生成陷阱字符串：符合 "@{hex_count位hex}" 格式
-            hex_part = ''.join(random.choices('0123456789abcdef', k=hex_count))
-            return f"@{hex_part}"
-    
-    # 随机选择容器类型或叶子
-    container_type = random.choices(
-        ['leaf_str', 'int', 'bool', 'none', 'float', 'list', 'tuple', 'dict', 'trap'],
-        weights=[3, 1, 1, 1, 1, 2, 1, 2, 2]  # 提高容器和陷阱比例
-    )[0]
-    
-    if container_type == 'leaf_str':
-        return generate_random_string()
-    elif container_type == 'int':
-        return random.randint(-100, 100)
-    elif container_type == 'bool':
-        return random.choice([True, False])
-    elif container_type == 'none':
-        return None
-    elif container_type == 'float':
-        return random.uniform(-10.0, 10.0)
-    elif container_type == 'trap':
-        # 生成符合 alias_pattern 的陷阱字符串
-        hex_part = ''.join(random.choices('0123456789abcdef', k=hex_count))
-        return f"@{hex_part}"
-    elif container_type in ('list', 'tuple'):
-        size = random.randint(0, 20)  # 控制大小避免爆炸
-        items = [generate_random_obj(depth+1, max_depth, hex_count) for _ in range(size)]
-        # 约30%概率生成纯叶子序列（用于触发压缩）
-        if random.random() < 0.3 and all(isinstance(x, (int, float, str, bool, type(None))) for x in items):
-            return items if container_type == 'list' else tuple(items)
-        return items if container_type == 'list' else tuple(items)
-    elif container_type == 'dict':
-        size = random.randint(0, 10)
-        return {
-            generate_random_string(5): generate_random_obj(depth+1, max_depth, hex_count)
-            for _ in range(size)
-        }
-      
-def single_test_case(args):
-    """单次测试：生成随机对象 → 验证 dump 与 json.dumps 反序列化一致性"""
-    seed, hex_count = args
-    random.seed(seed)
-    
-    # 创建测试实例
-    cj = CompactedJson(hex_len=hex_count)
-    
-    # 生成随机对象（控制规模：总叶子数组数 < 50000）
-    obj = generate_random_obj(max_depth=8, hex_count=hex_count)
-    
-    try:
-        # 标准JSON流程
-        std_json = json.dumps(obj, indent=2, ensure_ascii=False)
-        std_obj = json.loads(std_json)
-        
-        # my_dump流程
-        custom_json = cj.dump(obj, indent=2, ensure_ascii=False)
-        custom_obj = json.loads(custom_json)
-        
-        # 严格比较（注意：tuple会被转为list，这是JSON标准行为）
-        if std_obj != custom_obj:
-            return False, f"不一致 | 原始: {obj} | 标准: {std_obj} | 自定义: {custom_obj}"
-        return True, None
-    except Exception as e:
-        return False, f"异常: {type(e).__name__}: {e} | 对象: {obj}"
-
 ```
 修改思路：
-1. 用一个 depth 倒数来代替 depth, max_depth ，倒数为0时禁止递归。
-2. generate_random_obj 放入 single_test_case 内作为内部函数，并维持一个 total_leaf_num 记录叶子结点总数（定义在single_test_case 中，但是generate_random_obj可以读写）。
+1. 用一个 depth 通过倒数来代替 depth, max_depth ，倒数为0时禁止递归，代码更简洁，符合树的思想。
+2. generate_random_obj 放入 single_test_case 内作为内部函数，并维持一个 total_hash_num 记录叶子结点总数（定义在single_test_case 中，但是generate_random_obj可以读写）。
 3. 简化 generate_random_obj 的逻辑：
-```
-total_leaf_num
-total_leaf_max
-generate_random_obj(depth):
-  if depth == 0{
-    仅生成基础类型
-  }else{
-    生成字典或数组，长度为随机数 sub_len
-    // 注意在递归前先统计 total_leaf_num，其中字典的 key 也要算 total_leaf_num
-    new_num = total_leaf_num + sub_len * (1数组 or 2字典)
-    if new_num > total_leaf_max{
-      total_leaf_num += 1 # 超了 total_leaf_max 一点也不怕，因为 None 的增加不会占用哈希数
-      return None（不再生成字典或数组）
+4. 根据数学期望来预估 depth：
+  - 设生成陷阱字符串的概率为p0；递归数组概率为 pl，期望长度为 nl ；递归字典概率为 pd，期望长度为 nd，另外字典键值为陷阱字符串的概率为 pk，（p0+pl+pd<1，pk<1）
+  - 设深度 depth 的叶子结点数期望为 E(depth)
+  - 则 E(0)=p0，depth>0时：E(depth) = p0 + (dl*nl + pd*nd)*E(depth-1) + pd*nd*pk
+需要实现的代码：
+```伪代码
+single_test_case(){
+  hex_len = 4
+  生成陷阱字符串的函数(){...}
+
+  total_hash_num = 0
+  total_hash_max = 负载因子 * 16**
+  E_depth = [...] # 预计算不同层数的 hash_num 数量期望值，用于动态调整 depth （可以下调不能上调）
+  generate_random_obj(depth){
+    if depth == 0{
+      仅生成基础类型
+      if 是 _alias_pattern 的字符串{
+        if total_hash_num < total_hash_max{
+          total_hash_num ++;
+          return 该字符串
+        }else{ // 超出 total_hash_max
+          return None // 不再生成任何东西，直接返回 None
+        }
+      }
+      else{...} // 其他基础类型正常生成
     }else{
-      total_leaf_num = new_num
-      return 复合类型(递归 generate_random_obj(depth - 1))
+      生成字典或数组，长度为随机数 sub_len
+      if 为字典{
+        先提前生成 keys;
+        hash_num_in_keys = keys 中符合 _alias_pattern 的数量
+        if hash_num_in_keys + total_hash_num > total_hash_max{
+          return None; // 无法容纳该字典，返回 None
+        }
+        total_hash_num += hash_num_in_keys
+      }else if(total_hash_num + 1 > total_hash_max){
+        return None; // 连一个叶子数组都无法容纳
+      }
+      // 根据层数预估 total_hash_num
+      for(d = 0..depth-1){
+        if (total_hash_num + sub_len*E_depth[d] > total_hash_num)break;
+      }
+      total_hash_num ++; // 先提前占用一个 叶子数组的可能
+      // 得到数学期望上的层数上限 d
+      sub = 复合类型(递归 generate_random_obj(d))
+      if( sub != 叶子数组){
+        total_hash_num --; //不是叶子数组再退还
+      }
+      return sub
     }
   }
+  比较结果是否正确……
+}
 ```
-4. 用几何级数期望来设置初始 depth：
-  - 设递归数组概率为 x，期望长度为 nx ；递归字典概率为 y，期望长度为 ny，（x+y<1）；深度 depth 的叶子结点数期望为 E(depth)，E(0)=1
-  - 则： E(depth) = 1 * (1-x-y) + E(depth-1) * nx * x + E(depth-1) *2*ny *y
-  - 不难发现存在 d和r，使得 E(depth) + d = [E(depth-1) + d] * r = [E(0) + d]*r^depth
-  - 因此可以预估得到 depth = log(E(depth)/(1+d))/log(r)
-  - 取 depth = floor(log(total_leaf_max/(1+d))/log(r)) 即可
+修改模板：
+```py
+class _test_for_CompactedJson(CompactedJson): # 也可以多进程一个 python 专业测试类 utt? 忘记啥名字了
+    # ==================== 严格压力测试 ====================
+    CHARSET = '"' + "'" + "{}[]@" + string.digits + string.ascii_letters
+
+    # （不可能生成陷阱字符串的字符集）
+    def generate_random_string(max_len=8):
+        """生成1~max_len长度的随机字符串"""
+        length = random.randint(1, max_len)
+        while True:
+            s = ''.join(random.choices(CHARSET, k=length))
+            if not re.match(...):
+                return s
+
+    def test_class_implementation(cj): # cj 就是 self
+        """基础功能验证"""
+        cj
+        test_obj = {
+            "short": [1, 2, 3],
+            "long": list(range(50)),
+            "trap": "@abcd",  # 4位hex陷阱
+            "nested": {"inner": ["a", "b"]}
+        }
+        custom = cj.dump(test_obj, indent=2)
+        standard = json.dumps(test_obj, indent=2)
+        assert json.loads(custom) == json.loads(standard)
+        assert '"short": [1, 2, 3]' in custom
+        assert '"long": [0, 1, 2,' in custom and '48, 49]' in custom
+        print("✅ 基础功能验证通过")
+
+    # 继承 CompactedJson，避免反复构造
+    def single_test_case(cj,args):
+        """单次测试：严格控制叶子数组数量 + 防死循环保障"""
+        seed, hex_len = args
+        random.seed(seed)
+        ……
+
+        obj = None
+        for _ in range(max_attempts):
+            leaf_array_count = 0  # 重置计数器
+            # 动态计算安全深度：基于几何级数期望（简化版）
+            # E(d) ≈ (1 + 0.6*5 + 0.4*2*3)^d，取d使E(d) < max_leaf_arrays/2
+            base_expect = 1 + 0.6 * 5 + 0.4 * 2 * 3  # ≈ 6.4
+            safe_depth = max(1, min(8, int((max_leaf_arrays / 2) ** (1/3))))  # 保守估计
+            obj = generate_random_obj(safe_depth)
+            
+        # ===== 核心验证 =====
+        try:
+            std_json = json.dumps(obj, indent=2, ensure_ascii=False)
+            std_obj = json.loads(std_json)
+            
+            custom_json = cj.dump(obj, indent=2, ensure_ascii=False)
+            custom_obj = json.loads(custom_json)
+            
+            if std_obj != custom_obj:
+                return False, f"数据不一致 | 叶子数组数: {leaf_array_count}"
+            return True, None
+        except Exception as e:
+            return False, f"异常: {type(e).__name__} | 叶子数组数: {leaf_array_count} | {str(e)[:100]}"
+
+def run_massive_test(total_tests: int = 100000, hex_len: int = 4):
+    """大规模压力测试（防死循环+资源安全）"""
+    print(f"\n{'='*70}")
+    print(f"🚀 启动压力测试 | hex_len={hex_len} | 容量={16**hex_len} | 安全阈值={int(0.7*(16**hex_len))}")
+    print(f"📊 测试总量: {total_tests:,} | 进程数: {min(cpu_count(), 8)}")
+    print(f"🛡️  防护措施: 叶子数组安全阈值=70%容量 | 深度动态调控")
+    print(f"{'='*70}\n")
+    
+    seeds = [(i, hex_len) for i in range(total_tests)]
+    workers = min(cpu_count(), 8)
+    passed, failed = 0, []
+    
+    with Pool(workers) as pool:
+        results = pool.imap(single_test_case, seeds, chunksize=2000)
+        for i, (ok, msg) in enumerate(results, 1):
+            if ok:
+                passed += 1
+            else:
+                failed.append((i, msg))
+                if len(failed) >= 5:
+                    break
+            if i % 10000 == 0 or i == total_tests:
+                print(f"进度: {i:,}/{total_tests:,} | 通过率: {passed/i*100:.2f}%")
+    
+    print(f"\n{'='*70}")
+    if failed:
+        print(f"❌ 失败 {len(failed)} 例（前3例）:")
+        for idx, msg in failed[:3]:
+            print(f"  #{idx}: {msg}")
+        return False
+    else:
+        print(f"✅ 全部 {total_tests:,} 次测试通过！")
+        print("✅ 验证结论:")
+        print(f"   • 在 hex_len={hex_len}（容量={16**hex_len}）下，安全阈值内无冲突")
+        print(f"   • 反序列化结果 100% 与标准 json.dumps 一致")
+        print(f"   • 无死循环（max_attempts 防护生效）")
+        print(f"   • 陷阱字符串（含占位符格式）处理正确")
+    print(f"{'='*70}")
+    return True
+
+if __name__ == "__main__":
+    test_class_implementation()
+    # 严格压力测试：hex_len=4（65536容量），测试10万次
+    success = run_massive_test(total_tests=100000, hex_len=4)
+    exit(0 if success else 1)
+```
