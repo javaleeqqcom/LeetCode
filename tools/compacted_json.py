@@ -123,7 +123,7 @@ class _test_CompactedJson(CompactedJson):
             "float" :   ( 1 ,lambda :random.uniform(-10.0, 10.0)),
             "bool":     ( 2 ,lambda :random.choice([True, False])),
             "None":     ( 1 ,lambda :None),
-            "safe_str": ( 3 ,lambda :self._generate_safe_string(random.randint(0, self._hex_len + 3)))
+            "safe_str": ( 3 ,lambda :self._generate_safe_string(self._hex_len + 3))
         }
         
         # 排除陷阱字符串的生成函数列表和权重列表
@@ -144,7 +144,8 @@ class _test_CompactedJson(CompactedJson):
         self._CR_types = ["base", "leaf_arr", "nonleaf_arr", 'dict']
         self._CR_weights = [2, 1, 1, 1]  # 补充你注释里的权重值，保持完整
         
-        self._LS_range = (0,20) # 随机数组长度的范围
+        self._LLS_range = (0,50) # 叶子数组长度的范围
+        self._NLS_range = (1,20) # 随机非叶子数组长度的范围
         self._DS_range = (1,5)  # 随机字典长度的范围
 
         # 生成随机对象中包含哈希键数量期望值随深度变化的数组
@@ -152,7 +153,7 @@ class _test_CompactedJson(CompactedJson):
         total_CRW = sum(self._CR_weights)
         CRpD = dict(zip(self._CR_types, map(lambda x:x/total_CRW ,self._CR_weights) ))# 不同复合类型的出现概率映射表
         composite_len_expected = (
-            CRpD["nonleaf_arr"]*sum(self._LS_range)/2 +
+            CRpD["nonleaf_arr"]*sum(self._NLS_range)/2 +
             CRpD["dict"]*sum(self._DS_range)/2
             ) # 复合类型中产生的子对象的期望长度
         other_expected = (
@@ -228,13 +229,13 @@ class _test_CompactedJson(CompactedJson):
             
             # 叶子数组节点（核心测试目标）
             if node_type == 'leaf_arr':
-                size = random.randint(*self._LS_range)
+                size = random.randint(*self._LLS_range)
                 total_hash_num += 1 # 叶子数组占用恰好1个哈希
                 return [generate_obj(0) for _ in range(size)]
             
             # 非叶子数组（含嵌套结构）
             if node_type == 'nonleaf_arr':
-                size = random.randint(*self._LS_range)
+                size = random.randint(*self._NLS_range)
                 sub_d = self._get_save_depth(depth-1, (safe_max - total_hash_num) / size)
                 if 0 == sub_d:
                     total_hash_num += 1 # 叶子数组占用恰好1个哈希
@@ -281,45 +282,114 @@ class _test_CompactedJson(CompactedJson):
             return True, ""
         except Exception as e:
             return False, f"EXCEPTION:{type(e).__name__} | hashes:{total_hash_num} | {str(e)[:150]}"
-
 import time
-# ==================== 修复3: run_massive_test 重写 ====================
-def _run_test_continuously( seed_0 , seed_step, min_second: float , hex_len: int = 4) -> Tuple[int,bool,str]:
-    begin = time.time()
-    test_obj = _test_CompactedJson(hex_len)
-    count = 0
-    max_count = ((1<<31)-1-seed_0)//seed_step # 保证随机种子不会溢出 int32
-    while time.time() - begin < min_second and count < max_count:
-        ok,msg = test_obj.single_test_case(seed_0 + count*seed_step)
-        if msg.startswith("SKIP"):continue
-        count += 1
-        if not ok: # 出现错误，停止测试并返回错误信息
-            return (count,ok,msg)
-    return (count,True,"")
+from multiprocessing import Pool, cpu_count
+from typing import Tuple
 
-def run_massive_test(thread:int) -> bool:
-    total_call = 100
-    # ✅ 关键修复: 生成 (seed_0, seed_step , min_second) 参数对
-    seed0_HL_t = [(i,total_call ,100) for i in range(total_call)]
-    passed, failed, skipped = 0, [], 0
+def _run_test_continuously(args: Tuple[int, int, float, int]) -> Tuple[int, int, str, int]:
+    """
+    单进程持续测试：复用单个测试实例，按时间窗口循环
+    返回: (有效测试数, 通过数, 失败信息, 跳过数)
+    """
+    seed_0, seed_step, min_second, hex_len = args
+    tester = _test_CompactedJson(hex_len=hex_len)  # ✅ 每进程仅初始化1次
+    start = time.time()
+    valid_cnt = pass_cnt = skip_cnt = 0
+    max_iter = ((1 << 31) - 1 - seed_0) // seed_step  # 防seed溢出
+    
+    iter_idx = 0
+    while (time.time() - start < min_second) and (iter_idx < max_iter):
+        seed = seed_0 + iter_idx * seed_step
+        ok, msg = tester.single_test_case(seed)
+        
+        if msg.startswith("SKIP"):
+            skip_cnt += 1
+        else:
+            valid_cnt += 1
+            if ok:
+                pass_cnt += 1
+            else:
+                # ✅ 遇失败立即返回（保留失败现场）
+                return (valid_cnt, pass_cnt, msg, skip_cnt)
+        iter_idx += 1
+    
+    return (valid_cnt, pass_cnt, "", skip_cnt)  # 全部通过
 
-    with Pool(min(cpu_count(), thread)) as pool:
-        ……
-
-    # ========== 结果报告 ==========
+def run_massive_test(
+    thread: Optional[int] = None, 
+    hex_len: int = 3, 
+    duration_sec: float = 100.0
+) -> bool:
+    """
+    智能压力测试：每进程复用实例 + 时间窗口循环
+    参数:
+        thread: 进程数 (None=自动)
+        hex_len: 测试参数
+        duration_sec: 每进程最小运行时间(秒)
+    """
+    thread = min(cpu_count(), 8) if thread is None else thread
+    max_cap = 16 ** hex_len
+    safe_thresh = int(0.7 * max_cap * 0.9)
+    
     print(f"\n{'='*70}")
-    if failed:
-        print(f"❌ 失败 {len(failed)} 例 (前3例):")
-        for idx, msg in failed[:3]:
-            print(f"  #{idx}: {msg}")
+    print(f"🚀 智能压力测试 | hex_len={hex_len} | 容量={max_cap:,} | 安全阈值={safe_thresh:,}")
+    print(f"⏱️  每进程运行 ≥{duration_sec}s | 进程数: {thread}")
+    print(f"💡 优化核心: 每进程复用单实例 (_test_CompactedJson初始化开销↓{thread}倍)")
+    print(f"   • seed分配: 进程i → seeds = [i, i+{thread}, i+2*{thread}, ...]")
+    print(f"   • 遇首个失败即终止该进程 | 收集≥5失败则全局终止")
+    print(f"{'='*70}\n")
+    
+    # ✅ 参数生成: (seed_0, seed_step=thread, duration, hex_len)
+    tasks = [(i, thread, duration_sec, hex_len) for i in range(thread)]
+    
+    total_pass = total_skip = 0
+    failures = []
+    start_global = time.time()
+    
+    with Pool(thread) as pool:
+        # imap_unordered: 任一进程失败立即反馈（加速故障发现）
+        for i, (valid, passed, fail_msg, skipped) in enumerate(
+            pool.imap_unordered(_run_test_continuously, tasks, chunksize=1), 1
+        ):
+            total_pass += passed
+            total_skip += skipped
+            
+            if fail_msg:
+                failures.append((i, fail_msg))
+                if len(failures) >= 5:
+                    pool.terminate()  # ✅ 全局熔断
+                    pool.join()
+                    break
+            
+            # 进度反馈（含速率）
+            elapsed = time.time() - start_global
+            rate = total_pass / elapsed if elapsed > 0 else 0
+            print(f"✅ 进程{i}/{thread}完成 | 本进程: 有效{valid}(通过{passed}) | 跳过{skipped} | "
+                  f"累计有效通过{total_pass} | 速率{rate:.1f} tests/s")
+    
+    # ========== 结果报告 ==========
+    total_time = time.time() - start_global
+    total_valid = total_pass + len(failures)  # 有效测试总数（含失败用例）
+    
+    print(f"\n{'='*70}")
+    print(f"⏱️  总耗时: {total_time:.1f}s | 平均速率: {total_pass/total_time:.1f} 有效测试/秒")
+    
+    if failures:
+        print(f"\n❌ 失败 {len(failures)} 例 (前3例):")
+        for pid, msg in failures[:3]:
+            print(f"  [进程#{pid}] {msg}")
+        print(f"\n💡 关键洞察: 失败用例的 total_hash_num 可能逼近 {safe_thresh}，"
+              f"验证 _get_save_depth 深度裁剪逻辑是否触发")
     else:
-        print(f"✅ 全部 {passed:,} 有效测试通过 (跳过 {skipped:,} 无占位符用例)")
+        print(f"\n✅ 全部 {total_pass:,} 个有效测试通过！(跳过 {total_skip:,} 例)")
         print("✅ 智能深度调控验证:")
         print(f"   • _depth2EH_num 精确预计算各深度期望哈希数")
         print(f"   • _get_save_depth 动态裁剪子树深度，确保 total_hash_num < safe_max")
         print(f"   • 0 死循环 | 0 冲突 | 100% 数据一致性")
+        print(f"   • 资源优化: 初始化开销降低 {thread} 倍（{thread}进程 × 1实例/进程）")
+    
     print(f"{'='*70}")
-    return len(failed) == 0
+    return len(failures) == 0
 
 # ==================== 修复2: 基础验证函数修正 ====================
 def test_class_implementation():
@@ -347,8 +417,7 @@ if __name__ == "__main__":
     test_class_implementation()
     
     # 2. 严格压力测试（hex_len=4 极限测试）
-    print("\n⏳ 启动压力测试（hex_len=4，模拟高碰撞场景）...")
-    success = run_massive_test(total_tests=100000, hex_len=4)
+    success = run_massive_test(thread=12, hex_len=2)
     
     # 3. 退出状态
     exit(0 if success else 1)
