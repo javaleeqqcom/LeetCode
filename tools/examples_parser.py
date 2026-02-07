@@ -4,7 +4,6 @@ import re,os
 from typing import List, Any, Union
 from typing import List, Dict, Any, Union, Tuple, Optional
 from collections import defaultdict
-import json
 
 """一个标准的测试样例的格式 _CASE_TYPE 可以是：
 - 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
@@ -16,78 +15,6 @@ _PARAMS = Dict[str, Any]
 _CASE_TYPE = Dict[str, Union[_PARAMS, Tuple, Any]]
 
 # _CASE_TYPE 是单个测试样例附加测试输出、期望输出、错误信息等附加信息的字典
-
-
-class CompactLeafListEncoder(json.JSONEncoder):
-    """
-    JSON编码器：外层结构保持缩进，但所有纯基本类型的叶子列表（含None）强制单行输出
-    - 无长度限制：超长列表也合并为单行（依赖编辑器自动换行）
-    - 无字符串截断：完整保留原始内容
-    - 精确判断：仅当列表所有元素均为 (int/float/str/bool/None) 时视为叶子列表
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._indent = kwargs.get('indent', None)
-    
-    def default(self, o):
-        # 用于验证 CompactLeafListEncoder 是否被正确调用
-        raise SyntaxError("CompactLeafListEncoder.default() is working!")
-        return super().default(o)
-
-    # def encode(self, obj):
-    #     # 用于验证 CompactLeafListEncoder 完全没有正常工作
-    #     raise SyntaxError("Is you seed the error, means that CompactLeafListEncoder is working.")
-    #     return "" 
-    #     if self._indent is None:
-    #         return super().encode(obj)
-    #     return self._custom_encode(obj, current_indent=0)
-
-    # def _custom_encode(self, obj, current_indent: int) -> str:
-    #     if isinstance(obj, dict):
-    #         if not obj:
-    #             return "{}"
-    #         indent_str = " " * (current_indent + self._indent)
-    #         items = [
-    #             f'{indent_str}{json.dumps(k)}: {self._custom_encode(v, current_indent + self._indent)}'
-    #             for k, v in obj.items()
-    #         ]
-    #         return "{\n" + ",\n".join(items) + "\n" + " " * current_indent + "}"
-        
-    #     elif isinstance(obj, list):
-    #         if not obj:
-    #             return "[]"
-            
-    #         # 精确判断：所有元素必须是基础类型或None
-    #         is_leaf_list = all(
-    #             isinstance(item, (int, float, str, bool)) or item is None
-    #             for item in obj
-    #         )
-            
-    #         if is_leaf_list:
-    #             # 核心优化：无条件单行输出（无论10个还是10000个元素）
-    #             return "[" + ", ".join(json.dumps(item) for item in obj) + "]"
-    #         else:
-    #             # 非叶子列表：保持标准缩进格式
-    #             indent_str = " " * (current_indent + self._indent)
-    #             items = [
-    #                 indent_str + self._custom_encode(item, current_indent + self._indent)
-    #                 for item in obj
-    #             ]
-    #             return "[\n" + ",\n".join(items) + "\n" + " " * current_indent + "]"
-        
-    #     else:
-    #         return json.dumps(obj)
-
-# 修改末尾的全局辅助函数
-def _compact_json(obj: List[_CASE_TYPE]) -> str:
-    """智能JSON序列化：外层缩进，叶子节点紧凑"""
-    return json.dumps(
-        obj,
-        cls=CompactLeafListEncoder,
-        indent=2,
-        ensure_ascii=False,
-        default=str
-    )
 
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
 def json_keywords_to_python(text: str) -> str:
@@ -199,10 +126,6 @@ def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -
         raw_cases = [block.strip() for block in raw_blocks if block.strip().startswith("输入")]
     else:
         # 元组风格：整个文件视为连续参数流
-        if params_num is None:
-            raise ValueError(
-                "解析元组风格测试样例时必须提供 params_num 参数（每个测试用例的参数数量）"
-            )
         raw_cases = [content]
     
     test_cases = []
@@ -215,6 +138,7 @@ def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -
                 test_cases.append(case_dict)
         else:
             # 元组风格：必须提供 params_num
+            assert isinstance(params_num, int), "When using _parse_tuple_style_case, the 'params_num' parameter (specifying the number of parameters per test case) must be an integer but actually got {}.".format(type(params_num).__name__)
             case_tuples = _parse_tuple_style_case(lines, params_num)
             test_cases.extend(case_tuples)
     

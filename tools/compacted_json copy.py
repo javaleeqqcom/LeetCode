@@ -299,7 +299,7 @@ class _test_CompactedJson(CompactedJson):
 
         # 空类型兜底
         return None,remain
-    
+
     def single_test_case(self,seed) -> Tuple[bool, str ,int,int]:
         """
         单次测试：科学控制叶子数组+陷阱字符串总数，杜绝死循环
