@@ -255,7 +255,7 @@ class _test_CompactedJson(CompactedJson):
         # 空类型兜底
         return None,remain
     
-    def single_test_case(self,seed) -> Tuple[bool, str]:
+    def single_test_case(self,seed) -> Tuple[bool, str ,int,int]:
         """
         单次测试：科学控制叶子数组+陷阱字符串总数，杜绝死循环
         核心机制：
@@ -277,7 +277,7 @@ class _test_CompactedJson(CompactedJson):
                 break
         else:
             # 5次均无占位符 → 跳过（无替换逻辑，基础测试已覆盖）
-            return True, "SKIP: no hashable elements"
+            return True, "SKIP: no hashable elements",0,-1
         
         # ========== 核心验证 ==========
         try:
@@ -291,10 +291,10 @@ class _test_CompactedJson(CompactedJson):
             
             # 严格一致性验证
             if std_obj != custom_obj:
-                return False, f"MISMATCH | hashes:{safe_max - remain} | obj:{str(obj)[:200]}"
-            return True, ""
+                return False, f"MISMATCH | hashes:{safe_max - remain} | obj:{str(obj)[:200]}", safe_max - remain,len(custom_json)
+            return True, "",safe_max - remain,len(custom_json)
         except Exception as e:
-            return False, f"EXCEPTION:{type(e).__name__} | hashes:{safe_max - remain} | {str(e)[:150]}"
+            return False, f"EXCEPTION:{type(e).__name__} | hashes:{safe_max - remain} | {str(e)[:150]}",safe_max - remain, -1
         
 
 # ==================== 修复2: 基础验证函数修正 ====================
@@ -321,34 +321,43 @@ import time
 from multiprocessing import Pool, cpu_count
 from typing import Tuple, Optional, Union, List
 
-def _run_test_continuously(args: Tuple[int, int, float, int]) -> Tuple[int, int, str, int, int]:
+def _run_test_continuously(args: Tuple[int, int, float, int]) -> Tuple[int, int, str, int, int, float, float,float]:
     """
     单进程持续测试：复用单个测试实例，按时间窗口循环
-    返回: (有效测试数, 通过数, 失败信息, 跳过数, hex_len)
+    返回: (有效测试数, 通过数, 失败信息, 跳过数, hex_len, 平均hash节点数量, 平均JSON长度 ,测试总时长s)
     """
     seed_0, seed_step, min_second, hex_len = args
-    tester = _test_CompactedJson(hex_len=hex_len)  # ✅ 每进程仅初始化1次
+    tester = _test_CompactedJson(hex_len=hex_len)
     start = time.time()
     valid_cnt = pass_cnt = skip_cnt = 0
-    max_iter = ((1 << 31) - 1 - seed_0) // seed_step  # 防seed溢出
+    total_hash_nodes = 0
+    total_json_length = 0
     
     iter_idx = 0
+    max_iter = ((1 << 31) - 1 - seed_0) // seed_step  # 防seed溢出
+    
     while (time.time() - start < min_second) and (iter_idx < max_iter):
         seed = seed_0 + iter_idx * seed_step
-        ok, msg = tester.single_test_case(seed)
+        ok, msg, hash_num, json_length = tester.single_test_case(seed)
         
         if msg.startswith("SKIP"):
             skip_cnt += 1
         else:
             valid_cnt += 1
+            total_hash_nodes += hash_num
+            total_json_length += json_length
             if ok:
                 pass_cnt += 1
             else:
                 # ✅ 遇失败立即返回（保留失败现场 + 当前hex_len）
-                return (valid_cnt, pass_cnt, msg, skip_cnt, hex_len)
+                return (valid_cnt, pass_cnt, msg, skip_cnt, hex_len, 0, 0 ,(time.time() - start))
         iter_idx += 1
     
-    return (valid_cnt, pass_cnt, "", skip_cnt, hex_len)  # 全部通过
+    # 计算平均值
+    avg_hash_nodes = total_hash_nodes / valid_cnt if valid_cnt > 0 else 0
+    avg_json_length = total_json_length / valid_cnt if valid_cnt > 0 else 0
+    
+    return (valid_cnt, pass_cnt, "", skip_cnt, hex_len, avg_hash_nodes, avg_json_length , (time.time() - start))
 
 def run_massive_test(
     thread: Optional[int] = None, 
@@ -380,13 +389,14 @@ def run_massive_test(
     print(f"{'='*70}\n")
     
     # ✅ 任务分配: (seed_0, seed_step=总进程数, 运行时长, hex_len)
-    # 每个hex_len分配连续thread个进程，确保负载均衡
     tasks = [
         (i, pool_cnt, per_second, hex_len_list[i // thread])
         for i in range(pool_cnt)
     ]
     
     total_pass = total_skip = 0
+    total_hash_nodes = 0
+    total_json_length = 0
     failures = []  # 存储 (任务ID, hex_len, 失败信息)
     start_global = time.time()
     
@@ -395,9 +405,11 @@ def run_massive_test(
         for task_idx, result in enumerate(
             pool.imap_unordered(_run_test_continuously, tasks, chunksize=1), 1
         ):
-            valid, passed, fail_msg, skipped, current_hex_len = result
+            valid, passed, fail_msg, skipped, current_hex_len, avg_hash_nodes, avg_json_length ,test_time = result
             total_pass += passed
             total_skip += skipped
+            total_hash_nodes += valid * avg_hash_nodes
+            total_json_length += valid * avg_json_length
             
             if fail_msg:
                 failures.append((task_idx, current_hex_len, fail_msg))
@@ -406,26 +418,30 @@ def run_massive_test(
                     pool.join()
                     break
             
-            # 精确进度反馈（含当前hex_len和实时速率）
-            elapsed = time.time() - start_global
-            rate = total_pass / elapsed if elapsed > 0.1 else 0
+            rate = (valid / test_time) if test_time > 0 else 0
             status = "⚠️" if fail_msg else "✅"
             print(f"{status} 任务{task_idx}/{pool_cnt} (hex_len={current_hex_len}) | "
-                  f"本任务: 有效{valid}(失败{valid - passed}, 跳过{skipped}) | "
-                  f"累计通过{total_pass} | 总速率{rate:.1f} tests/s")
+                  f"本任务: 有效{valid}(通过{passed}) | 跳过{skipped} | "
+                  f"平均hash节点: {avg_hash_nodes:.1f} | 平均JSON长度: {avg_json_length:.1f} | "
+                  f"子线程平均速率 {rate:.1f} 有效测试/秒")
     
     # ========== 结果报告 ==========
     total_time = time.time() - start_global
     total_valid = total_pass + len(failures)  # 有效测试总数（含失败用例）
     
+    # 计算全局平均值
+    avg_total_hash_nodes = total_hash_nodes / total_valid if total_valid > 0 else 0
+    avg_total_json_length = total_json_length / total_valid if total_valid > 0 else 0
+    
     print(f"\n{'='*70}")
     print(f"⏱️  总耗时: {total_time:.1f}s | 平均速率: {total_pass/total_time:.1f} 有效测试/秒")
     print(f"📊 总计: 有效测试 {total_valid:,} | 通过 {total_pass:,} | 跳过 {total_skip:,} | 失败 {len(failures)}")
+    print(f"   • 全局平均哈希节点数量: {avg_total_hash_nodes:.1f}")
+    print(f"   • 全局平均JSON长度: {avg_total_json_length:.1f}")
     
     if failures:
         print(f"\n❌ 失败 {len(failures)} 例 (前3例):")
         for task_id, hl, msg in failures[:3]:
-            # 从失败信息中提取关键阈值（如"threshold (179)"）
             print(f"  [任务#{task_id} | hex_len={hl}] {msg}")
         print(f"\n💡 根本原因分析:")
         print(f"   • 失败信息中 'threshold (X)' 即当前hex_len的_max_hash_num")
@@ -458,8 +474,8 @@ if __name__ == "__main__":
     # 3. 多参数压力测试（覆盖边界场景）
     success = run_massive_test(
         thread=12, 
-        hex_len=[2, 3, 4 ,5],
-        duration_sec=600.0    # 每进程60秒（总测试时长约60秒）
+        hex_len=[2, 3, 4, 5],  # hex_len=5 容量过大，通常无需测试
+        duration_sec = 120   # 总测试时长（下限）
     )
     
     # 4. 退出状态
