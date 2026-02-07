@@ -238,7 +238,7 @@ class _test_CompactedJson(CompactedJson):
             type_index = random.choices(range(len(self._weights)), self._weights.tolist())[0]
 
         if type_index < len(self._base_funs): # 是基础类型，直接返回函数和占用的哈希
-            return self._base_funs[type_index](), int(self._types[type_index] == "trap_str") # 特别注意！陷阱字符串占用 1 个哈希
+            return self._base_funs[type_index](), remain - int(self._types[type_index] == "trap_str") # 特别注意！陷阱字符串占用 1 个哈希
         elif self._types[type_index] == 'leaf_arr': # 叶子数组节点（核心测试目标）
             return self.generate_list(0,remain,random.randint(*self._LLS_range))
         elif self._types[type_index] == 'nonleaf_arr':# 非叶子数组（含嵌套结构）
@@ -458,6 +458,33 @@ def run_massive_test(
     print(f"{'='*70}")
     return len(failures) == 0
 
+def test_hex_len_variations():
+    """生成测试用例验证 hex_len 对 JSON 长度的影响"""
+    import os
+    os.makedirs("test", exist_ok=True)
+    hex_lens = [2, 3, 4, 5]
+    for hex_len in hex_lens:
+        for seed in range(3):  # 每个 hex_len 生成 3 个测试用例
+            random.seed(seed)
+            tester = _test_CompactedJson(hex_len=hex_len)
+            
+            # 生成测试对象 (确保包含足够多的叶子数组)
+            obj, _ = tester.generate_obj(depth=3, remain=1000)
+            
+            # 生成标准 JSON
+            std_json = json.dumps(obj, indent=2, ensure_ascii=False)
+            
+            # 生成压缩 JSON
+            custom_json = tester.dump(obj, indent=2, ensure_ascii=False)
+            
+            # 保存文件 (命名格式: std_2_0.json, my_2_0.json)
+            with open(f"test/std_{hex_len}_{seed}.json", "w", encoding="utf-8") as f:
+                f.write(std_json)
+            with open(f"test/my_{hex_len}_{seed}.json", "w", encoding="utf-8") as f:
+                f.write(custom_json)
+    
+    print(f"✅ 已生成 {len(hex_lens)*3} 个测试用例到 .\\test\\ 目录")
+
 # ==================== 主程序 ====================
 if __name__ == "__main__":
     # 1. 基础功能验证
@@ -471,6 +498,9 @@ if __name__ == "__main__":
     print(f"   • _depth2EH_num[:3]: {[round(x, 4) for x in test_obj._depth2EH_num[:3]]}")
     print(f"   • 理论安全阈值: {int(0.7 * (16**2) * 0.9)} | _max_hash_num: {test_obj._max_hash_num}\n")
     
+    # 保存不同长度的随机对象都Json化后的结果
+    test_hex_len_variations()
+
     # 3. 多参数压力测试（覆盖边界场景）
     success = run_massive_test(
         thread=12, 
