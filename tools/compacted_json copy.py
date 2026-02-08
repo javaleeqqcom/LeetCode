@@ -112,6 +112,16 @@ class CompactedJson:
         
         return "".join(parts)
     
+class _list_cnt():
+    def __init__(self,cnt:int = 0) -> None:
+        self.L =[]
+        self.cnt = cnt
+    def append(self, *args):
+        self.L.append(args[0])
+        self.cnt += args[1]
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        return self.L,self.cnt
+
 class _test_CompactedJson(CompactedJson):
 
     def __init__(self, hex_len: int = 4, load_factor_threshold:float=0.7, alias_prefix: str = "@" ,has_trap = True , leaf_list_same_type = False) -> None:
@@ -206,42 +216,43 @@ class _test_CompactedJson(CompactedJson):
         while depth > 0 and self._depth2EH_num[depth] >= flat:
             depth -= 1
         return depth
+    
+    # ----------------- 生成随机数据的方法 返回：（随机对象，消耗值） ------------------------
+    def _gen_int(self, *args , **kwargs) -> Tuple[Any, int]:
+        return random.randint(-100, 100), 0
 
-    def _generate_trap_string(self,**args) -> str:
-        """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
-        hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
-        return self._alias_prefix + hex_part  # 与CompactedJson默认alias_prefix一致
+    def _gen_float(self, *args , **kwargs) -> Tuple[Any, int]:
+        return random.uniform(-10.0, 10.0), 0
 
-    def _generate_safe_string(self,**args) -> str:
+    def _gen_bool(self, *args , **kwargs) -> Tuple[Any, int]:
+        return random.choice([True, False]), 0
+
+    def _gen_none(self, *args , **kwargs) -> Tuple[Any, int]:
+        return None, 0
+
+    def _generate_safe_string(self, *args , **kwargs) -> Tuple[Any, int]:
         """生成不匹配 _alias_pattern 的随机字符串"""
-        length = random.randint(1, self._hex_len+3)
+        length = random.randint(1, self._hex_len + 3)
         while True:
             s = ''.join(random.choices(self.CHARSET, k=length))
             if re.match(self._alias_pattern, s) is None:
-                return s
+                return s, 0
 
-    def _gen_int(self,**args) -> int:
-        return random.randint(-100, 100)
+    def _generate_trap_string(self, *args , **kwargs) -> Tuple[Any, int]:
+        """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
+        hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
+        return self._alias_prefix + hex_part, 1
     
-    def _gen_float(self,**args) -> float:
-        return random.uniform(-10.0, 10.0)
-    
-    def _gen_bool(self,**args) -> bool:
-        return random.choice([True, False])
-    
-    def _gen_none(self,**args) -> None:
-        return None
-
-    # 字典键值生成函数
     def _keys_random(self ,size:int) -> Tuple[List[str],int]:
+        """字典键值生成函数"""
         res_L = [""]*size
         hash_num = 0
         for i in range(size):
             if random.random() < self._trap_key_rate:
-                res_L[i] = self._generate_trap_string() 
+                res_L[i],_ = self._generate_trap_string() 
                 hash_num += 1
             else:
-                res_L[i] = self._generate_safe_string()
+                res_L[i],_ = self._generate_safe_string()
         return res_L,hash_num
 
     def generate_list(self,sub_depth: int, remain:int, size:int) -> Tuple[List[Any],int]:
@@ -254,22 +265,22 @@ class _test_CompactedJson(CompactedJson):
         :rtype: Tuple[List[Any], int]
         """
         assert remain>0
-        remain -= 1 # 因为 res 有可能占用 哈希数，先预减1
-        sub_depth = self._get_save_depth(sub_depth,remain,size) # 重新预估深度
-        if self._LLsame and sub_depth == 0: # 叶子数组要求为同一种元素
-            type_index = random.choices(range(len(self._base_funs)-1), self._base_weights[:-1])[0]
-            res = [self._base_funs[type_index]() for _ in range(size)]
+        res_cost = _list_cnt(1) # 列表本身占用1个哈希
+        sub_depth = self._get_save_depth(sub_depth,remain - res_cost.cnt ,size) # 重新预估深度
+        
+        if self._LLsame and sub_depth == 0:
+            type_index = random.choices(range(len(self._base_funs) - 1), self._base_weights[:-1])[0]
+            for _ in range(size):
+                res_cost.append(self._base_funs[type_index]())
+                if remain <= res_cost.cnt: break
         else:
             res = []
             for _ in range(size):
-                if remain >0:
-                    sub ,remain = self.generate_obj(sub_depth,remain)
-                    res.append(sub)
-                else:break
-            # 若返回的不是叶子序列，哈希数 还原+1
-            if sub_depth>0 and (not self._is_leaf_sequence(res)):
-                return res,remain +1
-        return res,remain
+                res_cost.append(self.generate_obj(sub_depth, remain - res_cost.cnt))
+                if remain <= res_cost.cnt: break
+            if sub_depth > 0 and (not self._is_leaf_sequence(res)):
+                res_cost.cnt -= 1
+        return res_cost()
 
     # ========== 递归生成函数（禁用全局变量） ==========
     def generate_obj(self,depth: int, remain:int) -> Tuple[Any,int]:
