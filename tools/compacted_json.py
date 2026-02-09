@@ -9,14 +9,34 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 import numpy as np
 
+# ==================== 辅助函数和类定义 ====================
+# 判断是否为叶子序列（list/tuple + 元素全为基础类型）
+def _is_leaf_sequence( obj: Any) -> bool:
+    """判断是否为叶子序列（list/tuple + 元素全为基础类型）"""
+    if not isinstance(obj, (list, tuple)):
+        return False
+    return all(isinstance(x, (int, float, str, bool, type(None))) for x in obj)
+
+class _alias:
+    """ 以 f'{alias_prefix}{hex_len位十六进制数}' 的格式作为别名"""
+    def __init__(self,hex_len: int = 32, alias_prefix: str = "@" ) -> None:
+        if hex_len <= 0:
+            raise ValueError("hex_len must be positive")
+        if not alias_prefix:
+            raise ValueError("alias_prefix cannot be empty")
+        self._hex_len = hex_len
+        self._alias_prefix = alias_prefix
+        # 动态构建正则表达式（转义特殊字符）
+        escaped_prefix = re.escape(alias_prefix)
+        self._alias_pattern = re.compile(rf'"({escaped_prefix}[0-9a-fA-F]{{{hex_len}}})"')
+
 # ==================== 核心类实现（题目指定不改动） ====================
-class CompactedJson:
+class CompactedJson(_alias):
     """
     定向序列化实现：仅叶子数组（基础类型+None）输出为紧凑单行格式
     核心思路：唯一占位符替换 + 精确字符串替换，避免递归序列化开销
     保证：dump输出反序列化结果 ≡ json.dumps输出反序列化结果
     """
-    
     def __init__(self, hex_len: int = 32, load_factor_threshold = 0.7, alias_prefix: str = "@" ) -> None:
         """
         初始化配置
@@ -26,25 +46,12 @@ class CompactedJson:
             load_factor_threshold: 负载因子阈值（默认0.7）
             alias_prefix: 占位符前缀（默认"@"）
         """
-        if hex_len <= 0:
-            raise ValueError("hex_len must be positive")
-        if not alias_prefix:
-            raise ValueError("alias_prefix cannot be empty")
+        super().__init__(hex_len,alias_prefix)
+
         if not (0 < load_factor_threshold < 1):
             raise ValueError("load_factor_threshold must be in (0,1)")
             
-        self._hex_len = hex_len
         self._max_hash_num = int(load_factor_threshold * (16 ** hex_len))
-        self._alias_prefix = alias_prefix
-        # 动态构建正则表达式（转义特殊字符）
-        escaped_prefix = re.escape(alias_prefix)
-        self._alias_pattern = re.compile(rf'"({escaped_prefix}[0-9a-fA-F]{{{hex_len}}})"')
-
-    def _is_leaf_sequence(self, obj: Any) -> bool:
-        """判断是否为叶子序列（list/tuple + 元素全为基础类型）"""
-        if not isinstance(obj, (list, tuple)):
-            return False
-        return all(isinstance(x, (int, float, str, bool, type(None))) for x in obj)
 
     def dumps(self, obj: Any, **kwargs) -> str:
         """
@@ -66,7 +73,7 @@ class CompactedJson:
         alias_obj_list: List[Tuple[str, str]] = []  # [(占位符JSON字符串, 紧凑数组JSON字符串), ...]
         
         def replace_with_alias(sub_obj: Any) -> Any:
-            if self._is_leaf_sequence(sub_obj):
+            if _is_leaf_sequence(sub_obj):
                 # 生成唯一占位符（避开原始数据中已存在的）
                 while True:
                     hash_code = uuid.uuid4().hex[:self._hex_len]
@@ -267,7 +274,7 @@ class _test_CompactedJson(CompactedJson):
                     res.append(sub)
                 else:break
             # 若返回的不是叶子序列，哈希数 还原+1
-            if sub_depth>0 and (not self._is_leaf_sequence(res)):
+            if sub_depth>0 and (not _is_leaf_sequence(res)):
                 return res,remain +1
         return res,remain
 
