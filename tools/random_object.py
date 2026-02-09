@@ -74,14 +74,31 @@ class _meta_random:
         else:
             return self.funcs[idx](*args, **kwargs)
 
-    def __add__(self, other: '_meta_random') -> '_meta_random':
-        """合并两个 _meta_random 对象"""
-        # 合并函数列表
-        new_func_list = list(zip(self.funcs, self.weights, self.cost))
-        new_func_list.extend(zip(other.funcs, other.weights, other.cost))
+    def __add__(self, other) -> '_meta_random':
+        """
+        智能合并生成器：
+        1. 若 other 有 as_funcwc() -> 提取 (callable, weight, cost)
+        2. 若 other 是 _meta_random -> 合并内部函数列表
+        3. 若 other 是 (callable, weight, cost) 元组 -> 直接添加
+        """
+        new_list = list(zip(self.funcs, self.weights, self.cost))
         
-        # 创建新的 _meta_random 对象
-        return _meta_random(new_func_list)
+        # 情况2: other 是 _meta_random
+        if isinstance(other, _meta_random):
+            new_list.extend(zip(other.funcs, other.weights, other.cost))
+        
+        # 情况3: other 是 (func, weight, cost) 元组
+        elif isinstance(other, tuple) and len(other) == 3 and callable(other[0]):
+            new_list.append(other)
+        else:
+            raise TypeError(
+                f"不支持的加法操作数类型: {type(other)}。\n"
+                "请确保 other 是:\n"
+                "  • _meta_random 实例\n"
+                "  • (callable, weight, cost) 元组"
+            )
+        
+        return _meta_random(new_list)
 
 # 定义 _size_random 类
 class _size_random:
@@ -291,7 +308,7 @@ if __name__ == "__main__":
     listRandom = _list_random(size_random, _LLcost1)
 
     # 将列表随机生成器与基础随机生成器结合，作为最终的随机对象生成器
-    merge_random = leaf_base + listRandom  # 需实现加法重载
+    merge_random = leaf_base + (listRandom , 10, None)
 
     # 易错！必须绑定 _list_random 对象的 sub_random 方法
     listRandom.bind_method(merge_random)
