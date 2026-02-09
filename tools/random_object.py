@@ -23,12 +23,13 @@ class _alias_str_generator(_alias):
         super().__init__(hex_len, alias_prefix)
         self.CHARSET = tuple(set('"' + "'" + "{}[]" + self._alias_prefix + string.digits + string.ascii_letters))
 
-    def _generate_trap_string(self) -> str:
+    # 易错点！ 必须采用兼容的输入参数 *args ,**kwargs，否则无法正确调用
+    def _generate_trap_string(self, *args ,**kwargs) -> str:
         """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
         hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
         return self._alias_prefix + hex_part  # 与CompactedJson默认alias_prefix一致
 
-    def _generate_safe_string(self) -> str:
+    def _generate_safe_string(self, *args ,**kwargs) -> str:
         """生成不匹配 _alias_pattern 的随机字符串"""
         length = random.randint(1, self._hex_len+3)
         while True:
@@ -145,25 +146,24 @@ class _recursive_random(_meta_random):
         
         # 计算列表花费
         if callable(self.list_cost):
-            remain_after_list = remain - self.list_cost(depth, size)
+            remain_after = remain - self.list_cost(depth, size)
         else:
-            remain_after_list = remain - self.list_cost
+            remain_after = remain - self.list_cost
         
         # 如果无法支付列表花费，返回叶子节点
-        if depth == 0 or remain_after_list < 0:
+        if depth == 0 or remain_after < 0:
             return self.leaf_random(depth, remain)
         
-        # 递归生成列表元素
-        res = []
-        for _ in range(size):
-            item, cost = self(depth - 1, remain_after_list)
-            res.append(item)
-            remain_after_list -= cost
-            if remain_after_list < 0:
-                # 无法支付剩余元素，提前结束
-                break
+        # 列表至少为1层
+        res = [None]*size
+        for i in range(size):
+            # 递归调用
+            res[i],c = self.__call__(depth = depth-1 ,remain = remain_after)
+            remain_after -= c
+            if remain_after < 0: # 放弃第 i 项，提前结束
+                return res[:i] , remain - (remain_after + c)
         
-        return res, remain - remain_after_list
+        return res, remain - remain_after
 
 # 用于测试的示例
 if __name__ == "__main__":
@@ -186,6 +186,6 @@ if __name__ == "__main__":
     listRandom = _recursive_random(size_random, _LLcost1, leaf_base)
     
     # 生成一个随机对象
-    obj, cost = listRandom(depth=10, remain=1000)
+    obj, cost = listRandom(depth=100, remain=1000)
     print(f"生成的随机对象: {obj}")
     print(f"花费: {cost}")
