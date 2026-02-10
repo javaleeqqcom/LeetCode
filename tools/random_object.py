@@ -40,63 +40,105 @@ class _alias_str_generator(_alias):
             if re.match(self._alias_pattern, s) is None:
                 return s
 
-# 定义元组类型
-FuncWC = Tuple[Callable, Union[int, float], Optional[Union[int, float]]]
+from typing import List, Tuple, Any, Union, Callable, TypeVar, overload
+import random
 
-# 定义 _meta_random 类
+# 类型别名
+_FuncWC = TypeVar('_FuncWC', bound='_func_weight_cost')
+_META = TypeVar('_META', bound='_meta_random')
+_META_LIKE = Union[_META,List[_FuncWC]]
+
+from typing import Callable, Union, Tuple
+
+class _func_weight_cost:
+    def __init__(self, func: Callable, weight: Union[float, int], cost_0阶差分 ,cost_1阶差分 = 0):
+        self.func = func
+        assert weight >= 0
+        self.weight = weight
+        self.cost0 = cost_0阶差分
+        self.cost1 = cost_1阶差分
+
+    def is_fixed(self) -> bool:
+        """是否为固定 cost"""
+        return isinstance(self.cost0 ,(float|int)) and (self.cost1 is 0)
+    
+    def __lt__(self, other: '_func_weight_cost') -> bool:
+        # 两者都是固定或都是非固定
+        if self.is_fixed() and other.is_fixed() and self.cost0 != other.cost0:
+            # 固定：先按 cost 升序，再按 weight 降序
+            return self.cost0 < other.cost0
+        else:
+            # cost 相同，按 weight 降序
+            return self.weight > other.weight
+
 class _meta_random:
     """根据 func_weight_cost 元组中的：（可调用方法，权重，花费）依据各项的权重随机抽取一个可调用方法，返回其结果和花费。
-     若cost为 None 则该方法为可变花费，要求方法返回一个元组（结果，花费）。
+     若 cost 为 Tuple[Callable,Callable] 则为可变花费，通常用于非叶子节点随机对象，要求`可调用方法`必须返回一个元组（结果，花费）。
     """
-    def __init__(self, fun_w_c_list: List[FuncWC] ,):
-        self.size = len(fun_w_c_list)
-        self.funcs = tuple(fwc[0] for fwc in fun_w_c_list)
-        self.weights = tuple(max(0, fwc[1]) for fwc in fun_w_c_list)
-        self.cost = tuple(fwc[2] for fwc in fun_w_c_list)
     
-    def leaf_filter(self) -> List[FuncWC]:
-        """过滤叶子节点（cost 不为 None 的方法）"""
-        return [fwc for fwc in zip(self.funcs, self.weights, self.cost) if fwc[2] is not None]
-    
-    def expectations(self, *args, **kwargs) -> float:
-        """计算期望花费"""
-        total = 0
-        for i in range(self.size):
-            if self.cost[i] is not None:
-                total += self.weights[i] * self.cost[i]
-        return total / sum(self.weights)
-    
-    def __len__(self):
-        return self.size
-    
-    def __call__(self, *args, **kwargs) -> Tuple[Any, Union[int, float]]:
-        """返回（随机对象，实际花费）"""
-        idx = random.choices(range(self.size), self.weights)[0]
-        if self.cost[idx] is not None:
-            return self.funcs[idx](*args, **kwargs), self.cost[idx]
-        else:
-            return self.funcs[idx](*args, **kwargs)
+    def __init__(self, source: List[_func_weight_cost]):
+        self.data = sorted(source)
+        self.weights = tuple(obj.weight for obj in self.data)  # 当 data 变动时，由于排序，必须重新赋值。故用 tuple 存储，禁止追加修改。
+        self.total_weight = sum(self.weights)
+        self.fixed_weights = tuple(obj.weight for obj in self.data if obj.is_fixed()) 
+        self.fixed_num = len(self.fixed_weights)
 
-    def __add__(self, other: Union['_meta_random' , FuncWC]) -> '_meta_random':
-        """ 智能合并生成器：
-        1. 若 other 是 _meta_random -> 合并内部函数列表
-        2. 若 other 是 (callable, weight, cost) 元组 -> 直接添加
-        """
-        new_list = list(zip(self.funcs, self.weights, self.cost))
-        # 情况1: other 是 _meta_random
-        if isinstance(other, _meta_random):
-            new_list.extend(zip(other.funcs, other.weights, other.cost))
-        # 情况2: other 是 (func, weight, cost) 元组
-        elif isinstance(other, tuple) and len(other) == 3 and callable(other[0]):
-            new_list.append(other)
+        # 计算期望花费数组
+        self._dp_expectations = [
+            sum(
+                self.data[i].weight*self.data[i].cost0 
+                for i in range(self.fixed_num)
+            )/self.total_weight # 固定花费的期望
+            ]
+
+    def expectations(self, **kwargs) -> float:
+        """估计随机对象在不限制总消费（remain = inf）下 depth 层递归的期望消费"""
+        depth = kwargs.get('depth', -1)  # 获取 depth 参数，如果没有则使用默认值
+        # 采用记忆化 DP
+        if depth < len(self._dp_expectations):
+            return self._dp_expectations[depth] if depth >= 0 else 0
         else:
-            raise TypeError(
-                f"不支持的加法操作数类型: {type(other)}。\n"
-                "请确保 other 是:\n"
-                " • _meta_random 实例\n"
-                " • (callable, weight, cost) 元组"
-            )
-        return _meta_random(new_list)
+            assert depth > 0, # 0==len(_dp_expectations)错误！需要重新初始化 _dp_expectations
+            for d in range(len(self._dp_expectations),depth+1):
+                res = self._dp_expectations[0] # 首先是固定期望花费
+                for obj in self.data[self.fixed_num:]:
+                    cost0 = obj.cost0 if isinstance(obj.cost0,(float|int)) else obj.cost0(**kwargs)
+                    cost1 = obj.cost1 if isinstance(obj.cost1,(float|int)) else obj.cost1(**kwargs)
+                    res += obj.weight/self.total_weight * (cost0 + cost1*self.expectations(depth=d-1) )
+                self._dp_expectations[d] = res
+            return self._dp_expectations[depth]
+
+    def _get_safe_depth(self, depth: int, remain: int) -> int:
+        """根据 remain 估算安全深度"""
+        # 从高深度开始，找到最大的深度 d 使得 _cost_estimate[d] <= remain
+        for d in range(min(depth, len(self._dp_expectations)-1), -1, -1):
+            if self._dp_expectations[d] <= remain: return d
+        return 0
+
+    def __len__(self):
+        return len(self.data)
+
+    def __call__(self,*args, **kwargs) -> Tuple[Any, Union[int, float]]:
+        depth = kwargs.get("depth",0)
+        if 0==depth:
+            idx = random.choices(range(self.fixed_num), self.fixed_weights)[0]
+        else:
+            idx = random.choices(range(len(self)), self.weights)[0]
+        if idx < self.fixed_num:
+            return self.data[idx].func(*args, **kwargs), self.data[idx].cost
+        else:
+            obj,cost = self.data[idx].func(*args, **kwargs)
+            assert isinstance(cost, Union[int,float]), f"可变花费方法 {self.data[idx].func} 未返回 (结果, 花费) 元组"
+            return obj,cost
+
+    def __add__(self: _META, other: Union[_META, _FuncWC]) -> _META:
+        """合并后返回 self 的同类实例（支持子类）"""
+        ？
+        # 合并
+        combined = self + other_list
+        
+        # 使用 self 的类构造新实例（关键！）
+        return self.__class__(combined)
 
 class _size_random:
     """根据非负分布函数生成随机整数，并提供理论期望与方差（连续分布）"""
@@ -209,61 +251,23 @@ class _size_random:
         """返回原始连续分布的理论方差（非取整后）"""
         return self._theoretical_second_moment - self._theoretical_mean ** 2
 
-# 定义 _LLcost1 函数
-def _LLcost1(depth: int, size: int) -> int:
-    """仅叶子列表（层级为1）花费1点"""
-    return 1 if depth == 1 else 0
-
-class _list_random(_meta_random):
-    def __init__(self, size_random: _size_random, list_cost_fun: Union[int, float, Callable] ,leaf_random:_meta_random) -> None:
-        self = 
+class make_list_FuncWC:
+    def __init__(self, size_random: _size_random, list_cost_fun: Union[int, float, Callable]) -> None:
         self.sizeRandom = size_random
         self.branch_cost = list_cost_fun
-        self._cost_estimate = [self.leaf_random.expectations() if hasattr(self, 'leaf_random') else 0]
+    def toFuncWC(self, weight:Union[float,int]) -> _func_weight_cost:
+        """导出 _FuncWC 以供合并调用，需要设置权重"""
+        return _func_weight_cost(self, weight=weight, cost_or_2fun=(list_cost_fun, self.sizeRandom.mean()))
 
-    def expectations(self,depth:int) -> float:
-        """估计本随机对象在不限制总消费（remain = inf）下 depth 层递归的期望消费"""
-        # 采用记忆化 DP
-        if depth < len(self._cost_estimate):
-            return self._cost_estimate[depth]
-        else:
-            assert isinstance(self.sub_random, _meta_random)
-            base_cost = self.leaf_random.expectations()
-            for d in range(len(self._cost_estimate),depth+1):
-                # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
-                list_cost = self.branch_cost(d, self.sizeRandom.mean()) if callable(self.branch_cost) else self.branch_cost
-                self._cost_estimate[d] = 
-
-    def _init_cost_estimate(self):
-        # 预估期望花费数组
-        self._cost_estimate = [0.0] * (sys.getrecursionlimit()-1) # 系统递归池最大深度
-        self._cost_estimate[0] = self.leaf_random.expectations() if hasattr(self, 'leaf_random') else 0
-        
-        # 预估非叶子节点的期望花费
-        for d in range(1, len(self._cost_estimate)):
-            # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
-            list_cost = self.branch_cost(d, self.sizeRandom.mean()) if callable(self.branch_cost) else self.branch_cost
-            
-            # 非叶子节点的期望花费
-            self._cost_estimate[d] = list_cost + self._cost_estimate[d-1] * self.sizeRandom.mean()
-    
     def _bind_error(self):
         raise ValueError("请先执行 bind_method，方可使用 __call__")
     
     def bind_method(self, sub_random: _meta_random) -> None:
-        self = sub_random
+        self.sub_random = sub_random
         # 不再通过 leaf_random 来额外区分叶子节点的调用函数，而是通过 cost 为非 None 这一叶子对象特征作为依据。
-        self.leaf_random = _meta_random(list(sub_random.leaf_filter()))
+        self.leaf_random = _meta_random(list(sub_random._extract_leaf()))
         self.method_size = len(sub_random)
     
-    def _get_safe_depth(self, depth: int, remain: int) -> int:
-        """根据 remain 估算安全深度"""
-        # 从高深度开始，找到最大的深度 d 使得 _cost_estimate[d] <= remain
-        for d in range(min(depth, len(self._cost_estimate)-1), -1, -1):
-            if self._cost_estimate[d] <= remain:
-                return d
-        return 0
-
     def __call__(self, depth: int, remain: int) -> Tuple[Any, float]:
         """生成列表 Args: depth: 当前深度 remain: 剩余花费 """
         # 1. 计算安全深度
@@ -293,8 +297,15 @@ class _list_random(_meta_random):
                 return res[:i], remain - (remain_after + c)
         
         return res, remain - cost
+    
+    # 仅叶子列表（层级为1）花费1点
+    @staticmethod
+    def _LLcost1(depth: int, size: int) -> int:
+        """仅叶子列表（层级为1）花费1点"""
+        return 1 if depth == 1 else 0
 
-class _dict_random(_list_random):
+
+class _dict_random(make_list_FuncWC):
     def __init__(self, size_random: _size_random, dict_cost_fun: Union[int, float, Callable]) -> None:
         super...
 
@@ -333,7 +344,7 @@ if __name__ == "__main__":
     print( "E(size)={:.2f} , D(size)={:.2f}".format(size_random.mean(), size_random.std()) )
     
     # 创建递归列表随机生成器
-    listRandom = _list_random(size_random, list_cost_fun=_LLcost1)
+    listRandom = make_list_FuncWC(size_random, list_cost_fun=_LLcost1)
     
     # 将列表随机生成器与基础随机生成器结合，作为最终的随机对象生成器
     merge_random = leaf_base + (listRandom, 10, None)  # 需实现加法重载
