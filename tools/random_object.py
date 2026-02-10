@@ -74,20 +74,18 @@ class _meta_random:
         else:
             return self.funcs[idx](*args, **kwargs)
 
-    def __add__(self, other) -> '_meta_random':
+    def __add__(self, other: Union['_meta_random' , FuncWC]) -> '_meta_random':
         """
         智能合并生成器：
-        1. 若 other 有 as_funcwc() -> 提取 (callable, weight, cost)
-        2. 若 other 是 _meta_random -> 合并内部函数列表
-        3. 若 other 是 (callable, weight, cost) 元组 -> 直接添加
+        1. 若 other 是 _meta_random -> 合并内部函数列表
+        2. 若 other 是 (callable, weight, cost) 元组 -> 直接添加
         """
         new_list = list(zip(self.funcs, self.weights, self.cost))
         
-        # 情况2: other 是 _meta_random
+        # 情况1: other 是 _meta_random
         if isinstance(other, _meta_random):
             new_list.extend(zip(other.funcs, other.weights, other.cost))
-        
-        # 情况3: other 是 (func, weight, cost) 元组
+        # 情况2: other 是 (func, weight, cost) 元组
         elif isinstance(other, tuple) and len(other) == 3 and callable(other[0]):
             new_list.append(other)
         else:
@@ -160,10 +158,10 @@ class _size_random:
         if norm_dist not in self._SUPPORTED:
             raise ValueError(
                 f"不支持的分布 '{distribution}'。支持的非负分布: "
-                "exp/exponential, gamma, weibull, lognorm/lognormal, pareto, beta"
+                "exp/exponential, gamma, weibull, lognorm/lognormal, pareto, beta, uniform"
             )
         self._dist_key = norm_dist  # 内部使用标准前缀
-
+        
         # ===== 特殊处理均匀分布 =====
         if norm_dist == 'uniform':
             self._init_uniform(**kwargs)
@@ -197,18 +195,12 @@ class _size_random:
 
     def _init_uniform(self, a=None, b=None, **kwargs):
         """初始化均匀分布：严格校验非负性，调整参数区间，计算理论矩"""
-        assert isinstance(a,int) and isinstance(b,int), f"The parameters of the integer type uniform distribution must be integers." # 整数型均匀分布的参数必须是整数
-        assert 0 <= a <= b, "Parameters a and b must satisfy 0 <= a < = b." # 参数 a 和 b 必须满足 0 <= a <= b
+        assert isinstance(a, int) and isinstance(b, int), f"The parameters of the integer type uniform distribution must be integers."
+        assert 0 <= a <= b, "Parameters a and b must satisfy 0 <= a <= b."
         
-        # 按题目要求调整区间：[ceil(a)-0.5, floor(b)+0.5]
-        a = math.ceil(a) - 0.5
-        b = math.floor(b) + 0.5
-        
-        # 存储调整后参数（供 __call__ 使用）
-        self.a = a
-        self.b = b
+        # 存储参数（供 __call__ 使用）
         self._random_method = random.randint  # 注意：调用需位置参数
-
+        self.kwargs = {"a":a ,"b":b}
         # 理论矩计算（基于调整后的连续均匀分布 [low_adj, high_adj]）
         self._theoretical_mean = (a + b) / 2.0
         # 均匀分布二阶矩公式: E[X²] = (low² + low·high + high²) / 3
@@ -293,27 +285,29 @@ if __name__ == "__main__":
     
     # 创建基础随机生成器
     leaf_base = _meta_random([
-        (_int, 2, 0),
-        (_float, 2, 0),
-        (_bool, 1, 0),
+        (_int, 2, 1),
+        (_float, 2, 1),
+        (_bool, 1, 1),
         (_none, 1, 0),
-        (alias._generate_safe_string, 2, 0),
-        (alias._generate_trap_string, 2, 1),
+        (alias._generate_safe_string, 2, 1),
+        (alias._generate_trap_string, 2, 2),
     ])
     
     # 创建列表大小随机生成器（均匀分布，0-100）
     size_random = _size_random('uniform', a=0, b=100)
     
     # 创建递归列表随机生成器
-    listRandom = _list_random(size_random, _LLcost1)
+    listRandom = _list_random(size_random, list_cost_fun= 0)
 
     # 将列表随机生成器与基础随机生成器结合，作为最终的随机对象生成器
-    merge_random = leaf_base + (listRandom , 10, None)
+    merge_random = leaf_base  + (listRandom , 10, None)  # 需实现加法重载
 
     # 易错！必须绑定 _list_random 对象的 sub_random 方法
     listRandom.bind_method(merge_random)
     
     # 生成一个随机对象
-    obj, cost = merge_random(depth=100, remain=1000)
+    depth ,remain = 100,10
+    print(f"depth:{depth},remain:{remain}")
+    obj, cost = merge_random(depth=depth, remain=remain)
     print(f"生成的随机对象: {obj}")
     print(f"花费: {cost}")
