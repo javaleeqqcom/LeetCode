@@ -98,7 +98,6 @@ class _meta_random:
             )
         return _meta_random(new_list)
 
-# 定义 _size_random 类
 class _size_random:
     """根据非负分布函数生成随机整数，并提供理论期望与方差（连续分布）"""
     # 用户友好别名映射 -> 标准前缀（用于拼接 *variate）
@@ -109,41 +108,6 @@ class _size_random:
     }
     # 支持的非负分布标准前缀
     _SUPPORTED = {'expo', 'gamma', 'weibull', 'lognorm', 'pareto', 'beta', 'uniform'}
-    
-    # 理论矩计算与参数校验（标准前缀 -> (参数校验, 期望, 二阶矩)）
-    _MOMENT_SPECS = {
-        'expo': (
-            lambda kw: kw.get('lambd', 0) > 0,
-            lambda kw: 1.0 / kw['lambd'],
-            lambda kw: 2.0 / (kw['lambd'] ** 2)
-        ),
-        'gamma': (
-            lambda kw: kw.get('alpha', 0) > 0 and kw.get('beta', 0) > 0,
-            lambda kw: kw['alpha'] * kw['beta'],
-            lambda kw: kw['alpha'] * (kw['alpha'] + 1) * (kw['beta'] ** 2)
-        ),
-        'weibull': (
-            lambda kw: kw.get('alpha', 0) > 0 and kw.get('beta', 0) > 0,
-            lambda kw: kw['alpha'] * math.gamma(1 + 1 / kw['beta']),
-            lambda kw: (kw['alpha'] ** 2) * math.gamma(1 + 2 / kw['beta'])
-        ),
-        'lognorm': (
-            lambda kw: 'mu' in kw and kw.get('sigma', 0) > 0,
-            lambda kw: math.exp(kw['mu'] + kw['sigma'] ** 2 / 2),
-            lambda kw: math.exp(2 * kw['mu'] + 2 * (kw['sigma'] ** 2))
-        ),
-        'pareto': (
-            # 要求 alpha > 2 以保证期望和二阶矩均存在
-            lambda kw: kw.get('alpha', 0) > 2,
-            lambda kw: kw['alpha'] / (kw['alpha'] - 1),
-            lambda kw: kw['alpha'] / (kw['alpha'] - 2)
-        ),
-        'beta': (
-            lambda kw: kw.get('alpha', 0) > 0 and kw.get('beta', 0) > 0,
-            lambda kw: kw['alpha'] / (kw['alpha'] + kw['beta']),
-            lambda kw: (kw['alpha'] * (kw['alpha'] + 1)) / ((kw['alpha'] + kw['beta']) * (kw['alpha'] + kw['beta'] + 1))
-        )
-    }
 
     def __init__(self, distribution: str, **kwargs):
         # 1. 标准化分布名称
@@ -153,65 +117,95 @@ class _size_random:
                 f"不支持的分布 '{distribution}'。支持的非负分布: "
                 "exp/exponential, gamma, weibull, lognorm/lognormal, pareto, beta, uniform"
             )
-        self._dist_key = norm_dist  # 内部使用标准前缀
-        
-        # ===== 特殊处理均匀分布 =====
-        if norm_dist == 'uniform':
-            self._init_uniform(**kwargs)
-            return
-        
-        # 2. 获取 random 分布函数
-        func_name = f"{norm_dist}variate"
-        if not hasattr(random, func_name):
-            raise RuntimeError(f"random 模块缺少函数: {func_name}")
-        self._random_method = getattr(random, func_name)
-        self.kwargs = kwargs.copy()
-        
-        # 3. 参数校验 + 理论矩计算
-        validator, mean_func, second_func = self._MOMENT_SPECS[norm_dist]
-        if not validator(kwargs):
-            req = {
-                'expo': "lambd > 0",
-                'gamma': "alpha > 0, beta > 0",
-                'weibull': "alpha > 0, beta > 0",
-                'lognorm': "mu (任意), sigma > 0",
-                'pareto': "alpha > 2 (确保期望和方差存在)",
-                'beta': "alpha > 0, beta > 0"
-            }[norm_dist]
-            raise ValueError(f"分布 '{distribution}' 参数无效。要求: {req}, 当前: {kwargs}")
-        
-        try:
-            self._theoretical_mean = mean_func(kwargs)
-            self._theoretical_second_moment = second_func(kwargs)
-        except Exception as e:
-            raise ValueError(f"计算分布 '{distribution}' 理论矩失败: {e}")
+        self._dist_key = norm_dist
 
-    def _init_uniform(self, a=None, b=None, **kwargs):
-        """初始化均匀分布：严格校验非负性，调整参数区间，计算理论矩"""
-        assert isinstance(a, int) and isinstance(b, int), f"The parameters of the integer type uniform distribution must be integers."
-        assert 0 <= a <= b, "Parameters a and b must satisfy 0 <= a <= b."
-        # 存储参数（供 __call__ 使用）
-        self._random_method = random.randint
-        self.kwargs = {"a": a, "b": b}
-        # 理论矩计算（基于调整后的连续均匀分布 [low_adj, high_adj]）
-        self._theoretical_mean = (a + b) / 2.0
-        # 均匀分布二阶矩公式: E[X²] = (low² + low·high + high²) / 3
-        self._theoretical_second_moment = (a * a + a * b + b * b) / 3.0
+        # 2. 按分布类型初始化：参数校验 + 设置随机方法 + 计算理论矩
+        if norm_dist == 'uniform':
+            # ===== 均匀分布：严格校验整数参数与非负区间 =====
+            a = kwargs.get('a')
+            b = kwargs.get('b')
+            if not (isinstance(a, int) and isinstance(b, int)):
+                raise ValueError(f"均匀分布参数 a 和 b 必须为整数类型，当前: a={type(a)}, b={type(b)}")
+            if not (0 <= a <= b):
+                raise ValueError(f"均匀分布参数需满足 0 <= a <= b，当前: a={a}, b={b}")
+            self._random_method = random.randint  # 模块级函数，pickle 安全
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = (a + b) / 2.0
+            self._theoretical_second_moment = (a * a + a * b + b * b) / 3.0
+
+        elif norm_dist == 'expo':
+            lambd = kwargs.get('lambd')
+            if not (isinstance(lambd, (int, float)) and lambd > 0):
+                raise ValueError(f"指数分布参数 lambd 必须 > 0，当前: lambd={lambd}")
+            self._random_method = random.expovariate
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = 1.0 / lambd
+            self._theoretical_second_moment = 2.0 / (lambd ** 2)
+
+        elif norm_dist == 'gamma':
+            alpha = kwargs.get('alpha')
+            beta = kwargs.get('beta')
+            if not (isinstance(alpha, (int, float)) and isinstance(beta, (int, float)) and alpha > 0 and beta > 0):
+                raise ValueError(f"Gamma 分布参数需满足 alpha > 0, beta > 0，当前: alpha={alpha}, beta={beta}")
+            self._random_method = random.gammavariate
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = alpha * beta
+            self._theoretical_second_moment = alpha * (alpha + 1) * (beta ** 2)
+
+        elif norm_dist == 'weibull':
+            alpha = kwargs.get('alpha')
+            beta = kwargs.get('beta')
+            if not (isinstance(alpha, (int, float)) and isinstance(beta, (int, float)) and alpha > 0 and beta > 0):
+                raise ValueError(f"Weibull 分布参数需满足 alpha > 0, beta > 0，当前: alpha={alpha}, beta={beta}")
+            self._random_method = random.weibullvariate
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = alpha * math.gamma(1.0 + 1.0 / beta)
+            self._theoretical_second_moment = (alpha ** 2) * math.gamma(1.0 + 2.0 / beta)
+
+        elif norm_dist == 'lognorm':
+            mu = kwargs.get('mu')
+            sigma = kwargs.get('sigma')
+            if mu is None or not (isinstance(sigma, (int, float)) and sigma > 0):
+                raise ValueError(f"对数正态分布参数需满足 mu 任意, sigma > 0，当前: mu={mu}, sigma={sigma}")
+            self._random_method = random.lognormvariate
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = math.exp(mu + sigma ** 2 / 2.0)
+            self._theoretical_second_moment = math.exp(2.0 * mu + 2.0 * (sigma ** 2))
+
+        elif norm_dist == 'pareto':
+            alpha = kwargs.get('alpha')
+            if not (isinstance(alpha, (int, float)) and alpha > 2):
+                raise ValueError(f"Pareto 分布参数 alpha 必须 > 2（确保期望与方差存在），当前: alpha={alpha}")
+            self._random_method = random.paretovariate
+            self.kwargs = kwargs.copy()
+            self._theoretical_mean = alpha / (alpha - 1.0)
+            self._theoretical_second_moment = alpha / (alpha - 2.0)
+
+        elif norm_dist == 'beta':
+            alpha = kwargs.get('alpha')
+            beta = kwargs.get('beta')
+            if not (isinstance(alpha, (int, float)) and isinstance(beta, (int, float)) and alpha > 0 and beta > 0):
+                raise ValueError(f"Beta 分布参数需满足 alpha > 0, beta > 0，当前: alpha={alpha}, beta={beta}")
+            self._random_method = random.betavariate
+            self.kwargs = kwargs.copy()
+            denom = alpha + beta
+            self._theoretical_mean = alpha / denom
+            self._theoretical_second_moment = (alpha * (alpha + 1.0)) / (denom * (denom + 1.0))
+
+        # 3. 验证随机方法存在（防御性编程）
+        if not callable(self._random_method):
+            raise RuntimeError(f"无法获取分布 '{norm_dist}' 对应的随机生成函数")
 
     def __call__(self, *args: Any, **kwds: Any) -> int:
-        """ 生成随机数，确保结果 >= 0:
-        1. 调用分布函数生成浮点值
-        2. 防御性修正：若因浮点误差出现负值，强制置0
-        3. 四舍五入取整
-        """
+        """生成非负随机整数（高频调用，无分支逻辑）"""
         val = self._random_method(**self.kwargs)
         return int(round(val)) if val > 0.0 else 0
 
-    def expectations(self) -> float:
+    def mean(self) -> float:
         """返回原始连续分布的理论期望（非取整后）"""
         return self._theoretical_mean
 
-    def variance(self) -> float:
+    def std(self) -> float:
         """返回原始连续分布的理论方差（非取整后）"""
         return self._theoretical_second_moment - self._theoretical_mean ** 2
 
@@ -234,10 +228,10 @@ class _list_random:
         # 预估非叶子节点的期望花费
         for d in range(1, len(self._cost_estimate)):
             # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
-            list_cost = self.list_cost(d, self.sizeRandom.expectations()) if callable(self.list_cost) else self.list_cost
+            list_cost = self.list_cost(d, self.sizeRandom.mean()) if callable(self.list_cost) else self.list_cost
             
             # 非叶子节点的期望花费
-            self._cost_estimate[d] = list_cost + self._cost_estimate[d-1] * self.sizeRandom.expectations()
+            self._cost_estimate[d] = list_cost + self._cost_estimate[d-1] * self.sizeRandom.mean()
     
     def _bind_error(self):
         raise ValueError("请先执行 bind_method，方可使用 __call__")
@@ -302,7 +296,8 @@ if __name__ == "__main__":
     ])
     
     # 创建列表大小随机生成器（均匀分布，0-100）
-    size_random = _size_random('uniform', a=0, b=100)
+    size_random = _size_random('expo', lambd = 0.01)
+    print( "E(size)={:.2f} , D(size)={:.2f}".format(size_random.mean(), size_random.std()) )
     
     # 创建递归列表随机生成器
     listRandom = _list_random(size_random, list_cost_fun=_LLcost1)
@@ -314,7 +309,7 @@ if __name__ == "__main__":
     listRandom.bind_method(merge_random)
     
     # 生成一个随机对象
-    depth, remain = 1000, 100
+    depth, remain = 1000, 1000
     print(f"depth:{depth},remain:{remain}")
     obj, cost = merge_random(depth=depth, remain=remain)
     print(f"生成的随机对象: {obj}")
