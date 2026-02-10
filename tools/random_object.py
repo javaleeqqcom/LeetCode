@@ -48,7 +48,7 @@ class _meta_random:
     """根据 func_weight_cost 元组中的：（可调用方法，权重，花费）依据各项的权重随机抽取一个可调用方法，返回其结果和花费。
      若cost为 None 则该方法为可变花费，要求方法返回一个元组（结果，花费）。
     """
-    def __init__(self, fun_w_c_list: List[FuncWC]):
+    def __init__(self, fun_w_c_list: List[FuncWC] ,):
         self.size = len(fun_w_c_list)
         self.funcs = tuple(fwc[0] for fwc in fun_w_c_list)
         self.weights = tuple(max(0, fwc[1]) for fwc in fun_w_c_list)
@@ -58,7 +58,7 @@ class _meta_random:
         """过滤叶子节点（cost 不为 None 的方法）"""
         return [fwc for fwc in zip(self.funcs, self.weights, self.cost) if fwc[2] is not None]
     
-    def expectations(self) -> float:
+    def expectations(self, *args, **kwargs) -> float:
         """计算期望花费"""
         total = 0
         for i in range(self.size):
@@ -214,13 +214,27 @@ def _LLcost1(depth: int, size: int) -> int:
     """仅叶子列表（层级为1）花费1点"""
     return 1 if depth == 1 else 0
 
-class _list_random:
-    def __init__(self, size_random: _size_random, list_cost_fun: Union[int, float, Callable]) -> None:
+class _list_random(_meta_random):
+    def __init__(self, size_random: _size_random, list_cost_fun: Union[int, float, Callable] ,leaf_random:_meta_random) -> None:
+        self = 
         self.sizeRandom = size_random
-        self.sub_random = self._bind_error
-        self.leaf_method_index = []
-        self.list_cost = list_cost_fun
-        
+        self.branch_cost = list_cost_fun
+        self._cost_estimate = [self.leaf_random.expectations() if hasattr(self, 'leaf_random') else 0]
+
+    def expectations(self,depth:int) -> float:
+        """估计本随机对象在不限制总消费（remain = inf）下 depth 层递归的期望消费"""
+        # 采用记忆化 DP
+        if depth < len(self._cost_estimate):
+            return self._cost_estimate[depth]
+        else:
+            assert isinstance(self.sub_random, _meta_random)
+            base_cost = self.leaf_random.expectations()
+            for d in range(len(self._cost_estimate),depth+1):
+                # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
+                list_cost = self.branch_cost(d, self.sizeRandom.mean()) if callable(self.branch_cost) else self.branch_cost
+                self._cost_estimate[d] = 
+
+    def _init_cost_estimate(self):
         # 预估期望花费数组
         self._cost_estimate = [0.0] * (sys.getrecursionlimit()-1) # 系统递归池最大深度
         self._cost_estimate[0] = self.leaf_random.expectations() if hasattr(self, 'leaf_random') else 0
@@ -228,7 +242,7 @@ class _list_random:
         # 预估非叶子节点的期望花费
         for d in range(1, len(self._cost_estimate)):
             # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
-            list_cost = self.list_cost(d, self.sizeRandom.mean()) if callable(self.list_cost) else self.list_cost
+            list_cost = self.branch_cost(d, self.sizeRandom.mean()) if callable(self.branch_cost) else self.branch_cost
             
             # 非叶子节点的期望花费
             self._cost_estimate[d] = list_cost + self._cost_estimate[d-1] * self.sizeRandom.mean()
@@ -237,7 +251,7 @@ class _list_random:
         raise ValueError("请先执行 bind_method，方可使用 __call__")
     
     def bind_method(self, sub_random: _meta_random) -> None:
-        self.sub_random = sub_random
+        self = sub_random
         # 不再通过 leaf_random 来额外区分叶子节点的调用函数，而是通过 cost 为非 None 这一叶子对象特征作为依据。
         self.leaf_random = _meta_random(list(sub_random.leaf_filter()))
         self.method_size = len(sub_random)
@@ -259,10 +273,10 @@ class _list_random:
         size = self.sizeRandom()
         
         # 3. 计算列表花费
-        if callable(self.list_cost):
-            cost = self.list_cost(safe_depth, size)
+        if callable(self.branch_cost):
+            cost = self.branch_cost(safe_depth, size)
         else:
-            cost = self.list_cost
+            cost = self.branch_cost
         
         # 4. 如果无法支付列表花费，返回叶子节点
         if safe_depth == 0 or cost > remain:
@@ -279,6 +293,25 @@ class _list_random:
                 return res[:i], remain - (remain_after + c)
         
         return res, remain - cost
+
+class _dict_random(_list_random):
+    def __init__(self, size_random: _size_random, dict_cost_fun: Union[int, float, Callable]) -> None:
+        super...
+
+    # dict 需要用不同的 _init_cost_estimate
+    def _init_cost_estimate(self):
+        # 预估期望花费数组
+        self._cost_estimate = [0.0] * (sys.getrecursionlimit()-1) # 系统递归池最大深度
+        self._cost_estimate[0] = self.leaf_random.expectations() if hasattr(self, 'leaf_random') else 0
+        
+        # 预估非叶子节点的期望花费
+        for d in range(1, len(self._cost_estimate)):
+            # 预估的列表花费（假定 list_cost 是关于 size 的线性函数）
+            list_cost = self.branch_cost(d, self.sizeRandom.mean()) if callable(self.branch_cost) else self.branch_cost
+            
+            # 非叶子节点的期望花费
+            self._cost_estimate[d] = list_cost + self._cost_estimate[d-1] * self.sizeRandom.mean()
+    
 
 # 用于测试的示例
 if __name__ == "__main__":
