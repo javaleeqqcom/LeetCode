@@ -63,7 +63,10 @@ class _func_weight_cost:
         assert weight >= 0, "权重必须非负"
         self.weight = weight
         self.cost0 = cost0
-        self.cost1 = cost1
+        # self.cost1 = cost1 # 取消 cost 1
+        self.cost_matrix = (
+            1次0阶函数，
+        )
     
     def is_fixed(self) -> bool:
         """是否为固定 cost"""
@@ -149,8 +152,14 @@ class _choice_random(_meta_random):
                 cost1 = obj.cost1 if isinstance(obj.cost1, (int, float)) else obj.cost1(depth=d)
                 # ...
                 E_res += obj.weight * (cost0 + cost1 * E_prev)
-                # 二阶矩递推: E[(cost0 + cost1*T_sub)^2] = cost0^2 + 2*cost0*cost1*E_prev + cost1^2*M_prev
-                M_res += obj.weight * (cost0**2 + 2 * cost0 * cost1 * E_prev + cost1**2 * M_prev)
+                
+                # 正确应为（添加了 $\mathbb{E}[S(S-1)]$ 项）:
+                M_res += obj.weight * (
+                    cost0**2 + 
+                    2 * cost0 * cost1 * E_prev + 
+                    cost1 * M_prev + 
+                    (cost1 * cost1 - cost1) * E_prev**2  # 此处修正: (cost1^2 - cost1) = E[S(S-1)]
+                )
             
             self._dp_expectations.append(E_res / self.total_weight)
             self._dp_second_moments.append(M_res / self.total_weight)
@@ -323,7 +332,7 @@ class _size_random:
         """返回原始连续分布的理论期望（非取整后）"""
         return self._theoretical_mean
     
-    def std(self) -> float:
+    def variance(self) -> float:
         """返回原始连续分布的理论方差（非取整后）"""
         return self._theoretical_second_moment - self._theoretical_mean ** 2
 
