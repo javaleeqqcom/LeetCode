@@ -441,30 +441,45 @@ if __name__ == "__main__":
     listRandom.bind_method(merge_random)
     dictRandom.bind_method(merge_random)
     
-    # ================== 新增统计代码 ==================
-    # 测试深度范围 (0-50)
+    # ================== 修正后的统计代码 ==================
     depths = list(range(0, 10))
     results = []
+    all_costs = {d: [] for d in depths}  # 存储每个深度的100个样本
+
     repeat_times = 100
     for depth in depths:
-        total_cost = 0.0
+        costs = []
         for _ in range(repeat_times):
-            _, cost = merge_random(depth=depth, remain=1e300)
-            total_cost += cost
-        avg_cost = total_cost / repeat_times
+            _, cost = merge_random(depth=depth, remain=float('inf'))
+            costs.append(cost)
+        avg_cost = sum(costs) / repeat_times
+        std_dev = math.sqrt(sum((x - avg_cost) ** 2 for x in costs) / (repeat_times - 1))
+        
+        # 计算理论期望 (修正后的)
         theory_cost = merge_random.mean(depth=depth)
-        results.append((depth, avg_cost, theory_cost))
-        print((depth, avg_cost, theory_cost))
-    
+        
+        # 计算95%置信区间 (t临界值, 自由度=99)
+        t_critical = 1.984  # t(0.025, 99)
+        margin = t_critical * std_dev / math.sqrt(repeat_times)
+        lower_bound = avg_cost - margin
+        upper_bound = avg_cost + margin
+        
+        # 检查理论值是否在置信区间内
+        in_interval = lower_bound <= theory_cost <= upper_bound
+        
+        results.append((depth, avg_cost, theory_cost, std_dev, in_interval))
+        all_costs[depth] = costs
+
     # 创建DataFrame并打印
-    df = pd.DataFrame(results, columns=['深度', '平均cost', '理论期望cost'])
+    df = pd.DataFrame(results, columns=[
+        '深度', '平均cost', '理论期望cost', '实际标准差', '理论在95%CI内'
+    ])
     pd.set_option('display.float_format', '{:.8f}'.format)
-    
-    # 打印表格
-    print("\n深度比较表格:")
+
+    print("\n深度比较表格 (含95%置信区间):")
     print(df)
-    
-    # 保存到CSV文件（可选）
-    df.to_csv('cost_comparison.csv', index=False)
-    print("\n结果已保存到 cost_comparison.csv")
-    # ================== 结束新增代码 ==================
+
+    # 保存到CSV
+    df.to_csv('cost_comparison_with_ci.csv', index=False)
+    print("\n结果已保存到 cost_comparison_with_ci.csv")
+    # ================== 结束修正代码 ==================
