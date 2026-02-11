@@ -168,8 +168,8 @@ class _choice_random(_meta_random):
                     # 可变花费项
                     obj, cost = self.data[idx].func(*args, **kwargs)
                     assert isinstance(cost, (int, float)), f"可变花费方法 {self.data[idx].func} 未返回 (结果, 花费) 元组"
-                if cost <= remain:
-                    return obj, cost
+            if cost <= remain:
+                return obj, cost
         Warning(f"投掷超过最大重试次数{self._max_times}")
         return None, float('inf')
     
@@ -397,7 +397,8 @@ def dict_cost_fun(**kwargs):
     depth = kwargs.get('depth', 0)
     return math.sqrt(depth)
 
-# 重点改进：完善 main 函数
+import pandas as pd
+# ... [原文件中的所有代码保持不变] ...
 if __name__ == "__main__":
     # 创建别名生成器
     alias = _alias_str_generator(8)
@@ -428,18 +429,37 @@ if __name__ == "__main__":
     dictRandom = make_dict_FuncWC(D_size_random, dict_cost_fun, keysRandom)
     
     # 将列表和字典随机生成器与基础随机生成器结合
-    merge_random = leaf_base + [listRandom.toFuncWC(20), dictRandom.toFuncWC(20)]
-
+    merge_random = leaf_base + [listRandom.toFuncWC(5), dictRandom.toFuncWC(5)]
     print(f"merge_random: total_num = {len(merge_random)} ,fixed_num = {merge_random.fixed_num}")
-
     
     # 必须绑定 _list_random 和 _dict_random 对象的 sub_random 方法
     listRandom.bind_method(merge_random)
     dictRandom.bind_method(merge_random)
     
-    # 生成一个随机对象
-    depth, remain = 499, 1000
-    print(f"depth:{depth},remain:{remain}")
-    obj, cost = merge_random(depth=depth, remain=remain)
-    print(f"生成的随机对象: {obj}")
-    print(f"花费: {cost}")
+    # ================== 新增统计代码 ==================
+    # 测试深度范围 (0-50)
+    depths = list(range(0, 10))
+    results = []
+    repeat_times = 10
+    for depth in depths:
+        total_cost = 0.0
+        for _ in range(repeat_times):
+            _, cost = merge_random(depth=depth, remain=1e300)
+            total_cost += cost
+        avg_cost = total_cost / repeat_times
+        theory_cost = merge_random.mean(depth=depth)
+        results.append((depth, avg_cost, theory_cost))
+        print((depth, avg_cost, theory_cost))
+    
+    # 创建DataFrame并打印
+    df = pd.DataFrame(results, columns=['深度', '平均cost', '理论期望cost'])
+    pd.set_option('display.float_format', '{:.8f}'.format)
+    
+    # 打印表格
+    print("\n深度比较表格:")
+    print(df)
+    
+    # 保存到CSV文件（可选）
+    df.to_csv('cost_comparison.csv', index=False)
+    print("\n结果已保存到 cost_comparison.csv")
+    # ================== 结束新增代码 ==================
