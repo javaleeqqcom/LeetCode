@@ -337,8 +337,8 @@ class make_list_FuncWC:
     def __call__(self, depth: int, remain: int) -> _OBJ_COST:
         # 生成列表大小
         size = self._size_random()
-        # 根据 size 个子节点计算安全递归深度
-        sub_depth = self._sub_random._get_safe_depth(depth - 1, remain / size)
+        # 根据 size 个子节点计算安全递归深度。注意 size 为0时，则为空列表，深度为 0，则 sub_depth = -1，但依然需要计算列表花费
+        sub_depth = self._sub_random._get_safe_depth(depth - 1, remain / size) if size > 0 else -1
         # 3. 计算列表花费
         cost = self.branch_cost(depth=sub_depth + 1, size=size)
         # 4. 如果无法支付列表花费，返回非法对象
@@ -388,11 +388,13 @@ class make_dict_FuncWC(make_list_FuncWC):
 
 # 仅叶子列表（层级为1）花费1点
 @staticmethod
-def _LLcost1(depth: int, size: int) -> int:
+def _LLcost1(**kwargs):
     """仅叶子列表（层级为1）花费1点"""
+    depth = kwargs.get('depth', 0)
     return 1 if depth == 1 else 0
 
-def dict_cost_fun(depth , size: int):
+def dict_cost_fun(**kwargs):
+    depth = kwargs.get('depth', 0)
     return math.sqrt(depth)
 
 # 重点改进：完善 main 函数
@@ -416,7 +418,6 @@ if __name__ == "__main__":
     
     # 创建递归列表随机生成器
     listRandom = make_list_FuncWC(NL_size_random, init_cost=_LLcost1)
-    listRandom_func = listRandom.toFuncWC(10)
     
     # 创建递归字典随机生成器
     keysRandom = _choice_random([
@@ -425,10 +426,9 @@ if __name__ == "__main__":
     ])
     D_size_random = _size_random('uniform', a=0, b=10)
     dictRandom = make_dict_FuncWC(D_size_random, dict_cost_fun, keysRandom)
-    dictRandom_func = dictRandom.toFuncWC(15)
     
     # 将列表和字典随机生成器与基础随机生成器结合
-    merge_random = leaf_base + [listRandom_func, dictRandom_func]
+    merge_random = leaf_base + [listRandom.toFuncWC(20), dictRandom.toFuncWC(20)]
 
     print(f"merge_random: total_num = {len(merge_random)} ,fixed_num = {merge_random.fixed_num}")
 
