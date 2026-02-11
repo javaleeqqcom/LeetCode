@@ -58,19 +58,20 @@ _OBJ_COST = Tuple[Any, Union[float, int]]
 
 # 以下类定义保持不变
 class _func_weight_cost:
-    def __init__(self, func: Callable, weight: Union[float, int], cost0: Union[float, int, Callable], cost1: Union[float, int, Callable] = 0):
+    def __init__(self, func: Callable, weight: Union[float, int], 
+                 cost0: Union[float, int, Callable],
+                 cost1: Union[float, int, Callable] = 0,  # E[S]
+                 cost2: Union[float, int, Callable] = 0):  # E[S(S-1)] = E[S^2] - E[S]
         self.func = func
         assert weight >= 0, "权重必须非负"
         self.weight = weight
         self.cost0 = cost0
-        # self.cost1 = cost1 # 取消 cost 1
-        self.cost_matrix = (
-            1次0阶函数，
-        )
+        self.cost1 = cost1  # 用于期望递推 (E[S])
+        self.cost2 = cost2  # 用于方差递推 (E[S(S-1)])
     
     def is_fixed(self) -> bool:
         """是否为固定 cost"""
-        return isinstance(self.cost0, (float, int)) and (self.cost1 == 0)
+        return isinstance(self.cost0, (float, int)) and (self.cost1 == self.cost2 == 0)
     
     def __lt__(self, other: '_func_weight_cost') -> bool:
         # 先比 is_fixed
@@ -150,15 +151,17 @@ class _choice_random(_meta_random):
             for obj in self.data:
                 cost0 = obj.cost0 if isinstance(obj.cost0, (int, float)) else obj.cost0(depth=d)
                 cost1 = obj.cost1 if isinstance(obj.cost1, (int, float)) else obj.cost1(depth=d)
-                # ...
+                cost2 = obj.cost2 if isinstance(obj.cost2, (int, float)) else obj.cost2(depth=d)  # 重点：使用 cost2
+                
+                # 期望递推 (不变)
                 E_res += obj.weight * (cost0 + cost1 * E_prev)
                 
-                # 正确应为（添加了 $\mathbb{E}[S(S-1)]$ 项）:
+                # 二阶矩递推 (修正关键)
                 M_res += obj.weight * (
                     cost0**2 + 
                     2 * cost0 * cost1 * E_prev + 
                     cost1 * M_prev + 
-                    (cost1 * cost1 - cost1) * E_prev**2  # 此处修正: (cost1^2 - cost1) = E[S(S-1)]
+                    cost2 * E_prev**2  # 正确使用 cost2
                 )
             
             self._dp_expectations.append(E_res / self.total_weight)
@@ -364,8 +367,18 @@ class make_list_FuncWC:
         return (self._init_cost if isinstance(self._init_cost, (int, float)) else self._init_cost(**kwargs))
     
     def toFuncWC(self, weight: Union[float, int]) -> _func_weight_cost:
-        """导出 _FuncWC 以供合并调用，需要设置权重"""
-        return _func_weight_cost(self.__call__, weight, self.branch_cost, self._size_random.mean())
+        # 计算 E[S(S-1)] = E[S^2] - E[S]
+        mu_S = self._size_random._theoretical_mean
+        mu_S2 = self._size_random._theoretical_second_moment
+        cost2 = mu_S2 - mu_S  # 正确计算 E[S(S-1)]
+        
+        return _func_weight_cost(
+            self.__call__,
+            weight,
+            self.branch_cost,
+            self._size_random.mean(),  # cost1 = E[S]
+            cost2  # cost2 = E[S(S-1)]
+        )
     
     def bind_method(self, sub_random: _meta_random) -> None:
         self._sub_random = sub_random
@@ -451,7 +464,7 @@ if __name__ == "__main__":
     
     # 创建列表大小随机生成器（指数分布，λ=0.1）
     NL_size_random = _size_random('expo', lambd=0.1)
-    print("E(size)={:.2f} , D(size)={:.2f}".format(NL_size_random.mean(), NL_size_random.std()))
+    print("E(size)={:.2f} , D(size)={:.2f}".format(NL_size_random.mean(), NL_size_random.variance()))
     
     # 创建递归列表随机生成器
     listRandom = make_list_FuncWC(NL_size_random, init_cost=1)
