@@ -115,34 +115,56 @@ class _choice_random(_meta_random):
         self.fixed_weights = tuple(obj.weight for obj in self.data if obj.is_fixed())
         self.fixed_num = len(self.fixed_weights)
         self.fixed_sum_weight = sum(self.fixed_weights)
+        # 新增：双矩DP表
+        self._dp_expectations = []  # 一阶矩: E[T(d)]
+        self._dp_second_moments = []  # 二阶矩: E[T(d)^2]
         if self.fixed_sum_weight <= 0:
             Warning("无固定花费项，无法计算期望值")
         else:
             self._init_expectation()
     
     def _init_expectation(self):
-        """计算深度0（叶子节点）的期望花费"""
-        E0 = sum(obj.weight * obj.cost0 for obj in self.data[:self.fixed_num] if isinstance(obj.cost0, (float, int))) / self.fixed_sum_weight
-        # 初始化DP数组（深度0的期望花费）
+        """初始化深度0的双矩"""
+        # 一阶矩 (E[T(0)])
+        E0 = sum(obj.weight * obj.cost0 for obj in self.data if obj.is_fixed()) / self.fixed_sum_weight
+        
+        # 二阶矩 (E[T(0)^2])
+        M0 = sum(obj.weight * (obj.cost0 ** 2) for obj in self.data if obj.is_fixed()) / self.fixed_sum_weight
+        
         self._dp_expectations = [E0]
+        self._dp_second_moments = [M0]
     
+    def _extend_dp(self, depth: int):
+        """扩展DP表至深度 'depth'，同时计算双矩"""
+        if 0 ==len(self._dp_expectations):
+            self._init_expectation()
+        for d in range(len(self._dp_expectations), depth + 1):
+            E_prev = self._dp_expectations[d-1]  # E[T(d-1)]
+            M_prev = self._dp_second_moments[d-1]  # E[T(d-1)^2]
+
+            E_prev = self._dp_expectations[d-1]  # E[T(d-1)]
+            E_res,M_res = 0.0,0.0
+            for obj in self.data:
+                cost0 = obj.cost0 if isinstance(obj.cost0, (int, float)) else obj.cost0(depth=d)
+                cost1 = obj.cost1 if isinstance(obj.cost1, (int, float)) else obj.cost1(depth=d)
+                # ...
+                E_res += obj.weight * (cost0 + cost1 * E_prev)
+                # 二阶矩递推: E[(cost0 + cost1*T_sub)^2] = cost0^2 + 2*cost0*cost1*E_prev + cost1^2*M_prev
+                M_res += obj.weight * (cost0**2 + 2 * cost0 * cost1 * E_prev + cost1**2 * M_prev)
+            
+            self._dp_expectations.append(E_res / self.total_weight)
+            self._dp_second_moments.append(M_res / self.total_weight)
+
     def mean(self, **kwargs) -> float:
         """估计随机对象在不限制总消费（remain = inf）情况下深度为 depth 的期望消费（深度0为叶子节点）"""
         depth = kwargs.get('depth', -1)
-        # 采用记忆化 DP
-        if depth < len(self._dp_expectations):
-            return self._dp_expectations[depth]
-        elif 0 ==len(self._dp_expectations):
-            self._init_expectation()
-        assert depth < self._max_depth, f"depth = {depth} 超出最大深度限制！"
-        for d in range(len(self._dp_expectations), depth + 1):
-            res = self._dp_expectations[0]  # 首先是固定期望花费
-            for obj in self.data[self.fixed_num:]:
-                cost0 = obj.cost0 if isinstance(obj.cost0, (float, int)) else obj.cost0(**kwargs)
-                cost1 = obj.cost1 if isinstance(obj.cost1, (float, int)) else obj.cost1(**kwargs)
-                res += obj.weight / self.total_weight * (cost0 + cost1 * self.mean(depth=d - 1))
-            self._dp_expectations.append(res)
+        self._extend_dp(depth)
         return self._dp_expectations[depth]
+    
+    def variance(self, **kwargs) -> float:
+        depth = kwargs.get('depth', -1)
+        self._extend_dp(depth)
+        return self._dp_second_moments[depth] - self._dp_expectations[depth]**2
     
     def __len__(self):
         return len(self.data)
@@ -403,7 +425,7 @@ def dict_cost_fun(**kwargs):
     return math.sqrt(depth)
 
 import pandas as pd
-# ... [原文件中的所有代码保持不变] ...
+
 if __name__ == "__main__":
     # 创建别名生成器
     alias = _alias_str_generator(8)
@@ -418,7 +440,7 @@ if __name__ == "__main__":
         _func_weight_cost(alias._generate_trap_string, 2, 5),
     ])
     
-    # 创建列表大小随机生成器（均匀分布，0-100）
+    # 创建列表大小随机生成器（指数分布，λ=0.1）
     NL_size_random = _size_random('expo', lambd=0.1)
     print("E(size)={:.2f} , D(size)={:.2f}".format(NL_size_random.mean(), NL_size_random.std()))
     
@@ -441,45 +463,69 @@ if __name__ == "__main__":
     listRandom.bind_method(merge_random)
     dictRandom.bind_method(merge_random)
     
-    # ================== 修正后的统计代码 ==================
+    # ================== 完整统计代码（含卡方检验） ==================
     depths = list(range(0, 10))
     results = []
-    all_costs = {d: [] for d in depths}  # 存储每个深度的100个样本
-
-    repeat_times = 100
+    all_costs = {d: [] for d in depths}
+    
+    # 95%置信区间临界值（自由度=99）
+    t_critical = 1.984
+    chi2_lower = 73.36  # 自由度99的χ²分布下限
+    chi2_upper = 128.42 # 自由度99的χ²分布上限
+    
     for depth in depths:
         costs = []
-        for _ in range(repeat_times):
+        for _ in range(100):  # 100次实验
             _, cost = merge_random(depth=depth, remain=float('inf'))
             costs.append(cost)
-        avg_cost = sum(costs) / repeat_times
-        std_dev = math.sqrt(sum((x - avg_cost) ** 2 for x in costs) / (repeat_times - 1))
         
-        # 计算理论期望 (修正后的)
-        theory_cost = merge_random.mean(depth=depth)
+        # 计算实际统计量
+        avg_cost = sum(costs) / 100
+        std_dev = math.sqrt(sum((x - avg_cost) ** 2 for x in costs) / 99)  # 样本标准差
+        sample_var = std_dev ** 2  # 样本方差
         
-        # 计算95%置信区间 (t临界值, 自由度=99)
-        t_critical = 1.984  # t(0.025, 99)
-        margin = t_critical * std_dev / math.sqrt(repeat_times)
+        # 理论统计量
+        theory_mean = merge_random.mean(depth=depth)
+        theory_var = merge_random.variance(depth=depth)  # 新增：理论方差
+        
+        # 95%置信区间（期望）
+        margin = t_critical * std_dev / math.sqrt(100)
         lower_bound = avg_cost - margin
         upper_bound = avg_cost + margin
+        in_interval = lower_bound <= theory_mean <= upper_bound
         
-        # 检查理论值是否在置信区间内
-        in_interval = lower_bound <= theory_cost <= upper_bound
+        # 卡方检验（方差）
+        in_chi2_interval = False
+        if theory_var > 0:
+            chi2 = (100 - 1) * sample_var / theory_var
+            in_chi2_interval = (chi2_lower <= chi2 <= chi2_upper)
         
-        results.append((depth, avg_cost, theory_cost, std_dev, in_interval))
+        # 保存结果
+        results.append((
+            depth,
+            avg_cost,
+            theory_mean,
+            std_dev,
+            in_interval,
+            in_chi2_interval
+        ))
         all_costs[depth] = costs
-
+    
     # 创建DataFrame并打印
     df = pd.DataFrame(results, columns=[
-        '深度', '平均cost', '理论期望cost', '实际标准差', '理论在95%CI内'
+        '深度',
+        '平均cost',
+        '理论期望cost',
+        '实际标准差',
+        '理论期望在95%CI内',
+        '卡方检验通过'
     ])
+    
     pd.set_option('display.float_format', '{:.8f}'.format)
-
-    print("\n深度比较表格 (含95%置信区间):")
+    print("\n深度比较表格（含95%置信区间和卡方检验）:")
     print(df)
-
+    
     # 保存到CSV
-    df.to_csv('cost_comparison_with_ci.csv', index=False)
-    print("\n结果已保存到 cost_comparison_with_ci.csv")
-    # ================== 结束修正代码 ==================
+    df.to_csv('cost_comparison_with_ci_and_chi2.csv', index=False)
+    print("\n结果已保存到 cost_comparison_with_ci_and_chi2.csv")
+    # ================== 结束完整统计代码 ==================
