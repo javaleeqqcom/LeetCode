@@ -40,8 +40,9 @@ class _alias_str_generator(_alias):
 
 # 类型别名
 _FuncWC = TypeVar('_FuncWC', bound='_func_weight_cost')
-_META = TypeVar('_META', bound='_meta_random')
-_META_LIKE = Union[_META, _FuncWC, List[_FuncWC]]
+_CHOICE_RANDOM = TypeVar('_CHOICE_RANDOM', bound='_choice_random')
+_META_RANDOM = TypeVar('_META_RANDOM', bound='_meta_random')
+_OBJ_COST = Tuple[Any, Union[float,int]]
 
 # 以下类定义保持不变，只添加了必要的导入
 
@@ -71,11 +72,33 @@ class _func_weight_cost:
             return self.weight > other.weight
 
 class _meta_random:
+    # 类静态变量：
+    _max_depth = 1000//2 # 应当替换为 sys 获取的最大递归深度//2
+    def __init__(self , UninstantiatedErrorMessage = 虚函数不能被实例化) -> None:
+        self._uninstanciated_error_message = UninstantiatedErrorMessage
+        pass
+
+    def __call__(self, *args: Any, **kwds: Any) -> _OBJ_COST:
+        raise ERROR _uninstanciated_error_message
+
+    # 虚函数，需要在子类中实现
+    def mean(self, **kwargs) -> float:
+        raise ERROR _uninstanciated_error_message
+
+    def _get_safe_depth(self, depth: int, remain: Union[int, float]) -> int:
+        """根据 remain 估算安全深度"""
+        assert depth < self._max_depth
+        # 从高深度开始，找到最大的深度 d 使得 _dp_expectations[d] <= remain
+        for d in range(depth, -1, -1):
+            if self.mean(depth = d) <= remain:
+                return d
+        return 0
+    
+class _choice_random(_meta_random):
     """根据 func_weight_cost 元组中的：（可调用方法，权重，花费）依据各项的权重随机抽取一个可调用方法，返回其结果和花费。
     若 cost 为 Tuple[Callable,Callable] 则为可变花费，通常用于非叶子节点随机对象，要求`可调用方法`必须返回一个元组（结果，花费）。
     """
     _max_times = 100  # 最大尝试次数，防止无限循环
-    _max_depth = 1000 # 应当替换为 sys 获取的最大递归深度
     
     def __init__(self, source: List[_func_weight_cost]):
         self.data = sorted(source)  # 排序确保固定花费优先，权重高的靠前
@@ -111,18 +134,10 @@ class _meta_random:
                 self._dp_expectations[d] = res
             return self._dp_expectations[depth]
     
-    def _get_safe_depth(self, depth: int, remain: Union[int, float]) -> int:
-        """根据 remain 估算安全深度"""
-        # 从高深度开始，找到最大的深度 d 使得 _dp_expectations[d] <= remain
-        for d in range(min(depth, len(self._dp_expectations) - 1), -1, -1):
-            if self._dp_expectations[d] <= remain:
-                return d
-        return 0
-    
     def __len__(self):
         return len(self.data)
     
-    def __call__(self, *args, **kwargs) -> Tuple[Any, Union[int, float]]:
+    def __call__(self, *args, **kwargs) -> _OBJ_COST:
         depth = kwargs.get("depth", 0)
         remain = kwargs.get("remain", float('inf'))
         
@@ -158,12 +173,12 @@ class _meta_random:
         Warning(f"投掷超过最大重试次数{self._max_times}")
         return None, float('inf')
     
-    def __add__(self: _META, other: _META_LIKE) -> _META:
+    def __add__(self: _CHOICE_RANDOM, other: Union[_CHOICE_RANDOM, _FuncWC, List[_FuncWC]]) -> _CHOICE_RANDOM:
         """合并生成器（支持合并元组、列表或另一个_meta_random）"""
         # 转换其他类型为列表
         if isinstance(other, _func_weight_cost):
             other_list = [other]
-        elif isinstance(other, _meta_random):
+        elif isinstance(other, _choice_random):
             other_list = other.data
         elif isinstance(other, list):
             other_list = other
@@ -177,12 +192,19 @@ class _meta_random:
         combined = self.data + other_list
         return self.__class__(combined)
 
-class _pairs_random(_meta_random):
-    def __init__(self, key_random: _META_LIKE ,val_random: _META_LIKE):
-        assert key_random.fixed_num == len(key_random) , "key_random must be a fixed-cost meta_random."
-        super().__init__(...)
+class sub_random(_meta_random):
+    def __init__(self, keys_random: _choice_random ,val_random: _choice_random):
+        assert keys_random.fixed_num == len(keys_random) , "key_random must be a fixed-cost meta_random."
+        self._keys_random = keys_random
+        self._val_random = val_random
     
-    def 
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        key,cost_key = self._keys_random(*args, **kwds)
+        val,cost_val = self._val_random(*args, **kwds)
+        return ( (key,val) , cost_key + cost_val )
+    
+    def mean(self, **kwargs) -> float:
+        return self._keys_random.mean(**kwargs) + self._val_random.mean(**kwargs)
 
 class _size_random:
     """根据非负分布函数生成随机整数，并提供理论期望与方差（连续分布）"""
@@ -302,7 +324,7 @@ class make_list_FuncWC:
     def __init__(self, size_random: _size_random, init_cost: Union[int, float, Callable]) -> None:
         self._size_random = size_random
         self._init_cost = init_cost
-        self._sub_random = self._bind_error
+        self._sub_random = _meta_random(需要先使用 bind_method 绑定递归生成随机子对象的 _choice_random 方法)
     
     def branch_cost(self, **kwargs):
         return (self._init_cost if isinstance(self._init_cost, (int, float)) else self._init_cost(**kwargs))
@@ -311,13 +333,10 @@ class make_list_FuncWC:
         """导出 _FuncWC 以供合并调用，需要设置权重"""
         return _func_weight_cost(self.__call__, weight, self.branch_cost, self._size_random.mean())
     
-    def _bind_error(self):
-        raise ValueError("请先执行 bind_method，方可使用 __call__")
-    
     def bind_method(self, sub_random: _meta_random) -> None:
         self._sub_random = sub_random
     
-    def __call__(self, depth: int, remain: int) -> Tuple[Any, float]:
+    def __call__(self, depth: int, remain: int) -> _OBJ_COST:
         # 生成列表大小
         size = self._size_random()
         
@@ -347,22 +366,30 @@ class make_list_FuncWC:
         # 深度为0时，无法递归子节点故返回空列表（相当于一个元素）
         return res, cost
 
+class _pair_random(_meta_random):
+    def __init__(self, A:_meta_random, B:_meta_random) -> None:
+        self.A = A
+        self.B = B
+    def __call__(self, *args: Any, **kwds: Any) -> _OBJ_COST:
+        a,ca = self.A(*args,**kwds)
+        b,cb = self.B(*args,**kwds)
+        return (a,b) , ca+cb
+    def mean(self, **kwargs) -> float:
+        return self.A.mean(**kwargs) + self.B.mean(**kwargs)
+
 # 重点改进：完成 _dict_random 类
 class make_dict_FuncWC(make_list_FuncWC):
-    def __init__(self, size_random: _size_random, init_cost: Union[int, float, Callable], key_random: _meta_random) -> None:
-        assert key_random.fixed_num == len(key_random) , "key_random must be a fixed-cost meta_random."
-        super().__init__(size_random=size_random, init_cost=init_cost)
-        # 字典的平均长度 × 键的期望值
-        self.keys_cost = size_random.mean() * key_random.mean()
+    def __init__(self, size_random: _size_random, init_cost: Union[int, float, Callable] ,keys_random: _choice_random) -> None:
+        super().__init__(size_random=size_random, init_cost = init_cost)
+        self._keys_random = keys_random
+
+    def bind_method(self, sub_random: _meta_random) -> None:
+        self._sub_random = _pair_random(self._keys_random, sub_random)
     
-    def branch_cost(self, **kwargs):
-        # 字典本体的开销 + 字典键值对的期望开销
-        return super().branch_cost(**kwargs) + self.keys_cost
-    
-    def __call__(self, depth: int, remain: int) -> Tuple[Any, float]:
+    def __call__(self, depth: int, remain: int) -> _OBJ_COST:
         res,cost = super().__call__(depth = depth, remain =remain)
         if res is None: return None,cost # 无效返回
-        return dict(res),cost + self.keys_cost
+        return dict(res),cost
 
 # 仅叶子列表（层级为1）花费1点
 @staticmethod
@@ -376,7 +403,7 @@ if __name__ == "__main__":
     alias = _alias_str_generator(8)
     
     # 创建基础随机生成器
-    leaf_base = _meta_random([
+    leaf_base = _choice_random([
         _func_weight_cost(_int, 2, 0),
         _func_weight_cost(_float, 2, 0),
         _func_weight_cost(_bool, 1, 0),
@@ -386,15 +413,22 @@ if __name__ == "__main__":
     ])
     
     # 创建列表大小随机生成器（均匀分布，0-100）
-    size_random = _size_random('expo', lambd=0.01)
-    print("E(size)={:.2f} , D(size)={:.2f}".format(size_random.mean(), size_random.std()))
+    NL_size_random = _size_random('expo', lambd=0.01)
+    print("E(size)={:.2f} , D(size)={:.2f}".format(NL_size_random.mean(), NL_size_random.std()))
     
     # 创建递归列表随机生成器
-    listRandom = make_list_FuncWC(size_random, init_cost=_LLcost1)
+    listRandom = make_list_FuncWC(NL_size_random, init_cost=_LLcost1)
     listRandom_func = listRandom.toFuncWC(10)
     
     # 创建递归字典随机生成器
-    dictRandom = _dict_random(size_random, dict_cost_fun=2, alias_generator=alias)
+    keysRandom = _choice_random([
+        _func_weight_cost(alias._generate_safe_string, 1, 0),
+        _func_weight_cost(alias._generate_trap_string, 1, 1),
+    ])
+    D_size_random = _size_random('uniform', a = 0 , b= 10)
+    def dict_cost_fun(depth):
+        return math.sqrt(depth)
+    dictRandom = make_dict_FuncWC(D_size_random, dict_cost_fun , keysRandom)
     dictRandom_func = dictRandom.toFuncWC(15)
     
     # 将列表和字典随机生成器与基础随机生成器结合
