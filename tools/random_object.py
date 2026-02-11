@@ -114,12 +114,17 @@ class _choice_random(_meta_random):
         # 固定花费项的索引范围
         self.fixed_weights = tuple(obj.weight for obj in self.data if obj.is_fixed())
         self.fixed_num = len(self.fixed_weights)
-        # 初始化DP数组（深度0的期望花费）
-        self._dp_expectations = [self._calculate_fixed_expectation()]
+        self.fixed_sum_weight = sum(self.fixed_weights)
+        if self.fixed_sum_weight <= 0:
+            Warning("无固定花费项，无法计算期望值")
+        else:
+            self._init_expectation()
     
-    def _calculate_fixed_expectation(self) -> float:
+    def _init_expectation(self):
         """计算深度0（叶子节点）的期望花费"""
-        return sum(obj.weight * obj.cost0 for obj in self.data[:self.fixed_num] if isinstance(obj.cost0, (float, int))) / self.total_weight
+        E0 = sum(obj.weight * obj.cost0 for obj in self.data[:self.fixed_num] if isinstance(obj.cost0, (float, int))) / self.fixed_sum_weight
+        # 初始化DP数组（深度0的期望花费）
+        self._dp_expectations = [E0]
     
     def mean(self, **kwargs) -> float:
         """估计随机对象在不限制总消费（remain = inf）情况下深度为 depth 的期望消费（深度0为叶子节点）"""
@@ -127,17 +132,17 @@ class _choice_random(_meta_random):
         # 采用记忆化 DP
         if depth < len(self._dp_expectations):
             return self._dp_expectations[depth]
-        else:
-            assert depth > 0, "0==len(_dp_expectations)错误！需要重新初始化 _dp_expectations"
-            assert depth < self._max_depth, f"depth = {depth} 超出最大深度限制！"
-            for d in range(len(self._dp_expectations), depth + 1):
-                res = self._dp_expectations[0]  # 首先是固定期望花费
-                for obj in self.data[self.fixed_num:]:
-                    cost0 = obj.cost0 if isinstance(obj.cost0, (float, int)) else obj.cost0(**kwargs)
-                    cost1 = obj.cost1 if isinstance(obj.cost1, (float, int)) else obj.cost1(**kwargs)
-                    res += obj.weight / self.total_weight * (cost0 + cost1 * self.mean(depth=d - 1))
-                self._dp_expectations.append(res)
-            return self._dp_expectations[depth]
+        elif 0 ==len(self._dp_expectations):
+            self._init_expectation()
+        assert depth < self._max_depth, f"depth = {depth} 超出最大深度限制！"
+        for d in range(len(self._dp_expectations), depth + 1):
+            res = self._dp_expectations[0]  # 首先是固定期望花费
+            for obj in self.data[self.fixed_num:]:
+                cost0 = obj.cost0 if isinstance(obj.cost0, (float, int)) else obj.cost0(**kwargs)
+                cost1 = obj.cost1 if isinstance(obj.cost1, (float, int)) else obj.cost1(**kwargs)
+                res += obj.weight / self.total_weight * (cost0 + cost1 * self.mean(depth=d - 1))
+            self._dp_expectations.append(res)
+        return self._dp_expectations[depth]
     
     def __len__(self):
         return len(self.data)
