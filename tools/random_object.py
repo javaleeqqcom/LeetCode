@@ -405,27 +405,27 @@ if __name__ == "__main__":
     
     # 创建基础随机生成器
     leaf_base = _choice_random([
-        _func_weight_cost(_gen_int, 2, 0),
-        _func_weight_cost(_gen_float, 2, 0),
-        _func_weight_cost(_gen_bool, 1, 0),
+        _func_weight_cost(_gen_int, 2, 1),
+        _func_weight_cost(_gen_float, 2, 2),
+        _func_weight_cost(_gen_bool, 1, 1),
         _func_weight_cost(_gen_none, 1, 0),
-        _func_weight_cost(alias._generate_safe_string, 2, 0),
-        _func_weight_cost(alias._generate_trap_string, 2, cost0=1),
+        _func_weight_cost(alias._generate_safe_string, 2, 1),
+        _func_weight_cost(alias._generate_trap_string, 2, 5),
     ])
     
     # 创建列表大小随机生成器（均匀分布，0-100）
-    NL_size_random = _size_random('expo', lambd=0.01)
+    NL_size_random = _size_random('expo', lambd=0.1)
     print("E(size)={:.2f} , D(size)={:.2f}".format(NL_size_random.mean(), NL_size_random.std()))
     
     # 创建递归列表随机生成器
-    listRandom = make_list_FuncWC(NL_size_random, init_cost=_LLcost1)
+    listRandom = make_list_FuncWC(NL_size_random, init_cost=1)
     
     # 创建递归字典随机生成器
     keysRandom = _choice_random([
         _func_weight_cost(alias._generate_safe_string, 1, 0),
         _func_weight_cost(alias._generate_trap_string, 1, 1),
     ])
-    D_size_random = _size_random('uniform', a=0, b=10)
+    D_size_random = _size_random('uniform', a=0, b=4)
     dictRandom = make_dict_FuncWC(D_size_random, dict_cost_fun, keysRandom)
     
     # 将列表和字典随机生成器与基础随机生成器结合
@@ -440,7 +440,7 @@ if __name__ == "__main__":
     # 测试深度范围 (0-50)
     depths = list(range(0, 10))
     results = []
-    repeat_times = 10
+    repeat_times = 100
     for depth in depths:
         total_cost = 0.0
         for _ in range(repeat_times):
