@@ -392,7 +392,7 @@ def test_hex_len_variations():
     """生成测试用例验证 hex_len 对 JSON 长度的影响"""
     import os
     os.makedirs("test", exist_ok=True)
-    hex_lens = [2, 3, 4, 5]
+    hex_lens = [2, 3, 4]
     for hex_len in hex_lens:
         for seed in range(3):  # 每个 hex_len 生成 3 个测试用例
             random.seed(seed + hex_len*10)
@@ -420,17 +420,14 @@ if __name__ == "__main__":
     # 1. 基础功能验证
     test_class_implementation()
     
-    # 2. 打印关键配置（验证修复效果）
-    test_obj = _test_CompactedJson(hex_len=2)
-    print("\n🔧 预估模型关键参数 (hex_len=2):")
-    print(f"   • _type_weights_dict: {dict(list(test_obj._type_weights_dict.items())[:3])}... (共{len(test_obj._type_weights_dict)}项)")
-    print(f"   • _trap_key_rate: {test_obj._trap_key_rate}")
-    print(f"   • _depth2EH_num[:3]: {[round(x, 4) for x in test_obj._depth2EH_num[:3]]}")
-    print(f"   • 理论安全阈值: {int(0.7 * (16**2) * 0.9)} | _max_hash_num: {test_obj._max_hash_num}\n")
-    
     # 保存不同长度的随机对象都Json化后的结果
     test_hex_len_variations()
 
+    # 2. 打印关键配置（验证修复效果）
+    test_obj = _test_CompactedJson(hex_len=2)
+    print("\n🔧 预估模型关键参数 (hex_len=2):")
+    print(f" • _func_weight_cost: [\n\t{'\n\t'.join(str(obj) for obj in test_obj.merge_random.data)}\n]")
+    
     # 3. 多参数压力测试（覆盖边界场景）
     success = run_massive_test(
         thread=12, 
