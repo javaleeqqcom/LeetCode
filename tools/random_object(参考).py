@@ -5,19 +5,56 @@ import math
 import sys
 from typing import Any, List, Tuple, Union, Optional, Callable ,TypeVar, overload
 
-def set_random_seed(seed=None):
-    """设置随机种子，确保多进程环境中种子是唯一的"""
-    import random
-    if seed is None:
-        seed = random.randint(0, 2**32 - 1)
-    random.seed(seed)
-    return seed
+# 定义基础类型生成函数（与 compacted_json.py 命名一致）
+def _gen_none(*args, **kwargs) -> None: return None
+def _gen_int(*args, **kwargs) -> int: return random.randint(-100, 100)
+def _gen_float(*args, **kwargs) -> float: return random.uniform(-10.0, 10.0)
+def _gen_bool(*args, **kwargs) -> bool: return random.choice([True, False])
+
+# 判断是否为叶子序列
+def _is_leaf_sequence(obj: Any) -> bool:
+    """判断是否为叶子序列（list/tuple + 元素全为基础类型）"""
+    if not isinstance(obj, (list, tuple)):
+        return False
+    return all(isinstance(x, (int, float, str, bool, type(None))) for x in obj)
+
+class _alias:
+    """ 以 f'{alias_prefix}{hex_len位十六进制数}' 的格式作为别名"""
+    def __init__(self, hex_len: int = 32, alias_prefix: str = "@") -> None:
+        if hex_len <= 0:
+            raise ValueError("hex_len must be positive")
+        if not alias_prefix:
+            raise ValueError("alias_prefix cannot be empty")
+        self._hex_len = hex_len
+        self._alias_prefix = alias_prefix
+        # 动态构建正则表达式（转义特殊字符）
+        escaped_prefix = re.escape(alias_prefix)
+        self._alias_pattern = re.compile(rf'"({escaped_prefix}[0-9a-fA-F]{{{hex_len}}})"')
+
+class _alias_str_generator(_alias):
+    def __init__(self, hex_len: int = 32, alias_prefix: str = "@"):
+        super().__init__(hex_len, alias_prefix)
+        self.CHARSET = tuple(set('"' + "'" + "{}[]" + self._alias_prefix + string.digits + string.ascii_letters))
+    
+    def _generate_trap_string(self, *args, **kwargs) -> str:
+        """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
+        hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
+        return self._alias_prefix + hex_part
+    
+    def _generate_safe_string(self, *args, **kwargs) -> str:
+        """生成不匹配 _alias_pattern 的随机字符串"""
+        length = random.randint(1, self._hex_len + 3)
+        while True:
+            s = ''.join(random.choices(self.CHARSET, k=length))
+            if re.match(self._alias_pattern, s) is None:
+                return s
 
 # 类型别名
 _FuncWC = TypeVar('_FuncWC', bound='_func_weight_cost')
 _CHOICE_RANDOM = TypeVar('_CHOICE_RANDOM', bound='_choice_random')
 _META_RANDOM = TypeVar('_META_RANDOM', bound='_meta_random')
 _OBJ_COST = Tuple[Any, Union[float, int]]
+
 
 # 以下类定义保持不变
 class _func_weight_cost:
@@ -46,34 +83,6 @@ class _func_weight_cost:
             return self.cost0 < other.cost0
         # 最后比 weight
         return self.weight > other.weight
-    
-    def __repr__(self) -> str:
-        """实现字典格式的字符串表示，用于调试和打印"""
-        # 获取函数名（带完整类名）
-        if hasattr(self.func, '__self__'):
-            # 类方法：获取类名
-            class_name = self.func.__self__.__class__.__name__
-            func_name = f"{class_name}.{self.func.__name__}"
-        else:
-            # 普通函数
-            func_name = self.func.__name__ if hasattr(self.func, '__name__') else str(self.func)
-        
-        # 格式化数值：整型不加小数点，浮点保留6位有效数字
-        def format_value(val):
-            if isinstance(val, int):
-                return str(val)
-            elif isinstance(val, float):
-                return f"{val:.6g}"
-            elif callable(val):
-                # 获取完整函数名
-                if hasattr(val, '__self__'):
-                    class_name = val.__self__.__class__.__name__
-                    return f"'{class_name}.{val.__name__}'"
-                else:
-                    return f"'{val.__name__}'"
-            return str(val)
-        
-        return f"{{'func': '{func_name}', 'weight': {format_value(self.weight)}, 'cost0': {format_value(self.cost0)}, 'cost1': {format_value(self.cost1)}, 'cost2': {format_value(self.cost2)}}}"
 
 class _meta_random:
     # 类静态变量：动态获取系统最大递归深度的一半
@@ -219,8 +228,6 @@ class _choice_random(_meta_random):
         # 合并数据
         combined = self.data + other_list
         return self.__class__(combined)
-    
-    
 
 class _size_random:
     """根据非负分布函数生成随机整数，并提供理论期望与方差（连续分布）"""
@@ -415,7 +422,7 @@ class _pair_random(_meta_random):
 
 # 重点改进：完成 _dict_random 类
 class make_dict_FuncWC(make_list_FuncWC):
-    def __init__(self, size_random: _size_random, init_cost: Union[int, float, Callable], keys_random: _meta_random) -> None:
+    def __init__(self, size_random: _size_random, init_cost: Union[int, float, Callable], keys_random: _choice_random) -> None:
         super().__init__(size_random=size_random, init_cost=init_cost)
         self._keys_random = keys_random
     
@@ -428,30 +435,31 @@ class make_dict_FuncWC(make_list_FuncWC):
             return None, cost  # 无效返回
         return dict(res), cost
 
-def sqrt_depth(**kwargs):
+# 仅叶子列表（层级为1）花费1点
+@staticmethod
+def _LLcost1(**kwargs):
+    """仅叶子列表（层级为1）花费1点"""
+    depth = kwargs.get('depth', 0)
+    return 1 if depth == 1 else 0
+
+def dict_cost_fun(**kwargs):
     depth = kwargs.get('depth', 0)
     return math.sqrt(depth)
 
 import pandas as pd
 
 if __name__ == "__main__":
+    # 创建别名生成器
+    alias = _alias_str_generator(8)
     
-    # 定义基础类型生成函数（与 compacted_json.py 命名一致）
-    def _gen_none(*args, **kwargs) -> None: return None
-    def _gen_int(*args, **kwargs) -> int: return random.randint(-100, 100)
-    def _gen_float(*args, **kwargs) -> float: return random.uniform(-10.0, 10.0)
-    def _gen_bool(*args, **kwargs) -> bool: return random.choice([True, False])
-    def _gen_str(*args, **kwargs) -> str:
-        k = random.randint(0,10)
-        return ''.join(random.choices(string.ascii_letters, k=k))
-
     # 创建基础随机生成器
     leaf_base = _choice_random([
         _func_weight_cost(_gen_int, 2, 1),
         _func_weight_cost(_gen_float, 2, 2),
         _func_weight_cost(_gen_bool, 1, 1),
         _func_weight_cost(_gen_none, 1, 0),
-        _func_weight_cost(_gen_str, 2, 1),
+        _func_weight_cost(alias._generate_safe_string, 2, 1),
+        _func_weight_cost(alias._generate_trap_string, 2, 5),
     ])
     
     # 创建列表大小随机生成器（指数分布，λ=0.1）
@@ -462,9 +470,12 @@ if __name__ == "__main__":
     listRandom = make_list_FuncWC(NL_size_random, init_cost=1)
     
     # 创建递归字典随机生成器
+    keysRandom = _choice_random([
+        _func_weight_cost(alias._generate_safe_string, 1, 0),
+        _func_weight_cost(alias._generate_trap_string, 1, 1),
+    ])
     D_size_random = _size_random('uniform', a=0, b=4)
-    key_random = _choice_random([_func_weight_cost(_gen_str,1,1),])
-    dictRandom = make_dict_FuncWC(D_size_random, sqrt_depth, key_random)
+    dictRandom = make_dict_FuncWC(D_size_random, dict_cost_fun, keysRandom)
     
     # 将列表和字典随机生成器与基础随机生成器结合
     merge_random = leaf_base + [listRandom.toFuncWC(5), dictRandom.toFuncWC(5)]
@@ -473,10 +484,6 @@ if __name__ == "__main__":
     # 必须绑定 _list_random 和 _dict_random 对象的 sub_random 方法
     listRandom.bind_method(merge_random)
     dictRandom.bind_method(merge_random)
-
-    # 打印 merge_random
-    for a in merge_random.data:
-        print(a)
     
     # ================== 完整统计代码（含卡方检验） ==================
     depths = list(range(0, 10))

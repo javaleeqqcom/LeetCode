@@ -37,6 +37,18 @@
 - `input_parser_registry`：注册类型转换器（如 `(ListNode, list) → List2ListNode`）
 - 预导入常用类型：`Optional`, `List`, `Dict`
 
+### `tools/compacted_json.py`
+用于将 JSON 数据进行压缩，减少文件大小。
+- 其 __main__ 调用 random_object.py 进行测试，……未完待续……
+
+## 项目测试代码（用于验证项目程序的可靠性）
+
+### `tools/random_object.py`
+用于生成随机对象，采用模块化……未完待续……
+
+### `tools/parser_test.py`
+未完待续……
+
 ---
 
 ## 🚀 快速开始（学生只需 4 行代码！）

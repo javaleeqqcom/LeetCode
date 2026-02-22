@@ -30,6 +30,21 @@ class _alias:
         escaped_prefix = re.escape(alias_prefix)
         self._alias_pattern = re.compile(rf'"({escaped_prefix}[0-9a-fA-F]{{{hex_len}}})"')
 
+        self.CHARSET = tuple(set('"' + "'" + "{}[]" + alias_prefix + string.digits + string.ascii_letters))
+    
+    def _generate_trap_string(self, *args, **kwargs) -> str:
+        """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
+        hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
+        return self._alias_prefix + hex_part
+    
+    def _generate_safe_string(self, *args, **kwargs) -> str:
+        """生成不匹配 _alias_pattern 的随机字符串"""
+        length = random.randint(1, self._hex_len + 3)
+        while True:
+            s = ''.join(random.choices(self.CHARSET, k=length))
+            if not re.match(re.compile(rf'"{re.escape(self._alias_prefix)}[0-9a-fA-F]{{{self._hex_len}}}"'), s):
+                return s
+           
 # ==================== 核心类实现（题目指定不改动） ====================
 class CompactedJson(_alias):
     """
@@ -119,219 +134,82 @@ class CompactedJson(_alias):
         
         return "".join(parts)
     
+def _gen_int(*args, **kwargs) -> int:
+    return random.randint(-100, 100)
+
+def _gen_float(*args, **kwargs) -> float:
+    return random.uniform(-10.0, 10.0)
+
+def _gen_bool(*args, **kwargs) -> bool:
+    return random.choice([True, False])
+
+def _gen_none(*args, **kwargs) -> None:
+    return None
+from random_object import _choice_random, _size_random, make_list_FuncWC, make_dict_FuncWC, set_random_seed,_func_weight_cost
 class _test_CompactedJson(CompactedJson):
 
-    def __init__(self, hex_len: int = 4, load_factor_threshold:float=0.7, alias_prefix: str = "@" ,has_trap = True , leaf_list_same_type = False) -> None:
-        """
-        __init__ 的 Docstring
-        
-        :param self: 继承 CompactedJson。
-        :param hex_len: 哈希的十六进制表示长度，用于
-        :param load_factor_threshold: 哈希表的负载因子阈值
-        :param alias_prefix: CompactedJson 替换叶子列表的哈希字符串前缀，默认为 "@"
-        :param has_trap: 是否随机生成与哈希字符串冲突的陷阱字符串，默认为 True
-        :param leaf_list_same_type: 叶子列表的元素是否必须为同一种类型，默认为 False。若设为 True 则叶子数组被禁止生成陷阱字符串。
-        """
+    # 仅叶子列表（层级为1）花费1点
+    @classmethod
+    def leaf_depth(cls,**kwargs):
+        """仅叶子列表（层级为1）花费1点"""
+        depth = kwargs.get('depth', 0)
+        return int(depth <= 1)
+
+    def __init__(self, hex_len=8, load_factor_threshold=0.7, alias_prefix="@"):
         super().__init__(hex_len, load_factor_threshold, alias_prefix)
-        # ==================== 严格压力测试（防死循环+科学控制） ====================
-        self.CHARSET = tuple(set('"' + "'" + "{}[]" + alias_prefix + string.digits + string.ascii_letters))
-        self._LLsame = leaf_list_same_type
+        alias = _alias(hex_len, alias_prefix)
         
-        # 包含复合类型，一次性进行随机投掷
-        self._type_weights_dict = {
-            # 安全类型
-            "int":     3,
-            "float" : 1,
-            "bool":  2,
-            "None":  1,
-            "safe_str": 3 if has_trap else 13,
-            # 陷阱类型
-            "trap_str": 10 if has_trap else 0,
-            # 复合类型
-            "leaf_arr": 30,
-            "nonleaf_arr":20,
-            'dict':30,
-        }
-
-        # 可以 pickle 的实例方法引用
-        self._base_funs = (
-            self._gen_int,          
-            self._gen_float,        
-            self._gen_bool,         
-            self._gen_none,         
-            self._generate_safe_string,
-            self._generate_trap_string,
-        )
-
-        self._types = tuple(self._type_weights_dict.keys())
-        self._weights = np.array([w for w in self._type_weights_dict.values()],dtype=np.float32)
-        self._weights /= self._weights.sum()
-
-        self._base_weights = self._weights[:len(self._base_funs)]
-        self._base_weights /= self._base_weights.sum()
-
-        # 字典键值类型的权重
-        self._trap_key_rate = 0.5 if has_trap else 0 # 陷阱字符串键值类型的权重占比
- 
-        self._LLS_range = (0,50) # 叶子数组长度的范围
-        self._NLS_range = (1,20) # 随机非叶子数组长度的范围
-        self._DS_range = (1,5)  # 随机字典长度的范围
-
-        # 生成随机对象中包含哈希键数量期望值随深度变化的数组
-        # 第 0 层，只能从基础随机对象中生成，其中只有 traps_str 可能包含 1 个哈希键
-        self._depth2EH_num = [self._base_weights[self._types.index("trap_str")] ,  ]
-
-        # 随机字典中的键包含陷阱数量的期望
-        dict_len_expected = self._weights[self._types.index("dict")]*sum(self._DS_range)/2
-        NL_len_expected = self._weights[self._types.index("nonleaf_arr")]*sum(self._NLS_range)/2
-        LL_len_expected = self._weights[self._types.index("leaf_arr")]*sum(self._LLS_range)/2
-
-        # 复合类型中产生的子对象的期望长度 = 复合类型概率 与 子对象的期望长度 的内积
-        composite_len_expected = NL_len_expected + dict_len_expected
-        # 其他类型的期望长度
-        other_expected = (
-            self._weights[self._types.index("trap_str")] +  # 基础类型中的陷阱字符串 
-            self._weights[self._types.index("leaf_arr")] +  # 叶子数组必占用 1 个哈希键
-            (0 if leaf_list_same_type else self._depth2EH_num[0]) * LL_len_expected + # 叶子数组内的元素产生的哈希键
-            dict_len_expected * self._trap_key_rate # 还有字典的键可能包含哈希键
-        )
-        while self._depth2EH_num[-1] < self._max_hash_num and len(self._depth2EH_num) <= 100:
-            self._depth2EH_num.append(
-                composite_len_expected * self._depth2EH_num[-1] + other_expected # 迭代求解子对象的期望
-            )
-
-    # 确保实例可被正确序列化和复制
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        return state
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-
-    def _get_save_depth(self, depth: int , remain: int , sub_size:int) -> int:
-        if sub_size<=0: return 0
-        flat = remain/sub_size
-        while depth > 0 and self._depth2EH_num[depth] >= flat:
-            depth -= 1
-        return depth
-
-    def _generate_trap_string(self,**args) -> str:
-        """生成精确匹配_alias_pattern的陷阱字符串（格式: @{uuid4的hex_len位十六进制}）"""
-        hex_part = ''.join(random.choices('0123456789abcdef', k=self._hex_len))
-        return self._alias_prefix + hex_part  # 与CompactedJson默认alias_prefix一致
-
-    def _generate_safe_string(self,**args) -> str:
-        """生成不匹配 _alias_pattern 的随机字符串"""
-        length = random.randint(1, self._hex_len+3)
-        while True:
-            s = ''.join(random.choices(self.CHARSET, k=length))
-            if re.match(self._alias_pattern, s) is None:
-                return s
-
-    def _gen_int(self,**args) -> int:
-        return random.randint(-100, 100)
-    
-    def _gen_float(self,**args) -> float:
-        return random.uniform(-10.0, 10.0)
-    
-    def _gen_bool(self,**args) -> bool:
-        return random.choice([True, False])
-    
-    def _gen_none(self,**args) -> None:
-        return None
-
-    # 字典键值生成函数
-    def _keys_random(self ,size:int) -> Tuple[List[str],int]:
-        res_L = [""]*size
-        hash_num = 0
-        for i in range(size):
-            if random.random() < self._trap_key_rate:
-                res_L[i] = self._generate_trap_string() 
-                hash_num += 1
-            else:
-                res_L[i] = self._generate_safe_string()
-        return res_L,hash_num
-
-    def generate_list(self,sub_depth: int, remain:int, size:int) -> Tuple[List[Any],int]:
-        """
-        generate_list ：生成随机列表
-        :param sub_depth: 子元素的层级上限（本列表层级应为 sub_depth +1）
-        :param remain: 允许包含哈希数的上限
-        :param size: 列表的预期最大长度（若因 remain 受限，实际长度可能小于 size）
-        :return: ( 随机列表 , 剩余的哈希数 )
-        :rtype: Tuple[List[Any], int]
-        """
-        assert remain>0
-        remain -= 1 # 因为 res 有可能占用 哈希数，先预减1
-        sub_depth = self._get_save_depth(sub_depth,remain,size) # 重新预估深度
-        if self._LLsame and sub_depth == 0: # 叶子数组要求为同一种元素
-            type_index = random.choices(range(len(self._base_funs)-1), self._base_weights[:-1])[0]
-            res = [self._base_funs[type_index]() for _ in range(size)]
-        else:
-            res = []
-            for _ in range(size):
-                if remain >0:
-                    sub ,remain = self.generate_obj(sub_depth,remain)
-                    res.append(sub)
-                else:break
-            # 若返回的不是叶子序列，哈希数 还原+1
-            if sub_depth>0 and (not _is_leaf_sequence(res)):
-                return res,remain +1
-        return res,remain
-
-    # ========== 递归生成函数（禁用全局变量） ==========
-    def generate_obj(self,depth: int, remain:int) -> Tuple[Any,int]:
-        # 【安全熔断】已达安全阈值 → 禁用 trap_str
-        if remain <= 0:
-            type_index = random.choices(range(len(self._base_funs)-1), self._base_weights[:-1])[0]
-        # 【叶子层】depth=0 时只生成基础类型
-        elif depth <= 0:
-            type_index = random.choices(range(len(self._base_funs)), self._base_weights)[0]
-        else:
-            type_index = random.choices(range(len(self._weights)), self._weights.tolist())[0]
-
-        if type_index < len(self._base_funs): # 是基础类型，直接返回函数和占用的哈希
-            return self._base_funs[type_index](), remain - int(self._types[type_index] == "trap_str") # 特别注意！陷阱字符串占用 1 个哈希
-        elif self._types[type_index] == 'leaf_arr': # 叶子数组节点（核心测试目标）
-            return self.generate_list(0,remain,random.randint(*self._LLS_range))
-        elif self._types[type_index] == 'nonleaf_arr':# 非叶子数组（含嵌套结构）
-            return self.generate_list(depth-1,remain,random.randint(*self._NLS_range))
-        elif self._types[type_index] == 'dict': # 字典节点（键可能为陷阱字符串）
-            size = random.randint(*self._DS_range)
-            # 先分配键，避免递归浪费
-            keys, hash_num = self._keys_random(size)
-            if remain <= hash_num: return {},remain # 无法分配足够的哈希，返回空字典
-            # 再生成值（如果哈希数量紧缺，自然会降低消耗哈希的数量）
-            values,remain = self.generate_list(depth-1,remain - hash_num,size)
-            return dict(zip(keys,values)),remain
-
-        # 空类型兜底
-        return None,remain
-    
-    def single_test_case(self,seed) -> Tuple[bool, str ,int,int]:
-        """
-        单次测试：科学控制叶子数组+陷阱字符串总数，杜绝死循环
-        核心机制：
-        1. total_hash_num 精确统计（陷阱字符串 + 叶子数组）
-        2. safe_max = 90% * _max_hash_num（预留10%缓冲）
-        3. 倒计时深度控制（depth）
-        4. 动态安全模式：超阈值后立即切换安全生成
-        """
-        random.seed(seed)
+        # 创建基础随机生成器
+        self.leaf_base = _choice_random([
+            _func_weight_cost(_gen_int, 2, 0),
+            _func_weight_cost(_gen_float, 2, 0),
+            _func_weight_cost(_gen_bool, 1, 0),
+            _func_weight_cost(_gen_none, 1, 0),
+            _func_weight_cost(alias._generate_safe_string, 2, 0),
+            _func_weight_cost(alias._generate_trap_string, 2, 1),
+        ])
         
-        # 初始化测试环境
-        safe_max = int(0.9 * self._max_hash_num)  # 安全阈值（预留10%缓冲）
+        # 创建列表大小随机生成器（指数分布，λ=0.1）
+        self.NL_size_random = _size_random('expo', lambd=0.1)
         
-        # ========== 生成测试对象（确保至少1个占位符） ==========
+        # 创建递归列表随机生成器
+        self.list_random = make_list_FuncWC(self.NL_size_random, self.leaf_depth)
+        self.list_random.bind_method(self.leaf_base)
+        
+        # 创建递归字典随机生成器
+        self.keys_random = _choice_random([
+            _func_weight_cost(alias._generate_safe_string, 1, 0),
+            _func_weight_cost(alias._generate_trap_string, 1, 1),
+        ])
+        self.D_size_random = _size_random('uniform', a=0, b=4)
+        self.dict_random = make_dict_FuncWC(self.D_size_random, 0, self.keys_random)
+        self.dict_random.bind_method(self.leaf_base)
+        
+        # 将列表和字典随机生成器与基础随机生成器结合
+        self.merge_random = self.leaf_base + [
+            self.list_random.toFuncWC(5),
+            self.dict_random.toFuncWC(5)
+        ]
+    
+    def generate_obj(self, depth=3, remain=1000):
+        """生成随机对象，确保包含叶子数组和陷阱字符串"""
+        return self.merge_random(depth=depth, remain=remain)
+    
+    def single_test_case(self, seed):
+        """单次测试：科学控制叶子数组+陷阱字符串总数，杜绝死循环"""
+        set_random_seed(seed)
+        safe_max = int(0.9 * self._max_hash_num)
+        
+        # 生成测试对象（确保至少1个占位符）
         obj = None
-        for _ in range(5):  # 最多5次尝试
-            obj,remain = self.generate_obj(len(self._depth2EH_num),safe_max)
-            if safe_max > remain:  # 确保有测试价值（含陷阱或叶子数组）
+        for _ in range(5):
+            obj, remain = self.merge_random(depth=10, remain=safe_max)
+            if safe_max > remain:
                 break
         else:
-            # 5次均无占位符 → 跳过（无替换逻辑，基础测试已覆盖）
-            return True, "SKIP: no hashable elements",0,-1
+            return True, "SKIP: no hashable elements", 0, -1
         
-        # ========== 核心验证 ==========
+        # 核心验证
         try:
             # 标准JSON流程
             std_json = json.dumps(obj, indent=2, ensure_ascii=False)
@@ -343,11 +221,10 @@ class _test_CompactedJson(CompactedJson):
             
             # 严格一致性验证
             if std_obj != custom_obj:
-                return False, f"MISMATCH | hashes:{safe_max - remain} | obj:{str(obj)[:200]}", safe_max - remain,len(custom_json)
-            return True, "",safe_max - remain,len(custom_json)
+                return False, f"MISMATCH | hashes:{safe_max - remain} | obj:{str(obj)[:200]}", safe_max - remain, len(custom_json)
+            return True, "", safe_max - remain, len(custom_json)
         except Exception as e:
-            return False, f"EXCEPTION:{type(e).__name__} | hashes:{safe_max - remain} | {str(e)[:150]}",safe_max - remain, -1
-        
+            return False, f"EXCEPTION:{type(e).__name__} | hashes:{safe_max - remain} | {str(e)[:150]}", safe_max - remain, -1
 
 # ==================== 修复2: 基础验证函数修正 ====================
 def test_class_implementation():
