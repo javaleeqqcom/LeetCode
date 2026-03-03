@@ -9,6 +9,11 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 import numpy as np
 
+try:
+    from random_object import _choice_random, _size_random, make_list_FuncWC, make_dict_FuncWC, set_random_seed,_func_weight_cost
+except:
+    from tools.random_object import _choice_random, _size_random, make_list_FuncWC, make_dict_FuncWC, set_random_seed,_func_weight_cost
+
 # ==================== 辅助函数和类定义 ====================
 # 判断是否为叶子序列（list/tuple + 元素全为基础类型）
 def _is_leaf_sequence( obj: Any) -> bool:
@@ -145,7 +150,12 @@ def _gen_bool(*args, **kwargs) -> bool:
 
 def _gen_none(*args, **kwargs) -> None:
     return None
-from random_object import _choice_random, _size_random, make_list_FuncWC, make_dict_FuncWC, set_random_seed,_func_weight_cost
+
+_exp_random = _size_random('exp',lambd = 0.0001)
+def _gen_long_list(*args, **kwargs) -> List[int]:
+    global _exp_random
+    return [random.randint(-9999999,9999999) for _ in range(_exp_random())]
+
 class _test_CompactedJson(CompactedJson):
 
     # 仅叶子列表（层级为1）花费1点
@@ -165,8 +175,9 @@ class _test_CompactedJson(CompactedJson):
             _func_weight_cost(_gen_float, 2, 0),
             _func_weight_cost(_gen_bool, 1, 0),
             _func_weight_cost(_gen_none, 1, 0),
+            _func_weight_cost(_gen_long_list, 1, 1),
             _func_weight_cost(alias._generate_safe_string, 2, 0),
-            _func_weight_cost(alias._generate_trap_string, 2, 1),
+            _func_weight_cost(alias._generate_trap_string, 1, 1),
         ])
         
         # 创建列表大小随机生成器（指数分布，λ=0.1）
@@ -431,7 +442,7 @@ if __name__ == "__main__":
     # 3. 多参数压力测试（覆盖边界场景）
     success = run_massive_test(
         thread=12, 
-        hex_lens=[2, 3, 4, 5],  # hex_len=5 容量过大，通常无需测试
+        hex_lens=[2, 3, 4],  # hex_len=5 容量过大，通常无需测试
         duration_sec = 120   # 总测试时长（下限）
     )
     

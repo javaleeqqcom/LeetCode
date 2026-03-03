@@ -10,11 +10,13 @@ import types
 import traceback
 from charset_normalizer.api import from_bytes  # 自动检测编码
 try:
-    from examples_parser import parse_test_cases,CompactLeafListEncoder
+    from examples_parser import parse_test_cases
     from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
+    from compacted_json import CompactedJson
 except:
-    from tools.examples_parser import parse_test_cases,CompactLeafListEncoder
+    from tools.examples_parser import parse_test_cases
     from tools.custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
+    from tools.compacted_json import CompactedJson
 
 """
 一个标准的测试样例的格式为：
@@ -27,11 +29,11 @@ _CASE_TYPE = Dict[str, Union[Dict[str, Any], Tuple, Any]]
 
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
+_compacted_json = CompactedJson(hex_len=16)
 def _compact_json(obj: List[_CASE_TYPE]) -> str:
     """智能JSON序列化：外层缩进，叶子节点紧凑"""
-    return json.dumps(
+    return _compacted_json.dumps(
         obj,
-        cls=CompactLeafListEncoder,
         indent=2,
         ensure_ascii=False,
         default=str
@@ -112,7 +114,7 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[str, os.PathLike, List[Union[str, Path]]],
+        path_list: Union[str, os.PathLike, List[Union[str, os.PathLike]]],
         file_name_pattern: Optional[str] = None
     ) -> List[_CASE_TYPE]:
         """读取并解析测试用例文件（自动完成类型转换）"""
@@ -143,7 +145,7 @@ class SolutionRunner:
         
         for file_path in all_files:
             try:
-                parsed_list = parse_test_cases(str(file_path))
+                parsed_list = parse_test_cases(file_path)
             except Exception as e:
                 raise RuntimeError(f"解析测试文件失败: {file_path}") from e
             
@@ -165,7 +167,7 @@ class SolutionRunner:
                 else:
                     raise ValueError("测试用例的input必须是字典或元组")
                 
-                test_cases[key] = converted_case
+                test_cases[file_path] = converted_case
         
         return test_cases
 
@@ -238,10 +240,16 @@ class SolutionRunner:
             instance = self.Solution()
             
             if isinstance(input_val, dict):
-                _add_log(f">>> INPUT\n{_compact_json(input_val)}")
+                _add_log(f">>> INPUT\n{_compacted_json.dumps(
+                    input_val,
+                    indent=2
+                )}")
                 output = self.method(instance, **input_val)
             elif isinstance(input_val, tuple):
-                _add_log(f">>> INPUT\n{_compact_json(list(input_val))}")
+                _add_log(f">>> INPUT\n{_compacted_json.dumps(
+                    list(input_val),
+                    indent=2
+                )}")
                 output = self.method(instance, *input_val)
             else:
                 raise ValueError("测试用例的input必须是字典或元组")
@@ -249,7 +257,9 @@ class SolutionRunner:
             elapsed = time.perf_counter() - time.perf_counter()
             result_dict['output'] = output
             result_dict['elapsed'] = elapsed
-            _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compact_json(output)}")
+            _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{
+                _compacted_json.dumps(output,indent=2)
+            }")
             
         except Exception as e:
             elapsed = time.perf_counter() - time.perf_counter()
@@ -318,7 +328,9 @@ class SolutionRunner:
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(test_cases, f, cls=CompactLeafListEncoder, indent=2, ensure_ascii=False)
+            f.write(
+                _compacted_json.dumps(test_cases, indent=2, ensure_ascii=False)
+            )
         
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return file_path
