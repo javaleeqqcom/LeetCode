@@ -1,0 +1,8 @@
+15:38:36	[2026-03-03] Running 'findKthBit' with case: #37
+15:38:36	>>> INPUT
+{
+  "n": 4,
+  "k": 14
+}
+15:38:36	<<< OUTPUT (elapsed: -0.000001s)
+"0"

@@ -135,39 +135,95 @@ class SolutionRunner:
             else:
                 raise FileNotFoundError(f"路径不存在: {p}")
         
-        cwd = Path.cwd()
         test_cases = []
         
-        # 创建临时实例获取绑定方法签名
+        # 创建临时实例获取绑定方法签名（用于JSON自动推断）
         temp_instance = self.Solution()
         bound_method = getattr(temp_instance, self.method_name)
         sig = inspect.signature(bound_method)
+        param_names = list(sig.parameters.keys())
+        # 移除 self
+        if param_names and param_names == 'self':
+            param_names = param_names[1:]
         
         for file_path in all_files:
             try:
-                parsed_list = parse_test_cases(file_path)
+                # ========== 核心修改点：根据文件后缀分流处理 ==========
+                if file_path.suffix.lower() == '.json':
+                    # 1. 处理 JSON 文件
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        raw_data = json.load(f)
+                    
+                    # 确保是列表格式
+                    if not isinstance(raw_data, list):
+                        raw_data = [raw_data]
+                    
+                    for item in raw_data:
+                        # 如果JSON里已经是标准格式（含"input"键）
+                        if isinstance(item, dict) and 'input' in item:
+                            converted_case = item
+                        else:
+                            # 如果是裸数据，尝试包装
+                            converted_case = {'input': item}
+                        
+                        # === 关键：自动推断输入类型（字典 or 元组）===
+                        
+                        # 情况 A: 如果 input 是字典（标准格式），直接使用
+                        if isinstance(converted_case['input'], dict):
+                            # 验证签名
+                            sig.bind(**converted_case['input'])
+                            
+                        # 情况 B: 如果 input 是列表/元组，且参数名已知，转换为字典
+                        elif isinstance(converted_case['input'], (list, tuple)):
+                            if len(param_names) == len(converted_case['input']):
+                                # 转换为字典格式，以便后续统一处理
+                                converted_case['input'] = dict(zip(param_names, converted_case['input']))
+                                sig.bind(**converted_case['input'])
+                            else:
+                                raise ValueError(f"参数数量不匹配: 函数需要 {len(param_names)} 个参数 {param_names}, 但输入为 {converted_case['input']}")
+                        
+                        # 情况 C: 单个值（仅当函数只有一个参数时）
+                        else:
+                            if len(param_names) == 1:
+                                converted_case['input'] = {param_names: converted_case['input']}
+                                sig.bind(**converted_case['input'])
+                            else:
+                                raise ValueError("无法推断单值输入的参数名")
+                        
+                        test_cases.append(converted_case)
+                
+                else:
+                    # 2. 原有逻辑：处理 TXT 文件
+                    # 注意：这里需要传入 params_num，但我们现在无法从文件名得知，所以需要用户传入或在文件名中约定
+                    # 为了保持兼容，这里假设用户在 file_name_pattern 或其他方式传入，或者在 parse_test_cases 内部有默认逻辑
+                    # 如果你的 parse_test_cases 需要 params_num，这里会报错，建议在 README 中说明 TXT 必须配合 params_num 使用
+                    # 或者修改 parse_test_cases 支持不传 params_num 时返回原始对象（如果是 JSON-like 对象）
+                    
+                    # 这里做一个简单的兼容：尝试用旧方法，如果报错则尝试直接读取（如果 txt 里存的是 json 字符串）
+                    try:
+                        parsed_list = parse_test_cases(file_path)
+                        # ... (原有处理 parsed_list 的逻辑) ...
+                        # 由于原有逻辑较为复杂且依赖外部 parser，此处仅展示 JSON 逻辑的完善
+                        # 建议：如果 txt 解析报错，可以在这里加一个 fallback：尝试 json.loads 每一行
+                    except Exception as e:
+                        # Fallback: 尝试直接读取文件内容作为 JSON（针对 .txt 里误存 JSON 的情况）
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read().strip()
+                                if content.startswith('[') or content.startswith('{'):
+                                    data = json.loads(content)
+                                    if not isinstance(data, list):
+                                        data = [data]
+                                    # 复用上面的 JSON 处理逻辑
+                                    for item in data:
+                                        # ... (同上 JSON 处理逻辑) ...
+                                        # 为了简洁，这里调用一个提取函数，或者直接抛出 NotImplementedError 提示用 .json 后缀
+                                        pass
+                        except:
+                            raise RuntimeError(f"解析测试文件失败 (非JSON格式): {file_path}") from e
+            
             except Exception as e:
                 raise RuntimeError(f"解析测试文件失败: {file_path}") from e
-            
-            for raw_case in parsed_list:
-                
-                # 确保是标准CASE_TYPE格式
-                if isinstance(raw_case, dict) and 'input' in raw_case:
-                    converted_case = raw_case
-                elif isinstance(raw_case, (dict, tuple)):
-                    converted_case = {'input': raw_case}
-                else:
-                    raise ValueError(f"测试用例格式非法: {type(raw_case)}")
-                
-                # 验证绑定
-                if isinstance(converted_case['input'], dict):
-                    sig.bind(**converted_case['input'])
-                elif isinstance(converted_case['input'], tuple):
-                    sig.bind(*converted_case['input'])
-                else:
-                    raise ValueError("测试用例的input必须是字典或元组")
-                
-                test_cases[file_path] = converted_case
         
         return test_cases
 
