@@ -10,20 +10,24 @@
 ## 📁 项目结构
 
 ### 🔑 `tools/solution_runner.py`（核心引擎）
-👉 **革命性设计**：直接加载 `.py` 源文件，自动注入 LeetCode 环境所需类型  
+👉 **全格式兼容与防呆设计**：直接加载 `.py` 源文件，自动注入 LeetCode 环境所需类型，并具备智能防错机制。
+
 - **构造函数**：`SolutionRunner(solution_file: str, main_method: Optional[str] = None)`
   - `solution_file`：学生代码文件路径（如 `"P82_V0.py"`）
   - `main_method`：当 `Solution` 含多个方法时指定主函数名（如 `"deleteDuplicates"`）；未指定时自动选择唯一非魔术方法
   - **智能处理**：
-    - ✅ 自动检测文件编码（UTF-8/GBK/BOM），完美支持中文注释/变量名/字符串
-    - ✅ 创建虚拟模块执行学生代码，将 `ListNode`/`TreeNode` 注入全局命名空间
-    - ✅ 确保学生代码中的 `ListNode` 与转换器使用的 **完全同一对象**（内存地址一致）
+    - ✅ **自动检测文件编码**（UTF-8/GBK/BOM），完美支持中文注释/变量名/字符串
+    - ✅ **创建虚拟模块**执行学生代码，将 `ListNode`/`TreeNode` 注入全局命名空间，确保内存地址一致性
+    - ✅ **JSON 自适应识别**：智能解析由框架生成的 JSON 格式测试用例，**自动推断参数结构**，无需手动指定参数数量（`params_num`），解决了不同格式间的解析割裂问题
+
 - **核心方法**：
-  - `read_test_case(path_list, file_name_pattern=None)`：解析测试文件，**自动完成类型转换**（如 `list → ListNode`）
+  - `read_test_case(path_list, file_name_pattern=None)`：
+    - **双重解析引擎**：自动识别文件后缀（`.json` 或 `.txt`）
+    - **签名绑定验证**：在读取阶段即利用函数签名（Signature）进行参数绑定验证
   - `run(test_cases, log_suffix=None)`：执行测试
     - `log_suffix=None`：静默运行
     - `log_suffix="_debug"`：为每个用例生成日志（含输入/输出/耗时/异常堆栈），文件名自动去非法字符+防冲突
-
+  
 ### 📜 `tools/examples_parser.py`
 👉 智能解析 LeetCode 风格测试样例（`.txt`）
 - 支持字典格式（含 `input`/`output`/`expected`）与元组格式
