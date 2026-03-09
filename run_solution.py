@@ -2,10 +2,10 @@
 from tools.solution_runner import SolutionRunner
 from tools.custom_init import *
 
-obj = SolutionRunner("1545_V1.py")
-cases = obj.read_test_case("1545_V0_bt.json")
+obj = SolutionRunner("P3129_V6.py")
+cases = obj.read_test_case("P3129_bt0.json")
 # print(cases)
-results = obj.run(cases,log_suffix= "_V0")
+results = obj.run(cases, only_log_wrong=True) # only_log_wrong 失效
 
 right = 0
 for case in results:

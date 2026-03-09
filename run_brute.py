@@ -28,7 +28,7 @@ def cases_generation(
     test_cases = []
     # 补充随机用例至目标数量
     while len(test_cases) < num_test_cases:
-        bits = np.random.randint(1, 17)
+        bits = np.random.randint(1, 4)
         one = int(round(bits * np.random.random()))
         zero = bits - one
         limit = np.random.randint(1, bits+1)
@@ -39,7 +39,7 @@ def cases_generation(
 
 # 保存测试用例，并自动运行暴力算法生成expected结果
 
-cases = cases_generation(num_test_cases= 1000,seed=42)
+cases = cases_generation(num_test_cases= 10,seed=42)
 
 # brute.save_test_cases(cases)
 # output = brute.run(cases,only_log_wrong=True)
