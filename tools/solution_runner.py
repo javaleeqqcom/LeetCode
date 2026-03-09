@@ -1,5 +1,6 @@
 # tools/solution_runner.py
 import os
+import sys
 import inspect
 from pathlib import Path
 import logging
@@ -9,14 +10,18 @@ import ast, re, json
 import types
 import traceback
 from charset_normalizer.api import from_bytes  # 自动检测编码
-try:
-    from examples_parser import parse_test_cases
-    from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
-    from compacted_json import CompactedJson
-except:
-    from tools.examples_parser import parse_test_cases
-    from tools.custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
-    from tools.compacted_json import CompactedJson
+
+# ========== 安全导入：基于当前文件路径 ==========
+# 获取 solution_runner.py 所在目录（即 tools 目录）
+_CURRENT_DIR = Path(__file__).resolve().parent
+# 将 tools 目录添加到 sys.path，确保模块可导入
+if str(_CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_CURRENT_DIR))
+
+# 直接导入，无需 try-except
+from examples_parser import parse_test_cases
+from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
+from compacted_json import CompactedJson
 
 """
 一个标准的测试样例的格式为：

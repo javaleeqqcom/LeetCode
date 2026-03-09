@@ -6,7 +6,7 @@ from tools.solution_runner import SolutionRunner, _CASE_TYPE
 from typing import List, Union, Tuple, Dict, Any
 
 # 初始化暴力解法运行器
-brute = SolutionRunner("P3129_bt0.py")
+brute = SolutionRunner("3129. Find All Possible Stable Binary Arrays I/P3129_bt0.py")
 
 # 生成测试用例指引文件
 # ask_file = None  # 设置为None将使用与brute.py同名的txt文件
