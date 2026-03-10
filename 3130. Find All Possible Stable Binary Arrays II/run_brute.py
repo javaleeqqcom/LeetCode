@@ -1,10 +1,10 @@
-import os
+# ========== 路径设置（勿删）==========
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ===================================
 
 print(f"当前工作目录：{os.getcwd()}")
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import tools  # 触发 __init__.py
+      
 from tools.solution_runner import SolutionRunner, _CASE_TYPE
 from typing import List, Union, Tuple, Dict, Any
 

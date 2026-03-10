@@ -77,6 +77,9 @@ class SolutionRunner:
         result = from_bytes(raw).best()
         student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
         
+# **问题子目录收拢**  待新增
+        self.相对目录 = ...
+
         # 2. 创建虚拟执行环境
         mod = types.ModuleType('student_solution')
         mod.__dict__.update({
@@ -334,8 +337,10 @@ class SolutionRunner:
 
     def _write_case_log(self, case: Dict[str, Any], log_lines: List[str], log_suffix: str):
         """写入单个用例日志（原子操作）"""
+
         key = case.get('test_case_key', f"case_{case.get('idx', 0)+1}")
         safe_key = _sanitize_filename(key)
+# 待修改，日志应写到 self.相对目录 下
         log_path = _get_unique_log_path(f"{safe_key}{log_suffix}")
         
         with open(log_path, 'w', encoding='utf-8') as f:
@@ -382,6 +387,7 @@ class SolutionRunner:
 
     def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[str] = None) -> str:
         """保存测试用例到JSON文件"""
+# 待修改，报错测试样例应写到 self.相对目录 下
         if file_path is None:
             base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
             file_path = f"{base_name}.json"

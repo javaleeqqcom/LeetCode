@@ -214,8 +214,8 @@ results = optimized.run(cases, log_suffix="_optimized")
 ---
 
 ## 🔮 下一步计划
-1. **JSON 测试样例支持**  
-   → 生成更清晰、无歧义的测试数据（AI 友好），兼容现有 TXT 格式
+1. **问题子目录收拢**  
+   → 自动识别子目录中的代码，将输出的用例 json 和 LOG 文件放在同一子目录下。
 2. **结果自动比对**  
    → 输出 `passed/failed` 状态 + 差异高亮（对比 `output` 与 `expected`）
 3. **多算法对比**  
