@@ -77,8 +77,9 @@ class SolutionRunner:
         result = from_bytes(raw).best()
         student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
         
-# **问题子目录收拢**  待新增
-        self.相对目录 = ...
+        # 从 solution_file 路径中提取相对目录（即文件所在目录）
+        solution_path = Path(solution_file).resolve()
+        self.relPath = solution_path.parent
 
         # 2. 创建虚拟执行环境
         mod = types.ModuleType('student_solution')
@@ -129,7 +130,7 @@ class SolutionRunner:
         from glob import glob
         if not isinstance(path_list, list):
             path_list = [path_list]
-        
+            
         all_files = []
         for p in path_list:
             p = Path(p)
@@ -193,7 +194,7 @@ class SolutionRunner:
                         # 情况 C: 单个值（仅当函数只有一个参数时）
                         else:
                             if len(param_names) == 1:
-                                converted_case['input'] = {param_names: converted_case['input']}
+                                converted_case['input'] = {param_names[0]: converted_case['input']}
                                 sig.bind(**converted_case['input'])
                             else:
                                 raise ValueError("无法推断单值输入的参数名")
@@ -340,8 +341,8 @@ class SolutionRunner:
 
         key = case.get('test_case_key', f"case_{case.get('idx', 0)+1}")
         safe_key = _sanitize_filename(key)
-# 待修改，日志应写到 self.相对目录 下
-        log_path = _get_unique_log_path(f"{safe_key}{log_suffix}")
+        # 日志写到 self.相对目录 下
+        log_path = self.relPath / _get_unique_log_path(f"{safe_key}{log_suffix}")
         
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(log_lines))
@@ -384,15 +385,16 @@ class SolutionRunner:
         
         print(f"✅ 从 {total_count} 个测试用例中筛选出 {success_count} 个有效用例")
         return expected_cases
-
-    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[str] = None) -> str:
+    
+    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[Union[str,os.PathLike]] = None) -> os.PathLike:
         """保存测试用例到JSON文件"""
-# 待修改，报错测试样例应写到 self.相对目录 下
         if file_path is None:
             base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
-            file_path = f"{base_name}.json"
-        
-        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+            # 保存到相对目录下
+            file_path = self.relPath / f"{base_name}.json"  # 生成一个相对路径的文件名(此行代码报错！)
+        else:
+            # 确保文件路径的目录存在
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(
@@ -400,7 +402,7 @@ class SolutionRunner:
             )
         
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
-        return file_path
+        return Path(file_path)
     
     def tuple_to_cases(self, cases: List[Tuple]) -> List[_CASE_TYPE]:
         """将元组形式的测试样例转换为字典形式
