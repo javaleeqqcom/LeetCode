@@ -1,0 +1,9 @@
+14:10:51	[2026-03-10] Running 'numberOfStableArrays' with case: #10
+14:10:51	>>> INPUT
+{
+  "zero": 1,
+  "one": 2,
+  "limit": 3
+}
+14:10:51	<<< OUTPUT (elapsed: -0.000000s)
+3

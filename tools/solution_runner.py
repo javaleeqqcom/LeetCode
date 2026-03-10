@@ -65,7 +65,7 @@ def _get_unique_log_path(base_name: str) -> str:
     raise Exception("无法生成唯一日志路径")
 
 class SolutionRunner:
-    def __init__(self, solution_file: str, main_method: Optional[str] = None) -> None:
+    def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
         """
         初始化 SolutionRunner，自动加载学生代码文件。
         :param solution_file: 学生代码文件路径（如 "P82_V0.py"）
@@ -123,7 +123,7 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[str, os.PathLike, List[Union[str, os.PathLike]]],
+        path_list: Union[os.PathLike, List[os.PathLike]],
         file_name_pattern: Optional[str] = None
     ) -> List[_CASE_TYPE]:
         """读取并解析测试用例文件（自动完成类型转换）"""
@@ -236,6 +236,25 @@ class SolutionRunner:
         
         return test_cases
 
+    def run_as_expected(self, 
+        test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
+        log_suffix: Optional[str] = None,
+        only_log_wrong: bool = True,
+        early_stop: Optional[Union[int, float]] = None,
+        thread: int = 1,
+        timeout_s: Optional[float] = 10
+    )-> List[_CASE_TYPE]:
+        # ========== 自动处理 test_cases 为元组列表的情况 ============
+        assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
+        if all(map(lambda x: isinstance(x, tuple),test_cases)):
+            # 如果是元组列表，则尝试按 self.method 的签名转换为标准 _CASE_TYPE 列表
+            test_cases = self.tuple_to_cases(test_cases)
+        
+        output = self.run(test_cases,log_suffix,only_log_wrong,early_stop,thread,timeout_s)
+        expected_results = self.get_expected_cases(output)
+
+        return expected_results
+
     def run(
         self,
         test_cases: List[_CASE_TYPE],  # 严格要求是 List[CASE_TYPE]
@@ -244,9 +263,11 @@ class SolutionRunner:
         early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
-    ) -> List[Dict[str, Any]]:
+        summary: bool = False,
+    ) -> List[_CASE_TYPE]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
+        assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
         for idx, case in enumerate(test_cases):
             if not isinstance(case, dict):
                 raise ValueError(f"测试用例 {idx} 必须至少含有 'input' 键的字典类型")
@@ -270,16 +291,36 @@ class SolutionRunner:
                 today=today
             )
             results.append(result)
-            
+
+            is_wrong = 'expected' in result and 'output' in result and result['expected'] != result['output']
+            if is_wrong: error_count += 1
+
             # 记录日志
-            if log_suffix is not None and log_lines:
+            if log_suffix is not None and log_lines and (False == only_log_wrong or is_wrong):
                 self._write_case_log(case, log_lines, log_suffix)
             
             # 早停检查
             if self._check_early_stop(early_stop, error_count, len(results), result):
                 break
+
+        if summary:
+            self.summary_results(results)
         
         return results
+    
+    @classmethod
+    def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
+        right = totol = 0
+        for case in results:
+            if 'expected' in case and 'output' in case:
+                totol += 1
+                if case['expected'] != case['output']:
+                    print(f"wrong: {case}")
+                else:
+                    right += 1
+        if verbose:
+            print(f"right/total: {right}/{totol}")
+        return right,totol
 
     def _execute_single_case(
         self,
@@ -386,7 +427,7 @@ class SolutionRunner:
         print(f"✅ 从 {total_count} 个测试用例中筛选出 {success_count} 个有效用例")
         return expected_cases
     
-    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[Union[str,os.PathLike]] = None) -> os.PathLike:
+    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[os.PathLike] = None) -> os.PathLike:
         """保存测试用例到JSON文件"""
         if file_path is None:
             base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
