@@ -47,4 +47,4 @@ cases = cases_generation(num_test_cases= 10,seed=42)
 expected_results = 暴力算法.run_as_expected(cases)
 暴力算法.save_test_cases(expected_results)
 
-results = 改进算法.run(expected_results,  log_suffix= "" , summary= True) 
+results = 改进算法.run(expected_results,  log_prefix= 改进算法.file_name , summary= True) 

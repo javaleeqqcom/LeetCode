@@ -1,6 +1,5 @@
 # tools/solution_runner.py
-import os
-import sys
+import os,sys,io
 import inspect
 from pathlib import Path
 import logging
@@ -50,20 +49,6 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _get_unique_log_path(base_name: str) -> str:
-    """生成唯一日志路径"""
-    if not base_name.endswith('.log'):
-        base_name += '.log'
-    if not os.path.exists(base_name):
-        return base_name
-    counter = 1
-    while counter < 1000:
-        candidate = f"{base_name.rstrip('.log')}.{counter}.log"
-        if not os.path.exists(candidate):
-            return candidate
-        counter += 1
-    raise Exception("无法生成唯一日志路径")
-
 class SolutionRunner:
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
         """
@@ -80,6 +65,7 @@ class SolutionRunner:
         # 从 solution_file 路径中提取相对目录（即文件所在目录）
         solution_path = Path(solution_file).resolve()
         self.relPath = solution_path.parent
+        self.file_name = os.path.splitext(os.path.basename(solution_path))[0]
 
         # 2. 创建虚拟执行环境
         mod = types.ModuleType('student_solution')
@@ -235,7 +221,34 @@ class SolutionRunner:
                 raise RuntimeError(f"解析测试文件失败: {file_path}") from e
         
         return test_cases
-
+    
+    def _get_unique_log_path(self, file_name: str) -> Path:
+        """生成唯一的日志文件路径（保存到 self.relPath 目录下）"""
+        # 确保 relPath 是一个路径对象
+        log_dir = Path(self.relPath)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 确保文件名以 .log 结尾
+        if not file_name.endswith('.log'):
+            file_name += '.log'
+        
+        # 生成完整路径
+        log_path = log_dir / file_name
+        
+        # 如果文件已存在，添加序号
+        if log_path.exists():
+            stem = log_path.stem
+            suffix = log_path.suffix
+            counter = 1
+            while True:
+                new_name = f"{stem}_{counter}{suffix}"
+                log_path = log_dir / new_name
+                if not log_path.exists():
+                    break
+                counter += 1
+        
+        return log_path
+        
     def run_as_expected(self, 
         test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
         early_stop: Optional[Union[int, float]] = None,
@@ -257,7 +270,7 @@ class SolutionRunner:
         self,
         test_cases: List[_CASE_TYPE],  # 严格要求是 List[CASE_TYPE]
         log_wrong: bool = True,        # 默认记录错误的测试样例
-        log_suffix: str = "",
+        log_prefix: Optional[str] = None,
         early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
@@ -274,14 +287,16 @@ class SolutionRunner:
                 raise ValueError(f"测试用例 {idx} 缺少 'input' 键")
             if not isinstance(case['input'], (dict, tuple)):
                 raise ValueError(f"测试用例 {idx} 的 'input' 必须是字典或元组")
-        
+            
         # ========== 2. 执行所有用例 ==========
         results = []
         wrong_count = 0
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        func_name = getattr(self.method, '__name__', 'unknown')
+        func_name = getattr(self.method, '__name__', 'unknown')\
         
-        wrong_cases = []
+        if log_prefix is None:
+            log_prefix = self.file_name
+
         for idx, case in enumerate(test_cases):
             # 执行单用例（核心封装，便于多进程改造）
             result, log_lines = self._execute_single_case(
@@ -292,24 +307,26 @@ class SolutionRunner:
             )
             results.append(result)
 
-            if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
+            if 'error' in result:
+                # 单独记录报错的 log，以 self.solution_file 和 idx 命名
+                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_#{idx+1}.log")
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(log_lines))
+                if not skip_error:
+                    raise Exception(f"执行报错（已经保存日志到 {log_path}）：\n{result['error']}")
+            
+            elif 'expected' in result and 'output' in result and result['expected'] != result['output']: 
                 # 结果错误（不符合预期）
                 wrong_count += 1
-                # 汇总错误结果的日志（循环外统一写）
-                if log_wrong and log_lines:
-                    wrong_cases.append(log_lines)
+                # 记录错误结果的日志
+                if log_wrong:
+                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_#{idx+1}.log")
+                    with open(log_path, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(log_lines))
 
-            if 'error' in result:
-                单独记录报错的 log，以 self.solution_file 和 idx 命名
-                if not skip_error:
-                    break # 报错后停止运行
-            
-            # 早停检查
-            if self._check_early_stop(early_stop, wrong_count, len(results), result):
-                break
-
-        if wrong_cases:
-            合并写入 log
+                # 早停检查
+                if self._check_early_stop(early_stop, wrong_count, len(results), result):
+                    break
 
         if summary:
             self.summary_results(results)
@@ -318,28 +335,22 @@ class SolutionRunner:
     
     @classmethod
     def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
-        right = totol = 0
+        right = valid = 0
         for case in results:
             if 'expected' in case and 'output' in case:
-                totol += 1
+                valid += 1
                 if case['expected'] != case['output']:
                     print(f"wrong: {case}")
                 else:
                     right += 1
         if verbose:
-            print(f"right/total: {right}/{totol}")
-        return right,totol
+            print(f"right / total_valid: {right} / {valid}")
+        return right,valid
 
     def _execute_single_case(
-        self,
-        case: _CASE_TYPE,
-        case_idx: int,
-        func_name: str,
-        today: str
+        self, case: _CASE_TYPE, case_idx: int, func_name: str, today: str
     ) -> Tuple[_CASE_TYPE, List[str]]:
-        """执行单个测试用例（核心封装）
-        待改进：支持自定义类型的自动转换，或者修改为在读取样例时进行转换
-        """
+        """执行单个测试用例（核心封装）"""
         log_lines = []
         result_dict = case.copy()
         
@@ -348,37 +359,50 @@ class SolutionRunner:
             log_lines.append(f"{ts}:\t{content}")
         
         try:
-            _add_log(f"[{today}] Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}" )
+            _add_log(f"[{today}] Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}")
             
             input_val = case['input']
             instance = self.Solution()
-
+            
+            # 保存原始 stdout
+            original_stdout = sys.stdout
+            # 创建字符串缓冲区捕获 print 输出
+            captured_output = io.StringIO()
             
             if isinstance(input_val, dict):
-                _add_log(f">>> INPUT\n{_compacted_json.dumps(
-                    input_val,
-                    indent=2
-                )}")
+                _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
+                # 重定向 stdout
+                sys.stdout = captured_output
                 output = self.method(instance, **input_val)
-                # 待改进！需要将执行中的 print 的内容（加一行执行时print的提示）加入到 log_lines 中，注意整个 print 的内容为一个整体，只用一个 log_lines.append(f"{ts}:\t{content}")
+                # 恢复 stdout
+                sys.stdout = original_stdout
+                # 获取并记录 print 内容
+                print_content = captured_output.getvalue()
+                if print_content.strip():
+                    _add_log(f">>> PRINT OUTPUT:\n{print_content}")
+                
             elif isinstance(input_val, tuple):
-                _add_log(f">>> INPUT\n{_compacted_json.dumps(
-                    list(input_val),
-                    indent=2
-                )}")
+                _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
+                # 重定向 stdout
+                sys.stdout = captured_output
                 output = self.method(instance, *input_val)
-                # 待改进！需要将执行中的 print 的内容（加一行执行时print的提示）加入到 log_lines 中
+                # 恢复 stdout
+                sys.stdout = original_stdout
+                # 获取并记录 print 内容
+                print_content = captured_output.getvalue()
+                if print_content.strip():
+                    _add_log(f">>> PRINT OUTPUT:\n{print_content}")
             else:
                 raise ValueError("测试用例的input必须是字典或元组")
             
             elapsed = time.perf_counter() - time.perf_counter()
             result_dict['output'] = output
             result_dict['elapsed'] = elapsed
-            _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{
-                _compacted_json.dumps(output,indent=2)
-            }")
+            _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compacted_json.dumps(output, indent=2)}")
             
         except Exception as e:
+            # 异常时也恢复 stdout
+            sys.stdout = original_stdout
             elapsed = time.perf_counter() - time.perf_counter()
             result_dict['error'] = str(e)
             result_dict['traceback'] = traceback.format_exc()
