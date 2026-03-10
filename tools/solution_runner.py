@@ -34,14 +34,6 @@ _CASE_TYPE = Dict[str, Union[Dict[str, Any], Tuple, Any]]
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
-def _compact_json(obj: List[_CASE_TYPE]) -> str:
-    """智能JSON序列化：外层缩进，叶子节点紧凑"""
-    return _compacted_json.dumps(
-        obj,
-        indent=2,
-        ensure_ascii=False,
-        default=str
-    )
 
 def _sanitize_filename(name: str) -> str:
     """安全文件名转换"""
@@ -233,7 +225,7 @@ class SolutionRunner:
             file_name += '.log'
         
         # 生成完整路径
-        log_path = log_dir / file_name
+        log_path = log_dir / _sanitize_filename(file_name)
         
         # 如果文件已存在，添加序号
         if log_path.exists():
