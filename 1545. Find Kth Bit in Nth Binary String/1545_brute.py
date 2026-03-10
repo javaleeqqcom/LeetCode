@@ -63,7 +63,7 @@ cases = cases_generation(num_test_cases= 100,max_n=20,seed=42)
 # 可以用 tuple_to_cases 将 tuple 格式的 test_cases 转换为 list of _CASE_TYPE
 fotmat_cases = brute.tuple_to_cases(cases)
 brute.save_test_cases(fotmat_cases)
-output = brute.run(fotmat_cases,only_log_wrong=True)
+output = brute.run(fotmat_cases,log_wrong=True)
 
 expected_results = brute.get_expected_cases(output)
 brute.save_test_cases(expected_results)

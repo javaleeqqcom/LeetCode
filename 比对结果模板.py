@@ -17,11 +17,6 @@ from pathlib import Path
 暴力算法 = SolutionRunner(问题目录 / "P3129_bt0.py")
 改进算法 = SolutionRunner(问题目录 /"P3129_V6.py")
 
-# 生成测试用例指引文件
-# ask_file = None  # 设置为None将使用与brute.py同名的txt文件
-# brute.get_ask_for_cases(ask_file) 
-# exit(0)
-
 import numpy as np
 from typing import List, Union, Optional, Tuple
 
@@ -52,5 +47,4 @@ cases = cases_generation(num_test_cases= 10,seed=42)
 expected_results = 暴力算法.run_as_expected(cases)
 暴力算法.save_test_cases(expected_results)
 
-# print(cases)
-results = 改进算法.run(expected_results, only_log_wrong=True, summary= True) # only_log_wrong 失效
+results = 改进算法.run(expected_results, log_wrong=True, summary= True) 

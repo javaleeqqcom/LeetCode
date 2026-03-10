@@ -53,7 +53,7 @@ expected_results = 暴力算法.run_as_expected(cases)
 暴力算法.save_test_cases(expected_results)
 
 # print(cases)
-results = 改进算法.run(expected_results, only_log_wrong=True) # only_log_wrong 失效
+results = 改进算法.run(expected_results, log_wrong=True) # only_log_wrong 失效
 
 right = 0
 for case in results:

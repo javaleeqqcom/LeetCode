@@ -45,5 +45,13 @@ class Solution:
                     if z >= k and o >= 1:
                         dp0[z][o] = (dp0[z][o] - dp1[z - k][o] + MODULE) % MODULE
         
+        print(f"dp0[{len(dp0)}][{len(dp0[0])}] = [")
+        print(",\n".join(f"  {str(row)}" for row in dp0))
+        print("]")
+        
+        print(f"dp1[{len(dp1)}][{len(dp1[0])}] = [")
+        print(",\n".join(f"  {str(row)}" for row in dp1))
+        print("]")
+
         # 答案：以 1 开头 + 以 0 开头
         return (dp1[zero][one] + dp0[zero][one]) % MODULE

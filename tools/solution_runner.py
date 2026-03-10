@@ -238,8 +238,6 @@ class SolutionRunner:
 
     def run_as_expected(self, 
         test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
-        log_suffix: Optional[str] = None,
-        only_log_wrong: bool = True,
         early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
         timeout_s: Optional[float] = 10
@@ -250,7 +248,7 @@ class SolutionRunner:
             # 如果是元组列表，则尝试按 self.method 的签名转换为标准 _CASE_TYPE 列表
             test_cases = self.tuple_to_cases(test_cases)
         
-        output = self.run(test_cases,log_suffix,only_log_wrong,early_stop,thread,timeout_s)
+        output = self.run(test_cases,log_wrong = False,thread = thread,timeout_s=timeout_s)
         expected_results = self.get_expected_cases(output)
 
         return expected_results
@@ -258,12 +256,13 @@ class SolutionRunner:
     def run(
         self,
         test_cases: List[_CASE_TYPE],  # 严格要求是 List[CASE_TYPE]
-        log_suffix: Optional[str] = None,
-        only_log_wrong: bool = False,
+        log_wrong: bool = True,        # 默认记录错误的测试样例
+        log_suffix: str = "",
         early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
         summary: bool = False,
+        skip_error = False,
     ) -> List[_CASE_TYPE]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
@@ -278,10 +277,11 @@ class SolutionRunner:
         
         # ========== 2. 执行所有用例 ==========
         results = []
-        error_count = 0
+        wrong_count = 0
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         func_name = getattr(self.method, '__name__', 'unknown')
         
+        wrong_cases = []
         for idx, case in enumerate(test_cases):
             # 执行单用例（核心封装，便于多进程改造）
             result, log_lines = self._execute_single_case(
@@ -292,16 +292,24 @@ class SolutionRunner:
             )
             results.append(result)
 
-            is_wrong = 'expected' in result and 'output' in result and result['expected'] != result['output']
-            if is_wrong: error_count += 1
+            if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
+                # 结果错误（不符合预期）
+                wrong_count += 1
+                # 汇总错误结果的日志（循环外统一写）
+                if log_wrong and log_lines:
+                    wrong_cases.append(log_lines)
 
-            # 记录日志
-            if log_suffix is not None and log_lines and (False == only_log_wrong or is_wrong):
-                self._write_case_log(case, log_lines, log_suffix)
+            if 'error' in result:
+                单独记录报错的 log，以 self.solution_file 和 idx 命名
+                if not skip_error:
+                    break # 报错后停止运行
             
             # 早停检查
-            if self._check_early_stop(early_stop, error_count, len(results), result):
+            if self._check_early_stop(early_stop, wrong_count, len(results), result):
                 break
+
+        if wrong_cases:
+            合并写入 log
 
         if summary:
             self.summary_results(results)
@@ -337,13 +345,14 @@ class SolutionRunner:
         
         def _add_log(content: str):
             ts = time.strftime("%H:%M:%S", time.localtime())
-            log_lines.append(f"{ts}\t{content}")
+            log_lines.append(f"{ts}:\t{content}")
         
         try:
-            _add_log(f"[{today}] Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}")
+            _add_log(f"[{today}] Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}" )
             
             input_val = case['input']
             instance = self.Solution()
+
             
             if isinstance(input_val, dict):
                 _add_log(f">>> INPUT\n{_compacted_json.dumps(
@@ -351,12 +360,14 @@ class SolutionRunner:
                     indent=2
                 )}")
                 output = self.method(instance, **input_val)
+                # 待改进！需要将执行中的 print 的内容（加一行执行时print的提示）加入到 log_lines 中，注意整个 print 的内容为一个整体，只用一个 log_lines.append(f"{ts}:\t{content}")
             elif isinstance(input_val, tuple):
                 _add_log(f">>> INPUT\n{_compacted_json.dumps(
                     list(input_val),
                     indent=2
                 )}")
                 output = self.method(instance, *input_val)
+                # 待改进！需要将执行中的 print 的内容（加一行执行时print的提示）加入到 log_lines 中
             else:
                 raise ValueError("测试用例的input必须是字典或元组")
             
@@ -376,17 +387,6 @@ class SolutionRunner:
             _add_log(traceback.format_exc())
         
         return result_dict, log_lines
-
-    def _write_case_log(self, case: Dict[str, Any], log_lines: List[str], log_suffix: str):
-        """写入单个用例日志（原子操作）"""
-
-        key = case.get('test_case_key', f"case_{case.get('idx', 0)+1}")
-        safe_key = _sanitize_filename(key)
-        # 日志写到 self.相对目录 下
-        log_path = self.relPath / _get_unique_log_path(f"{safe_key}{log_suffix}")
-        
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(log_lines))
 
     def _check_early_stop(
         self,
