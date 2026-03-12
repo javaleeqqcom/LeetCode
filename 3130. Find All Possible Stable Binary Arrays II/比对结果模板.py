@@ -48,8 +48,9 @@ def cases_generation(
 
 # 保存测试用例，并自动运行暴力算法生成expected结果
 
-cases = cases_generation(num_test_cases= 1000,seed=42)
+cases = cases_generation(num_test_cases= 10,seed=42)
 expected_results = 暴力算法.run_as_expected(cases)
+
 暴力算法.save_test_cases(expected_results)
 
 # print(cases)

@@ -269,17 +269,19 @@ class SolutionRunner:
         timeout_s: Optional[float] = 10,
         summary: bool = False,
         skip_error = False,
+        check_cases_format = True
     ) -> List[_CASE_TYPE]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
-        assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
-        for case_id, case in enumerate(test_cases):
-            if not isinstance(case, dict):
-                raise ValueError(f"测试用例 {case_id} 必须至少含有 'input' 键的字典类型")
-            if 'input' not in case:
-                raise ValueError(f"测试用例 {case_id} 缺少 'input' 键")
-            if not isinstance(case['input'], (dict, tuple)):
-                raise ValueError(f"测试用例 {case_id} 的 'input' 必须是字典或元组")
+        if check_cases_format:
+            assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
+            for case in test_cases:
+                if not isinstance(case, dict):
+                    raise ValueError(f"测试用例 {case['cid']} 必须至少含有 'input' 键的字典类型")
+                if 'input' not in case:
+                    raise ValueError(f"测试用例 {case['cid']} 缺少 'input' 键")
+                if not isinstance(case['input'], (dict, tuple)):
+                    raise ValueError(f"测试用例 {case['cid']} 的 'input' 必须是字典或元组")
             
         # ========== 2. 执行所有用例 ==========
         func_name = getattr(self.method, '__name__', 'unknown')\
@@ -287,48 +289,47 @@ class SolutionRunner:
         if log_prefix is None:
             log_prefix = self.file_name
 
-        def get_error_log_path(case_id,result,log_lines) -> Optional[os.PathLike]:
+        def get_error_log_path(result,log_lines) -> Optional[os.PathLike]:
             nonlocal log_prefix
             if 'error' in result:
                 # 单独记录报错的 log，以 self.solution_file 和 idx 命名
-                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_#{case_id}.log")
+                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_{result['cid']}.log")
                 with open(log_path, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(log_lines))
                 return log_path
             return None
 
-        def auto_log_wrong(case_id,result,log_lines) -> bool:
+        def auto_log_wrong(result,log_lines) -> bool:
             nonlocal log_wrong
             if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
                 # 记录错误结果的日志
                 if log_wrong:
-                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_#{case_id}.log")
+                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_{result['cid']}.log")
                     with open(log_path, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(log_lines))
                 return True
             return False
 
-        if -1==thread:
-            thread = 计算机核心线程数
+        # if -1==thread:
+        #     thread = 计算机核心线程数
         if 1==thread:
             results = []
             wrong_count = 0
-            for case_id, case in enumerate(test_cases,start=1):
+            for case in test_cases:
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = self._execute_single_case(
                     case=case,
-                    case_idx=case_id,
                     func_name=func_name,
                 )
                 results.append(result)
 
-                error_log_path = get_error_log_path(case_id,result,log_lines)
+                error_log_path = get_error_log_path(result,log_lines)
                 if error_log_path is not None:
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                     else:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
-                elif auto_log_wrong(case_id,result,log_lines) and self._check_early_stop(early_stop, wrong_count, len(results), result): 
+                elif auto_log_wrong(result,log_lines) and self._check_early_stop(early_stop, wrong_count, len(results), result): 
                     break # 触发早停
         else:
             
@@ -388,23 +389,24 @@ class SolutionRunner:
         return right,valid
 
     def _execute_single_case(
-        self, case: _CASE_TYPE, case_idx: int, func_name: str
+        self, case: _CASE_TYPE,  func_name: str
     ) -> Tuple[_CASE_TYPE, List[str]]:
         """执行单个测试用例（核心封装）"""
         log_lines = []
         result_dict = case.copy()
         
         def _add_log(content: str):
-            log_lines.append(f"#{case_idx}:\t{content}")
+            log_lines.append(f"{case['cid']}:\t{content}")
         
         try:
-            _add_log(f"Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}")
+            # 保存原始 stdout
+            original_stdout = sys.stdout
+
+            _add_log(f"Running '{func_name}' with case: {case.get('test_case_key', f'{case['cid']}')}")
             
             input_val = case['input']
             instance = self.Solution()
             
-            # 保存原始 stdout
-            original_stdout = sys.stdout
             # 创建字符串缓冲区捕获 print 输出
             captured_output = io.StringIO()
             
@@ -474,20 +476,21 @@ class SolutionRunner:
         return False
 
     def get_expected_cases(self, run_results: List[_CASE_TYPE]) -> List[_CASE_TYPE]:
-        """从run结果中过滤出成功的测试用例，并将'output'重命名为'expected'"""
+        """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
-        success_count = 0
+        case_id = 0
         total_count = len(run_results)
         
         for result in run_results:
             if 'error' not in result:
+                case_id += 1
                 expected_case = result.copy()
+                expected_case['cid'] = f"#{case_id}"
                 expected_case['expected'] = expected_case.pop('output')
                 expected_case.pop('elapsed', None)
                 expected_cases.append(expected_case)
-                success_count += 1
-        
-        print(f"✅ 从 {total_count} 个测试用例中筛选出 {success_count} 个有效用例")
+
+        print(f"✅ 从 {total_count} 个测试用例中筛选出 {case_id} 个有效用例")
         return expected_cases
     
     def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[os.PathLike] = None) -> os.PathLike:
@@ -545,7 +548,10 @@ class SolutionRunner:
             start_idx = i * m
             chunk = flat_values[start_idx:start_idx + m]
             input_dict = dict(zip(params, chunk))
-            result.append({"input": input_dict})
+            result.append({
+                "input": input_dict,
+                "cid": i
+                })
         
         return result
             
