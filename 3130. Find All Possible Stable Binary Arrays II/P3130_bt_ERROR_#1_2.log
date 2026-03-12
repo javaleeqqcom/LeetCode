@@ -1,0 +1,13 @@
+#1:	Running 'numberOfStableArrays' with case: #2
+#1:	>>> INPUT
+{
+  "zero": 2,
+  "one": 1,
+  "limit": 3
+}
+#1:	!!! EXCEPTION OCCURRED:
+#1:	Traceback (most recent call last):
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\tools\solution_runner.py", line 378, in _execute_single_case
+    output = self.method(instance, **input_val)
+             ^^^^
+NameError: name 'self' is not defined

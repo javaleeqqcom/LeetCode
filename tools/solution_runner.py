@@ -9,6 +9,7 @@ import ast, re, json
 import types
 import traceback
 from charset_normalizer.api import from_bytes  # 自动检测编码
+from concurrent import futures,interpreters
 
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
@@ -272,53 +273,100 @@ class SolutionRunner:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
         assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
-        for idx, case in enumerate(test_cases):
+        for case_id, case in enumerate(test_cases):
             if not isinstance(case, dict):
-                raise ValueError(f"测试用例 {idx} 必须至少含有 'input' 键的字典类型")
+                raise ValueError(f"测试用例 {case_id} 必须至少含有 'input' 键的字典类型")
             if 'input' not in case:
-                raise ValueError(f"测试用例 {idx} 缺少 'input' 键")
+                raise ValueError(f"测试用例 {case_id} 缺少 'input' 键")
             if not isinstance(case['input'], (dict, tuple)):
-                raise ValueError(f"测试用例 {idx} 的 'input' 必须是字典或元组")
+                raise ValueError(f"测试用例 {case_id} 的 'input' 必须是字典或元组")
             
         # ========== 2. 执行所有用例 ==========
-        results = []
-        wrong_count = 0
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
         func_name = getattr(self.method, '__name__', 'unknown')\
         
         if log_prefix is None:
             log_prefix = self.file_name
 
-        for idx, case in enumerate(test_cases):
-            # 执行单用例（核心封装，便于多进程改造）
-            result, log_lines = self._execute_single_case(
-                case=case,
-                case_idx=idx,
-                func_name=func_name,
-                today=today
-            )
-            results.append(result)
-
+        def get_error_log_path(case_id,result,log_lines) -> Optional[os.PathLike]:
+            nonlocal log_prefix
             if 'error' in result:
                 # 单独记录报错的 log，以 self.solution_file 和 idx 命名
-                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_#{idx+1}.log")
+                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_#{case_id}.log")
                 with open(log_path, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(log_lines))
-                if not skip_error:
-                    raise Exception(f"执行报错（已经保存日志到 {log_path}）：\n{result['error']}")
-            
-            elif 'expected' in result and 'output' in result and result['expected'] != result['output']: 
-                # 结果错误（不符合预期）
-                wrong_count += 1
+                return log_path
+            return None
+
+        def auto_log_wrong(case_id,result,log_lines) -> bool:
+            nonlocal log_wrong
+            if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
                 # 记录错误结果的日志
                 if log_wrong:
-                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_#{idx+1}.log")
+                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_#{case_id}.log")
                     with open(log_path, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(log_lines))
+                return True
+            return False
 
-                # 早停检查
-                if self._check_early_stop(early_stop, wrong_count, len(results), result):
-                    break
+        if -1==thread:
+            thread = 计算机核心线程数
+        if 1==thread:
+            results = []
+            wrong_count = 0
+            for case_id, case in enumerate(test_cases,start=1):
+                # 执行单用例（核心封装，便于多进程改造）
+                result, log_lines = self._execute_single_case(
+                    case=case,
+                    case_idx=case_id,
+                    func_name=func_name,
+                )
+                results.append(result)
+
+                error_log_path = get_error_log_path(case_id,result,log_lines)
+                if error_log_path is not None:
+                    if skip_error:
+                        Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
+                    else:
+                        raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
+                elif auto_log_wrong(case_id,result,log_lines) and self._check_early_stop(early_stop, wrong_count, len(results), result): 
+                    break # 触发早停
+        else:
+            
+            def execute_in_interpreter(interpreter_id : int ,
+                                        group_queue :interpreters.Queue , 
+                                        early_stop_queue : interpreters.Queue, # 存放 group_id 表示截取的组号
+                                        exception_queue: interpreters.Queue,    # 存放出现异常的结果
+                                        )->List[Tuple[int,Any]]:
+                """在子解释器中执行测试用例"""
+                start_time = time.time()
+
+                # 从队列中获取测试用例
+                results = []
+                
+                while early_stop_queue.empty():
+                    try:
+                        # 阻塞等待获取测试用例
+                        group_id, cases = group_queue.get_nowait()
+                    except:
+                        # 队列为空，结束处理
+                        break
+
+                    results_buff = []
+                    try:
+                        for num in cases:
+                            results_buff.append(_solution.is_sqrt_prime(num))
+                    except Exception as e:
+                        print(f"线程{interpreter_id}执行黑箱任务 gid={group_id} 出错，报错信息如下：\n{e}")
+                        early_stop_queue.put(group_id) # 将早停对应的 gid 存入共享队列
+
+                    results.append(( group_id,  results_buff ))
+
+                end_time = time.time()
+                elapsed = end_time - start_time
+                print(f"解释器 {interpreter_id:2d} 处理 {sum([len(cases) for _,cases in results]):8d} 个用例耗时: {elapsed:10.6f} s , 结束时刻: {end_time:20.6f}s")
+                
+                return results
+
 
         if summary:
             self.summary_results(results)
@@ -340,18 +388,17 @@ class SolutionRunner:
         return right,valid
 
     def _execute_single_case(
-        self, case: _CASE_TYPE, case_idx: int, func_name: str, today: str
+        self, case: _CASE_TYPE, case_idx: int, func_name: str
     ) -> Tuple[_CASE_TYPE, List[str]]:
         """执行单个测试用例（核心封装）"""
         log_lines = []
         result_dict = case.copy()
         
         def _add_log(content: str):
-            ts = time.strftime("%H:%M:%S", time.localtime())
-            log_lines.append(f"{ts}:\t{content}")
+            log_lines.append(f"#{case_idx}:\t{content}")
         
         try:
-            _add_log(f"[{today}] Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}")
+            _add_log(f"Running '{func_name}' with case: {case.get('test_case_key', f'#{case_idx+1}')}")
             
             input_val = case['input']
             instance = self.Solution()
@@ -407,7 +454,7 @@ class SolutionRunner:
     def _check_early_stop(
         self,
         early_stop: Optional[Union[int, float]],
-        error_count: int,
+        wrong_count: int,
         total: int,
         last_result: Dict[str, Any]
     ) -> bool:
@@ -415,12 +462,12 @@ class SolutionRunner:
         if early_stop is None or 'error' not in last_result:
             return False
         
-        if isinstance(early_stop, int) and (error_count + 1) >= early_stop:
-            print(f"⚠️ Early stop: {error_count + 1} errors >= threshold {early_stop}")
+        if isinstance(early_stop, int) and (wrong_count + 1) >= early_stop:
+            print(f"⚠️ Early stop: {wrong_count + 1} errors >= threshold {early_stop}")
             return True
         
         if isinstance(early_stop, float):
-            error_rate = (error_count + 1) / total
+            error_rate = (wrong_count + 1) / total
             if error_rate >= early_stop:
                 print(f"⚠️ Early stop: error rate {error_rate:.1%} >= {early_stop:.1%}")
                 return True

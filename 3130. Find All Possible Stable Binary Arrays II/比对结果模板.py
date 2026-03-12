@@ -11,11 +11,11 @@ from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path
 
-问题目录 = Path("3129. Find All Possible Stable Binary Arrays I")
+问题目录 = Path("3130. Find All Possible Stable Binary Arrays II")
 
 # 初始化暴力解法运行器
-暴力算法 = SolutionRunner(问题目录 / "P3129_bt0.py")
-改进算法 = SolutionRunner(问题目录 /"P3129_V6.py")
+暴力算法 = SolutionRunner(问题目录 / "P3130_bt.py")
+改进算法 = SolutionRunner(问题目录 /"P3130_V1.py")
 
 # 生成测试用例指引文件
 # ask_file = None  # 设置为None将使用与brute.py同名的txt文件
@@ -48,7 +48,7 @@ def cases_generation(
 
 # 保存测试用例，并自动运行暴力算法生成expected结果
 
-cases = cases_generation(num_test_cases= 10,seed=42)
+cases = cases_generation(num_test_cases= 1000,seed=42)
 expected_results = 暴力算法.run_as_expected(cases)
 暴力算法.save_test_cases(expected_results)
 
