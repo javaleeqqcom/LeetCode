@@ -13,7 +13,7 @@ _N_THREAD_ = 100
 # 测试用例生成
 def generate_test_cases(n: int = 10000) -> List[int]:
     """生成 n 个随机 int32 正整数 (1 到 2^31-1)"""
-    return [random.randint(1, 2**10 - 1) for _ in range(n)]
+    return [random.randint(1, 2**31 - 1) for _ in range(n)]
 
 def execute_in_interpreter(test_queue, results_queue, interpreter_id):
     """在子解释器中执行测试用例"""
@@ -27,14 +27,15 @@ def execute_in_interpreter(test_queue, results_queue, interpreter_id):
     while True:
         try:
             # 阻塞等待获取测试用例，设置合理超时时间 (小于间隔)
-            num = test_queue.get(timeout=0.0005)
+            case_id, num = test_queue.get(timeout=0.0005)
             # 检查是否是结束标记
-            if num is None:
+            if case_id is None:
                 break
-
-            time.sleep(random.random()*0.01) # 模拟耗时操作，随机时间，以打乱线程的资源获取与输出结果的顺序
             
-            results.append(_solution.is_sqrt_prime(num))
+            # 模拟耗时操作，随机时间，以打乱线程的资源获取与输出结果的顺序
+            # time.sleep(random.random()*0.01)
+            
+            results.append((case_id, _solution.is_sqrt_prime(num)))
         except:
             # 队列为空，结束处理
             break
@@ -46,15 +47,24 @@ def execute_in_interpreter(test_queue, results_queue, interpreter_id):
     results_queue.put(results)
     return results
 
+def merge_sorted_lists(lists):
+    """使用归并排序合并多个已排序列表"""
+    from heapq import merge
+    
+    # 归并排序
+    merged = merge(*lists, key=lambda x: x[0])
+    
+    # 提取结果
+    return [(case_id, result) for case_id, result in merged]
+
 def main():
     # 生成测试用例
-    test_cases = generate_test_cases(100)
+    test_cases = generate_test_cases(100000)
     
     # 顺序执行测试（用于基准比较）
     start_time = time.time()
     solution = Solution()
     results_seq = [solution.is_sqrt_prime(num) for num in test_cases]
-    # results_seq = test_cases
     seq_time = time.time() - start_time
     print(f"顺序执行耗时: {seq_time:.3f} s")
     
@@ -62,13 +72,13 @@ def main():
     test_queue = interpreters.create_queue()
     results_queue = interpreters.create_queue()
     
-    # 将测试用例放入队列
-    for num in test_cases:
-        test_queue.put(num)
+    # 将测试用例放入队列（包含case_id）
+    for case_id, num in enumerate(test_cases):
+        test_queue.put((case_id, num))
     
     # 放入结束标记（每个解释器一个）
     for _ in range(_N_CORE_):
-        test_queue.put(None)
+        test_queue.put((None, None))
     
     # 并行执行测试
     start_time = time.time()
@@ -84,7 +94,13 @@ def main():
         # 收集结果
         results_parallel = []
         for _ in range(_N_CORE_):
-            results_parallel.extend(results_queue.get())
+            results_parallel.append(results_queue.get())
+    
+    # 使用归并排序合并结果
+    results_parallel = merge_sorted_lists(results_parallel)
+    
+    # 提取结果值
+    results_parallel = [res for _, res in results_parallel]
     
     parallel_time = time.time() - start_time
     print(f"\n{_N_CORE_} 解释器并行耗时: {parallel_time:.3f} s")
