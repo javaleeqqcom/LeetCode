@@ -56,7 +56,7 @@ class SolutionRunner:
         with open(solution_file, 'rb') as f:
             raw = f.read()
         result = from_bytes(raw).best()
-        self.student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
+        student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
         
         # 从 solution_file 路径中提取相对目录（即文件所在目录）
         solution_path = Path(solution_file).resolve()
@@ -73,17 +73,15 @@ class SolutionRunner:
             'Dict': Dict,
             '__builtins__': __builtins__,
         })
-        # 用于多线程执行重构学生代码环境
-        self.mod_dict_lst = tuple(mod.__dict__.items())
         
         # 3. 执行学生代码（注入类型）
-        exec(self.student_code, mod.__dict__)
+        exec(student_code, mod.__dict__)
         
         # 4. 获取Solution类
         if 'Solution' not in mod.__dict__:
             raise ValueError("学生代码中未定义 Solution 类")
         self.Solution = mod.Solution
-        self.solution_file = str(solution_file)
+        self.solution_file = solution_file
         
         # 5. 提取方法
         methods = []
@@ -294,17 +292,44 @@ class SolutionRunner:
         if log_prefix is None:
             log_prefix = self.file_name
 
+        def get_error_log_path(result,log_lines) -> Optional[os.PathLike]:
+            nonlocal log_prefix
+            if 'error' in result:
+                # 单独记录报错的 log，以 self.solution_file 和 idx 命名
+                log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_{result['cid']}.log")
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(log_lines))
+                return log_path
+            return None
+
+        def auto_log_wrong(result,log_lines) -> bool:
+            nonlocal log_wrong
+            if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
+                # 记录错误结果的日志
+                if log_wrong:
+                    log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_{result['cid']}.log")
+                    with open(log_path, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(log_lines))
+                return True
+            return False
+
+        def _check_early_stop(total_cnt:int,wrong_count:int)->bool:
+            """检查是否触发早停"""
+            if early_stop is None:return False
+            if early_stop < 1:
+                return wrong_count > early_stop*total_cnt
+            else:
+                return wrong_count >= early_stop
+
         if -1==thread:
             cpu_count = os.cpu_count()
             thread = cpu_count if cpu_count else 1
         if 1==thread:
             wrong_count = 0
             results = []
-            solution = self.Solution() 
             for case in test_cases:
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = self._execute_single_case(
-                    solution,
                     case=case,
                     func_name=func_name,
                 )
@@ -319,20 +344,113 @@ class SolutionRunner:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif auto_log_wrong(result,log_lines): 
                     wrong_count += 1 
-                    if self._check_early_stop( len(results), wrong_count ,early_stop):
+                    if _check_early_stop( len(results), wrong_count):
                         break # 触发早停
         else:
-            raise ValueError("暂不支持多线程")
-            with ... as pool:
-                用 pool.map 简单执行并汇总结果
+            # 使用多线程执行测试用例
+            with futures.InterpreterPoolExecutor(max_workers=thread) as pool:
+                def execute_in_interpreter(interpreter_id : int ,
+                                            group_queue :interpreters.Queue , 
+                                            early_stop_queue : interpreters.Queue, # 各线程上报停止信号的队列
+                                            output_queue: interpreters.Queue,    # 存放输出结果
+                                            ):
+                    
+                    
+                    """在子线程中分组执行测试用例"""
+                    start_time = time.time()
+                    process_case_num = 0
+
+                    # DEBUG:
+                    print(f"线程{interpreter_id:2d}：开始执行于：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+                    if __DEBUG__:
+                        early_stop_queue.put(0) # 向所有线程广播异常错误，进行早停
+                        output_queue.put( (None,None,None) )
+                        return None # DEBUG 时故意提前跳出，以阻止子线程继续执行
+
+                    # 无停止信号则循环
+                    while early_stop_queue.empty():
+                        try:
+                            # 队列非空时获取测试用例（block=False 表示为空队列时不阻塞）
+                            group_id, cases = group_queue.get(block=False)
+                        except:
+                            if group_queue.empty(): # 队列为空，跳出循环
+                                break
+                            else: continue
+
+                        # DEBUG:
+                        print(f"线程{interpreter_id:2d}：got group_id = {group_id} ,case num = {len(cases)}")
+
+                        try:
+                            results_buff = []
+                            wrong_count = 0
+                            for case in cases:
+                                result,log_lines = self._execute_single_case(case, func_name=func_name)
+                                error_log_path = get_error_log_path(result,log_lines)
+                                if error_log_path is not None:
+                                    error_msg = f"线程{interpreter_id:2d}：执行第 {group_id} 组中的样例 {result['cid']} 出错（报错信息已经保存到日志:\n\t{error_log_path}\n）"
+                                    push_exception_result(True,group_id,result['cid'])
+                                    if skip_error: # 跳过样例计算中的错误
+                                        Warning(error_msg)
+                                        continue # 报错的 result 不会进入 results_buff 中
+                                    else:
+                                        early_stop_queue.put(group_id) # 向所有线程广播异常错误，进行早停
+                                        raise Exception(error_msg)
+                                    
+                                # 结果错误记录
+                                if auto_log_wrong(result,log_lines):
+                                    wrong_count += 1
+                                # 子线程不处理结果错误
+                                results_buff.append(result)
+
+                            output_queue.put( (group_id,results_buff,wrong_count) )
+                            process_case_num += len(results_buff)
+                        except Exception as e:
+                            # 上报空记录以触发主线程读取队列
+                            output_queue.put( (None,None,1) )
+                            raise IOError(f"线程{interpreter_id:2d}：出现异常错误，耗时：{time.time() - start_time:10.6f} s，报错信息如下：\n{e}")
+
+                    # 上报空记录以触发主线程读取队列
+                    output_queue.put( (None,None,0) )
+                    end_time = time.time()
+                    elapsed = end_time - start_time
+                    print(f"线程{interpreter_id:2d}：计算 {process_case_num:8d} 个用例耗时: {elapsed:10.6f} s , 结束时刻: {end_time:20.6f}s")
+                
+                group_queue = interpreters.create_queue()
+                groups_num = self.geometric_decreasing_queue_generator(test_cases,group_queue)
+                
+                early_stop_queue = interpreters.create_queue() # 向各线程广播停止信号的队列
+                output_queue = interpreters.create_queue()   # 子线程上报结果的队列
+                
+                for interpreter_id in range(thread):
+                    pool.submit(execute_in_interpreter, 
+                                interpreter_id=interpreter_id,
+                                group_queue=group_queue,
+                                early_stop_queue=early_stop_queue,
+                                output_queue=output_queue
+                                )
+
+                output_buff = []
+                total_num, wrong_num = 0,0
+                # 当收集的“分组返回数量”小于总分组数时，且未收到早停信号时，继续收集输出。
+                # while len(output_buff) < groups_num and early_stop_queue.empty():
+                if True: # 故意将 while 改为只执行一次，以避免因为无限循环而卡死，如果还会卡死，则只能是queue阻塞卡死。
+                    print(f"output_buff.size: {len(output_buff)}") 
+                    group_id,results,wrong_count = output_queue.get()
+                    if group_id is not None:
+                        total_num += len(results)
+                        wrong_num += wrong_count
+                        output_buff.append((group_id,results)) # 后面一次性归并排序
+
+                    if _check_early_stop( total_num, wrong_count):
+                        early_stop_queue.put(group_id) # 触发早停，广播所有子线程提前结束
+
+            results = self.merge_groups(output_buff ) # 暂时不筛选 group_id <= min(early_stop_queue)
 
         if summary:
             self.summary_results(results)
         
         return results
     
-
-
     @classmethod
     def geometric_decreasing_queue_generator(cls, test_cases: List[_CASE_TYPE], queue: interpreters.Queue, rate: float = 0.1) -> int:
         """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
@@ -367,50 +485,8 @@ class SolutionRunner:
             print(f"right / total_valid: {right} / {valid}")
         return right,valid
 
-    @classmethod
-    def _check_early_stop(cls,total_cnt:int,wrong_count:int,early_stop:Optional[int|float]=None)->bool:
-        """检查是否触发早停"""
-        if early_stop is None:return False
-        if early_stop < 1:
-            return wrong_count > early_stop*total_cnt
-        else:
-            return wrong_count >= early_stop
-
-    # 先简化多线程（不用 thunk 加速，而是一个 case 对应一个线程，执行成功再改进）
-    def execute_in_interpreter(
-        self,
-        interpreter_id : int ,
-        case_queue :interpreters.Queue,
-        log_prefix:str,
-        skip_error : bool = False
-    )->_CASE_TYPE:
-        # 初始化 solution 环境
-        solution_instance = self.Solution()
-        # 获取
-        case = case_queue.get()
-        assert isinstance(case,dict)
-        # 执行
-        result,log_lines = self._execute_single_case(
-            solution_instance,
-            case,
-            self.method_name
-        )
-        
-        error_log_path = self.get_error_log_path(result,log_lines,log_prefix)
-        if error_log_path is not None:
-            if skip_error:
-                Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
-            else:
-                raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
-        # 暂时不搞 wrong 的早停，仅记录日志
-        self.auto_log_wrong(result,log_lines,True)
-
-        return result
-
     def _execute_single_case(
-        self, 
-        solution_instance, # 重大改进，必须由上级指定学生代码实例：1. 可以避免重复实例化带来的开销；2. 兼容多线程调用，各子线程独立构造学生代码实例（因为学生代码是黑箱，无法共享）
-        case: _CASE_TYPE,  func_name: str
+        self, case: _CASE_TYPE,  func_name: str
     ) -> Tuple[_CASE_TYPE, List[str]]:
         """执行单个测试用例（核心封装）"""
         log_lines = []
@@ -426,7 +502,7 @@ class SolutionRunner:
             _add_log(f"Running '{func_name}' with case: {case.get('test_case_key', f'{case['cid']}')}")
             
             input_val = case['input']
-            # instance = self.Solution()
+            instance = self.Solution()
             
             # 创建字符串缓冲区捕获 print 输出
             captured_output = io.StringIO()
@@ -435,7 +511,7 @@ class SolutionRunner:
                 _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
                 # 重定向 stdout
                 sys.stdout = captured_output
-                output = self.method(solution_instance, **input_val)
+                output = self.method(instance, **input_val)
                 # 恢复 stdout
                 sys.stdout = original_stdout
                 # 获取并记录 print 内容
@@ -447,7 +523,7 @@ class SolutionRunner:
                 _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
                 # 重定向 stdout
                 sys.stdout = captured_output
-                output = self.method(solution_instance, *input_val)
+                output = self.method(instance, *input_val)
                 # 恢复 stdout
                 sys.stdout = original_stdout
                 # 获取并记录 print 内容
@@ -475,24 +551,26 @@ class SolutionRunner:
         return result_dict, log_lines
 
     @classmethod
-    def get_error_log_path(cls,result:_CASE_TYPE,log_lines:List,log_prefix:str) -> Optional[os.PathLike]:
-        if 'error' in result:
-            # 单独记录报错的 log，以 self.solution_file 和 idx 命名
-            log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_{result['cid']}.log")
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(log_lines))
-            return log_path
-        return None
-
-    @classmethod
-    def auto_log_wrong(cls,result:_CASE_TYPE,log_lines:List,log_wrong:bool) -> bool:
-        if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
-            # 记录错误结果的日志
-            if log_wrong:
-                log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_{result['cid']}.log")
-                with open(log_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(log_lines))
+    def _check_early_stop(
+        cls,
+        early_stop: Optional[Union[int, float]],
+        wrong_count: int,
+        total: int,
+        last_result: Dict[str, Any]
+    ) -> bool:
+        """检查是否触发早停"""
+        if early_stop is None or 'error' not in last_result:
+            return False
+        
+        if isinstance(early_stop, int) and (wrong_count + 1) >= early_stop:
+            print(f"⚠️ Early stop: {wrong_count + 1} errors >= threshold {early_stop}")
             return True
+        
+        if isinstance(early_stop, float):
+            error_rate = (wrong_count + 1) / total
+            if error_rate >= early_stop:
+                print(f"⚠️ Early stop: error rate {error_rate:.1%} >= {early_stop:.1%}")
+                return True
         return False
 
     def get_expected_cases(self, run_results: List[_CASE_TYPE]) -> List[_CASE_TYPE]:
