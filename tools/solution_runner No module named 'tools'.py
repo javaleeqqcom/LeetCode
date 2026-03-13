@@ -47,11 +47,122 @@ def _sanitize_filename(name: str) -> str:
 
 # solution_runner.py 文件顶部（类定义之前）
 def _execute_in_interpreter_worker(
-    interpreter_id: int
-) -> int:
+    interpreter_id: int,
+    student_code: str,
+    method_name: str,
+    group_queue: interpreters.Queue,
+    output_queue: interpreters.Queue,
+) -> tuple:
+    """
+    模块级 worker 函数，在子解释器中执行测试用例
     
+    参数:
+        interpreter_id: 解释器 ID
+        student_code: 学生代码字符串（可 pickle）
+        method_name: 方法名
+        group_queue_id: 队列 ID（整数）
+        output_queue_id: 队列 ID（整数）
+    """
     print(f"线程{interpreter_id}：开始")
-    return interpreter_id
+
+    import time
+    import sys
+    import io
+    import types
+    import traceback
+    from concurrent import interpreters
+    from custom_init import ListNode, TreeNode, Optional, List, Dict
+    
+    print(f"线程{interpreter_id}：成功导入外部库")
+
+    # 在子解释器中重建学生代码环境
+    mod = types.ModuleType('student_solution')
+    mod.__dict__.update({
+        'ListNode': ListNode,
+        'TreeNode': TreeNode,
+        'Optional': Optional,
+        'List': List,
+        'Dict': Dict,
+        '__builtins__': __builtins__,
+    })
+    exec(student_code, mod.__dict__)
+    
+    # 创建 Solution 实例和方法
+    Solution = mod.Solution
+    instance = Solution()
+    method = getattr(instance, method_name)
+    
+    start_time = time.time()
+    process_case_num = 0
+
+    print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
+    
+    try:
+        while True:
+            # 从队列获取任务
+            try:
+                group_id, cases = group_queue.get_nowait()
+            except interpreters.QueueEmpty:
+                if group_queue.empty():
+                    break
+                time.sleep(0.001)
+                continue
+            
+            results_buff = []
+            
+            for case in cases:
+                log_lines = []
+                result_dict = case.copy()
+                
+                def _add_log(content: str):
+                    log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
+                
+                try:
+                    original_stdout = sys.stdout
+                    captured_output = io.StringIO()
+                    
+                    input_val = case['input']
+                    
+                    if isinstance(input_val, dict):
+                        sys.stdout = captured_output
+                        output = method(**input_val)
+                        sys.stdout = original_stdout
+                        
+                    elif isinstance(input_val, tuple):
+                        sys.stdout = captured_output
+                        output = method(*input_val)
+                        sys.stdout = original_stdout
+                    else:
+                        raise ValueError("input 必须是字典或元组")
+                    
+                    result_dict['output'] = output
+                    _add_log(f"OUTPUT: {output}")
+                    
+                except Exception as e:
+                    sys.stdout = original_stdout
+                    result_dict['error'] = str(e)
+                    result_dict['traceback'] = traceback.format_exc()
+                    _add_log(f"ERROR: {traceback.format_exc()}")
+                
+                results_buff.append(result_dict)
+            
+            # 输出结果到队列
+            output_queue.put((group_id, results_buff))
+            process_case_num += len(results_buff)
+            
+            # 调试输出
+            print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
+        
+    except Exception as e:
+        print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
+        output_queue.put((None, []))
+        raise
+    
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时: {elapsed:.3f}s")
+    
+    return (interpreter_id, process_case_num, elapsed)
 
 class SolutionRunner:
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
@@ -342,15 +453,39 @@ class SolutionRunner:
             
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
                 # 使用 partial 固定参数，map() 只传入 interpreter_id
+                func = partial(
+                    _execute_in_interpreter_worker,
+                    student_code = self.student_code,
+                    method_name = self.method_name,
+                    group_queue=group_queue,
+                    output_queue=output_queue,
+                )
                 
                 # 执行并收集结果（带超时）
                 try:
-                    worker_results = list(executor.map(_execute_in_interpreter_worker, range(thread), timeout=timeout_s))
+                    worker_results = list(executor.map(func, range(thread), timeout=timeout_s))
                     print(f"所有工作线程完成: {worker_results}")
                 except TimeoutError:
                     print(f"⚠️ 执行超时 ({timeout_s}s)")
-
-            results =[]
+                
+                # 收集输出队列结果（带超时）
+                output_buff = []
+                collected_groups = 0
+                
+                while collected_groups < groups_num:
+                    try:
+                        group_id, results = output_queue.get(timeout=2.0)
+                        if group_id is not None:
+                            output_buff.append((group_id, results))
+                            collected_groups += 1
+                            print(f"主线程: 已收集 {collected_groups}/{groups_num} 组")
+                    except interpreters.QueueEmpty:
+                        print(f"主线程: 等待结果... ({collected_groups}/{groups_num})")
+                        continue
+            
+            # 合并结果
+            results = self.merge_groups(output_buff)
+            print(f"多线程完成：共 {len(results)} 个结果")
 
         if summary:
             self.summary_results(results)
