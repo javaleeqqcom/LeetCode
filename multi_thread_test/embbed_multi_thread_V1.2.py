@@ -1,5 +1,5 @@
-# embbed_multi_thread_V1.1.py
-# 核心改进：全局单线程函数生成器，统一单线程/多线程执行逻辑
+# embbed_multi_thread_V1.2.py
+# 修复：__builtins__ 访问问题
 
 import math
 import random
@@ -25,6 +25,7 @@ with open(_SOLUTION_A_PATH, 'r', encoding='utf-8') as f:
 
 with open(_SOLUTION_B_PATH, 'r', encoding='utf-8') as f:
     _SOLUTION_B_CODE = f.read()
+
 
 # ========== 全局单线程函数生成器 ==========
 def create_black_box_executor(
@@ -60,10 +61,9 @@ def create_black_box_executor(
         'Tuple': _typing.Tuple,
     })
     
-    # 执行学生代码
-    _exec_code = __builtins__['exec']
-    _exec_code(solution_a_code, student_mod.__dict__)
-    _exec_code(solution_b_code, student_mod.__dict__)
+    # ========== 修复：直接使用 exec，不通过 __builtins__ 访问 ==========
+    exec(solution_a_code, student_mod.__dict__)
+    exec(solution_b_code, student_mod.__dict__)
     
     # 获取 Solution 类和方法
     Solution = student_mod.__dict__['Solution']
@@ -110,7 +110,7 @@ def execute_in_interpreter(
     early_stop_queue = _interpreters.Queue(early_stop_queue_id)
     print(f"解释器 {interpreter_id}: 队列重建成功")
 
-    # ========== 调用全局单线程函数生成器 ==========
+    # ========== 调用全局单线程函数生成器的逻辑 ==========
     student_mod = _types.ModuleType('student_solution')
     student_mod.__dict__.update({
         '__builtins__': __builtins__,
@@ -121,9 +121,9 @@ def execute_in_interpreter(
         'Tuple': _typing.Tuple,
     })
     
-    _exec_code = __builtins__['exec']
-    _exec_code(solution_a_code, student_mod.__dict__)
-    _exec_code(solution_b_code, student_mod.__dict__)
+    # ========== 修复：直接使用 exec ==========
+    exec(solution_a_code, student_mod.__dict__)
+    exec(solution_b_code, student_mod.__dict__)
     
     Solution = student_mod.__dict__['Solution']
     _solution = Solution()
