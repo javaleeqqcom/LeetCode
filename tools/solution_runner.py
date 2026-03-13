@@ -73,9 +73,7 @@ class SolutionRunner:
             'Dict': Dict,
             '__builtins__': __builtins__,
         })
-        # 用于多线程执行重构学生代码环境
-        self.mod_dict_lst = tuple(mod.__dict__.items())
-        
+
         # 3. 执行学生代码（注入类型）
         exec(self.student_code, mod.__dict__)
         
@@ -84,7 +82,10 @@ class SolutionRunner:
             raise ValueError("学生代码中未定义 Solution 类")
         self.Solution = mod.Solution
         self.solution_file = str(solution_file)
-        
+
+        # === 新增：保存模块字典用于子解释器重建 ===
+        self.mod_dict_items = tuple(mod.__dict__.items())
+  
         # 5. 提取方法
         methods = []
         for name, method in inspect.getmembers(self.Solution, predicate=inspect.isfunction):
@@ -310,21 +311,67 @@ class SolutionRunner:
                 )
                 results.append(result)
 
-                error_log_path = get_error_log_path(result,log_lines)
+                error_log_path = self.get_error_log_path(result,log_lines,log_prefix)
                 if error_log_path is not None:
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
                     else:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
-                elif auto_log_wrong(result,log_lines): 
+                elif self.auto_log_wrong(result,log_lines,log_wrong): 
                     wrong_count += 1 
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
+
         else:
-            raise ValueError("暂不支持多线程")
-            with ... as pool:
-                用 pool.map 简单执行并汇总结果
+            # ========== 多线程执行 ==========
+            from concurrent import futures, interpreters
+            from functools import partial
+            
+            # 创建共享队列
+            group_queue = interpreters.create_queue()
+            output_queue = interpreters.create_queue()
+            
+            # 分割测试用例到队列
+            groups_num = self.geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
+            
+            # 获取可序列化的状态
+            state_dict = self.get_interpreter_state()
+            
+            with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
+                # 使用 partial 固定参数，map() 只传入 interpreter_id
+                func = partial(
+                    SolutionRunner._execute_in_interpreter,
+                    state_dict=state_dict,
+                    group_queue=group_queue,
+                    output_queue=output_queue,
+                )
+                
+                # 执行并收集结果（带超时）
+                try:
+                    worker_results = list(executor.map(func, range(thread), timeout=timeout_s))
+                    print(f"所有工作线程完成: {worker_results}")
+                except TimeoutError:
+                    print(f"⚠️ 执行超时 ({timeout_s}s)")
+                
+                # 收集输出队列结果（带超时）
+                output_buff = []
+                collected_groups = 0
+                
+                while collected_groups < groups_num:
+                    try:
+                        group_id, results = output_queue.get(timeout=2.0)
+                        if group_id is not None:
+                            output_buff.append((group_id, results))
+                            collected_groups += 1
+                            print(f"主线程: 已收集 {collected_groups}/{groups_num} 组")
+                    except interpreters.QueueEmpty:
+                        print(f"主线程: 等待结果... ({collected_groups}/{groups_num})")
+                        continue
+            
+            # 合并结果
+            results = self.merge_groups(output_buff)
+            print(f"多线程完成：共 {len(results)} 个结果")
 
         if summary:
             self.summary_results(results)
@@ -376,36 +423,106 @@ class SolutionRunner:
         else:
             return wrong_count >= early_stop
 
-    # 先简化多线程（不用 thunk 加速，而是一个 case 对应一个线程，执行成功再改进）
-    def execute_in_interpreter(
-        self,
-        interpreter_id : int ,
-        case_queue :interpreters.Queue,
-        log_prefix:str,
-        skip_error : bool = False
-    )->_CASE_TYPE:
-        # 初始化 solution 环境
-        solution_instance = self.Solution()
-        # 获取
-        case = case_queue.get()
-        assert isinstance(case,dict)
-        # 执行
-        result,log_lines = self._execute_single_case(
-            solution_instance,
-            case,
-            self.method_name
-        )
+    # solution_runner.py 类末尾添加
+    @classmethod
+    def _execute_in_interpreter(
+        cls,
+        interpreter_id: int,
+        state_dict: dict,
+        group_queue: interpreters.Queue,
+        output_queue: interpreters.Queue,
+    ) -> Tuple[int, int, float]:
+        """
+        类方法：在子解释器中执行测试用例分组
         
-        error_log_path = self.get_error_log_path(result,log_lines,log_prefix)
-        if error_log_path is not None:
-            if skip_error:
-                Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
-            else:
-                raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
-        # 暂时不搞 wrong 的早停，仅记录日志
-        self.auto_log_wrong(result,log_lines,True)
-
-        return result
+        返回: (interpreter_id, process_case_num, elapsed_time)
+        """
+        import time
+        import sys
+        import io
+        import traceback
+        from concurrent import interpreters
+        from compacted_json import CompactedJson
+        
+        _compacted_json = CompactedJson(hex_len=16)
+        
+        # 在子解释器中重建环境
+        solution_instance, method = cls._rebuild_from_state(state_dict)
+        func_name = state_dict['method_name']
+        
+        start_time = time.time()
+        process_case_num = 0
+        results_buff_total = []
+        
+        try:
+            while True:
+                # 从队列获取任务
+                try:
+                    group_id, cases = group_queue.get_nowait()
+                except interpreters.QueueEmpty:
+                    if group_queue.empty():
+                        break
+                    time.sleep(0.001)
+                    continue
+                
+                results_buff = []
+                
+                for case in cases:
+                    # 执行单用例逻辑（复制 _execute_single_case 核心）
+                    log_lines = []
+                    result_dict = case.copy()
+                    
+                    def _add_log(content: str):
+                        log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
+                    
+                    try:
+                        original_stdout = sys.stdout
+                        captured_output = io.StringIO()
+                        
+                        input_val = case['input']
+                        
+                        if isinstance(input_val, dict):
+                            sys.stdout = captured_output
+                            output = method(solution_instance, **input_val)
+                            sys.stdout = original_stdout
+                            
+                        elif isinstance(input_val, tuple):
+                            sys.stdout = captured_output
+                            output = method(solution_instance, *input_val)
+                            sys.stdout = original_stdout
+                        else:
+                            raise ValueError("input 必须是字典或元组")
+                        
+                        result_dict['output'] = output
+                        _add_log(f"OUTPUT: {_compacted_json.dumps(output, indent=2)}")
+                        
+                    except Exception as e:
+                        sys.stdout = original_stdout
+                        result_dict['error'] = str(e)
+                        result_dict['traceback'] = traceback.format_exc()
+                        _add_log(f"ERROR: {traceback.format_exc()}")
+                    
+                    results_buff.append(result_dict)
+                
+                # 输出结果到队列
+                output_queue.put((group_id, results_buff))
+                process_case_num += len(results_buff)
+                results_buff_total.extend(results_buff)
+                
+                # 调试输出（会显示在主线程控制台）
+                print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
+            
+        except Exception as e:
+            print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
+            # 确保输出队列有结束标记
+            output_queue.put((None, []))
+            raise
+        
+        end_time = time.time()
+        elapsed = end_time - start_time
+        print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时: {elapsed:.3f}s")
+        
+        return (interpreter_id, process_case_num, elapsed)
 
     def _execute_single_case(
         self, 
@@ -575,3 +692,42 @@ class SolutionRunner:
         
         return result
             
+    # solution_runner.py 类末尾添加
+    def get_interpreter_state(self) -> dict:
+        """
+        获取可序列化的解释器状态，用于传递给子解释器
+        """
+        return {
+            'student_code': self.student_code,
+            'mod_dict_items': self.mod_dict_items,
+            'method_name': self.method_name,
+            'solution_file': self.solution_file,
+        }
+
+    @classmethod
+    def _rebuild_from_state(cls, state_dict: dict):
+        """
+        在子解释器中从状态字典重建必要环境
+        """
+        import types
+        from custom_init import ListNode, TreeNode, Optional, List, Dict
+        
+        # 重建模块环境
+        mod = types.ModuleType('student_solution')
+        mod.__dict__.update({
+            'ListNode': ListNode,
+            'TreeNode': TreeNode,
+            'Optional': Optional,
+            'List': List,
+            'Dict': Dict,
+            '__builtins__': __builtins__,
+        })
+        # 恢复保存的模块字典
+        mod.__dict__.update(dict(state_dict['mod_dict_items']))
+        
+        # 创建 Solution 实例和方法
+        Solution = mod.Solution
+        instance = Solution()
+        method = getattr(instance, state_dict['method_name'])
+        
+        return instance, method
