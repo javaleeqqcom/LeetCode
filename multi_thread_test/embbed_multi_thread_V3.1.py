@@ -1,12 +1,14 @@
-# embbed_multi_thread_V1.py - 修复版本
-# 核心改进：使用 __import__() 替代 import 语句，避免子解释器中的变量绑定问题
+# embbed_multi_thread_V2 - 完全隔离学生代码依赖
+# 核心原则：
+# 1. create_black_box_executor 不导入学生代码可能用的库
+# 2. execute_in_interpreter 只使用 concurrent.interpreters 和 __builtins__
+# 3. leetcode 平台会自动嵌入一些常用库，因此需要在本工程以 tools/custom_init.py 导入相关库，而无需学生写入。
 
-import math
 import random
-import time
+import time,os
 import concurrent.futures
 from concurrent import interpreters
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Callable
 from pathlib import Path
 from itertools import chain
 from functools import partial
@@ -17,39 +19,44 @@ _GDQG_RATE_ = 1/_N_CORE_
 
 # ========== 读取学生代码文件内容为字符串 ==========
 _CURRENT_DIR = Path(__file__).resolve().parent
-_SOLUTION_A_PATH = _CURRENT_DIR / "Solution5_A.py"
-_SOLUTION_B_PATH = _CURRENT_DIR / "Solution5_B.py"
+_SOLUTION_PATH = _CURRENT_DIR / "Solution6.py"
 
-with open(_SOLUTION_A_PATH, 'r', encoding='utf-8') as f:
-    _SOLUTION_A_CODE = f.read()
+def create_black_box_executor(source_code_lst: List[str], method_name:str)-> Callable:
+    """
+    创建黑箱执行器代码字符串
+    ⚠️ 不导入任何学生代码可能用的库
+    返回黑箱函数
+    """
+    
+    _types = __import__("types")
 
-with open(_SOLUTION_B_PATH, 'r', encoding='utf-8') as f:
-    _SOLUTION_B_CODE = f.read()
-
-def generate_test_cases(n: int = 10000) -> List[int]:
-    """生成 n 个随机 int32 正整数 (1 到 2^31-1)"""
-    return [random.randint(1, (2**31) - 1) for _ in range(n)]
+    student_mod = _types.ModuleType('student_solution')
+    student_mod.__dict__.update({
+        '__builtins__': __builtins__,
+        '__name__': 'student_solution',
+    })
+    
+    for source_code in source_code_lst:
+        exec(source_code, student_mod.__dict__)
+    Solution = student_mod.__dict__['Solution']
+    
+    _solution = Solution()
+    _method = getattr(_solution, method_name)
+    return _method
 
 def execute_in_interpreter(
     interpreter_id: int,
     test_queue_id: int,
     early_stop_queue_id: int,
-    solution_a_code: str,
-    solution_b_code: str,
+    black_box_kwargs: Dict[str]
 ) -> List[Tuple[int, Any]]:
     """
     在子解释器中执行测试用例
-    所有参数必须是可共享的基本类型（int, str）
-    
-    ⚠️ 关键：使用 __import__() 替代 import 语句，避免子解释器中的变量绑定问题
+    ⚠️ 只使用 concurrent.interpreters 和 __builtins__
+    学生代码自己负责导入 math, bisect, typing 等
     """
-    # ========== 关键修复：使用 __import__() 替代 import 语句 ==========
+    # ========== 只使用 __import__ 获取最必要的模块 ==========
     _time = __import__('time')
-    _sys = __import__('sys')
-    _types = __import__('types')
-    _math = __import__('math')
-    _bisect = __import__('bisect')
-    _typing = __import__('typing')
     _concurrent = __import__('concurrent')
     _interpreters = _concurrent.interpreters
     
@@ -60,30 +67,11 @@ def execute_in_interpreter(
     early_stop_queue = _interpreters.Queue(early_stop_queue_id)
     print(f"解释器 {interpreter_id}: 队列重建成功")
 
-    # ========== 在子解释器中执行学生代码 ==========
-    student_mod = _types.ModuleType('student_solution')
-    student_mod.__dict__.update({
-        '__builtins__': __builtins__,
-        'math': _math,
-        'bisect': _bisect,
-        'List': _typing.List,
-        'Optional': _typing.Optional,
-        'Tuple': _typing.Tuple,
-    })
+    # ========== 创建最小化执行环境 ==========
+    black_box_fun = create_black_box_executor(**black_box_kwargs)
+    print(f"解释器 {interpreter_id}: 成功创建黑箱方法")
 
-    # 先执行 Solution5_A.py（定义 _prime）
-    _exec_code = __builtins__['exec']
-    _exec_code(solution_a_code, student_mod.__dict__)
-    # 再执行 Solution5_B.py（定义 Solution 类，依赖 _prime）
-    _exec_code(solution_b_code, student_mod.__dict__)
-
-    # 从模块中获取 Solution 类
-    Solution = student_mod.__dict__['Solution']
-    _solution = Solution()
-    
-    print(f"解释器 {interpreter_id}: 成功创建 Solution 实例")
-
-    # 从队列中获取测试用例
+    # ========== 从队列中获取测试用例并执行 ==========
     results = []
     
     while early_stop_queue.empty():
@@ -98,7 +86,7 @@ def execute_in_interpreter(
         results_buff = []
         try:
             for num in cases:
-                results_buff.append(_solution.is_sqrt_prime(num))
+                results_buff.append(black_box_fun(num))
         except Exception as e:
             print(f"线程{interpreter_id}执行黑箱任务 gid={group_id} 出错，报错信息如下：\n{e}")
             early_stop_queue.put(group_id)
@@ -122,6 +110,7 @@ def merge_sorted_lists(lists, max_id=-1) -> List[Any]:
     else:
         return [result for case_id, result in merged if case_id <= max_id]
 
+
 def geometric_decreasing_queue_generator(test_cases: List[int], queue: interpreters.Queue, rate: float = 0.1, min_chunk=1):
     """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减"""
     group_id, case_id = 0, 0
@@ -130,43 +119,40 @@ def geometric_decreasing_queue_generator(test_cases: List[int], queue: interpret
         queue.put((group_id, test_cases[case_id:case_id+chunk_size]))
         case_id += chunk_size
         group_id += 1
-    
+
+
 def main():
+    with open(Path(os.getcwd())/"tools/custom_init.py" , 'r', encoding='utf-8') as f:
+        _common_init_code = f.read()
+
+    # 获取学生代码
+    with open(_SOLUTION_PATH, 'r', encoding='utf-8') as f:
+        _students_code = f.read()
+    
+    # 查找 tools/custom_init.py 的位置，需要能兼容在 leetcode/ ， leetcode/*/ 目录下的代码都能兼容执行
+    black_box_kwargs = {
+        'source_code_lst': [_common_init_code, _students_code],
+        'method_name':'is_sqrt_prime'
+    }
+
     # 生成测试用例
     test_cases = generate_test_cases(1000000)
     
-    # 顺序执行测试（用于基准比较）
+    # ========== 顺序执行测试（用于基准比较） ==========
     start_time = time.time()
-    
-    import types
-    import math
-    import bisect
-    from typing import List, Optional, Tuple
-    
-    student_mod = types.ModuleType('student_solution')
-    student_mod.__dict__.update({
-        '__builtins__': __builtins__,
-        'math': math,
-        'bisect': bisect,
-        'List': List,
-        'Optional': Optional,
-        'Tuple': Tuple,
-    })
-    exec(_SOLUTION_A_CODE, student_mod.__dict__)
-    exec(_SOLUTION_B_CODE, student_mod.__dict__)
-    Solution = student_mod.__dict__['Solution']
-    
-    solution = Solution()
+
+    black_box_fun = create_black_box_executor(**black_box_kwargs)
+
     results_seq = []
     try:
         for num in test_cases:
-            results_seq.append(solution.is_sqrt_prime(num))
+            results_seq.append(black_box_fun(num))
     except Exception as e:
         print(f"顺序执行黑箱任务出错，报错信息如下：\n{e}")
     seq_time = time.time() - start_time
     print(f"顺序执行耗时: {seq_time:.3f} s, 返回结果数量：{len(results_seq)}")
     
-    # 并行执行测试
+    # ========== 并行执行测试 ==========
     start_time = time.time()
     
     # 创建跨解释器队列
@@ -183,8 +169,7 @@ def main():
             execute_in_interpreter,
             test_queue_id=test_queue.id,
             early_stop_queue_id=early_stop_queue.id,
-            solution_a_code=_SOLUTION_A_CODE,
-            solution_b_code=_SOLUTION_B_CODE,
+            black_box_kwargs=black_box_kwargs
         )
         
         results_parallel = list(executor.map(func, range(_N_CORE_), timeout=_TIMEOUT_))
@@ -213,6 +198,11 @@ def main():
     
     speedup = seq_time / parallel_time
     print(f"加速比: {speedup:.2f}x (目标: ~{_N_CORE_}x)")
+
+
+def generate_test_cases(n: int = 10000) -> List[int]:
+    """生成 n 个随机 int32 正整数 (1 到 2^31-1)"""
+    return [random.randint(1, (2**31) - 1) for _ in range(n)]
 
 if __name__ == '__main__':
     main()

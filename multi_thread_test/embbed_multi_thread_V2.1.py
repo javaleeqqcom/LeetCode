@@ -8,7 +8,7 @@ import random
 import time
 import concurrent.futures
 from concurrent import interpreters
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Callable
 from pathlib import Path
 from itertools import chain
 from functools import partial
@@ -28,29 +28,33 @@ with open(_SOLUTION_A_PATH, 'r', encoding='utf-8') as f:
 with open(_SOLUTION_B_PATH, 'r', encoding='utf-8') as f:
     _SOLUTION_B_CODE = f.read()
 
-
-def create_black_box_executor(solution_a_code: str, solution_b_code: str) -> str:
+def create_black_box_executor(source_code1: str, source_code2: str , method_name:str)-> Callable:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库（math, bisect, typing 等）
-    只返回组合后的学生代码字符串
+    返回黑箱函数
     """
-    # 只需组合两个文件代码，不添加任何额外导入
-    combined_code = f"""
-# ========== 学生代码开始（黑箱） ==========
-{solution_a_code}
-
-{solution_b_code}
-# ========== 学生代码结束 ==========
-"""
-    return combined_code
-
+    
+    _types = __import__("types")
+    student_mod = _types.ModuleType('student_solution')
+    student_mod.__dict__.update({
+        '__builtins__': __builtins__,
+        '__name__': 'student_solution',
+    })
+    
+    exec(source_code1, student_mod.__dict__)
+    exec(source_code2, student_mod.__dict__)
+    Solution = student_mod.__dict__['Solution']
+    
+    _solution = Solution()
+    _method = getattr(_solution, method_name)
+    return _method
 
 def execute_in_interpreter(
     interpreter_id: int,
     test_queue_id: int,
     early_stop_queue_id: int,
-    black_box_code: str,
+    source_code1: str, source_code2: str,
     method_name: str = 'is_sqrt_prime',
 ) -> List[Tuple[int, Any]]:
     """
@@ -62,7 +66,6 @@ def execute_in_interpreter(
     _time = __import__('time')
     _concurrent = __import__('concurrent')
     _interpreters = _concurrent.interpreters
-    _types = __import__('types')  # 仅用于创建模块命名空间
     
     start_time = _time.time()
 
@@ -72,23 +75,8 @@ def execute_in_interpreter(
     print(f"解释器 {interpreter_id}: 队列重建成功")
 
     # ========== 创建最小化执行环境 ==========
-    # 只提供 __builtins__，学生代码自己 import 所需库
-    student_mod = _types.ModuleType('student_solution')
-    student_mod.__dict__.update({
-        '__builtins__': __builtins__,
-        '__name__': 'student_solution',
-    })
-
-    # ========== 执行学生黑箱代码 ==========
-    # 学生代码中的 import math, import bisect 等会正常工作
-    exec(black_box_code, student_mod.__dict__)
-
-    # ========== 获取 Solution 实例和方法 ==========
-    Solution = student_mod.__dict__['Solution']
-    _solution = Solution()
-    _method = getattr(_solution, method_name)
-    
-    print(f"解释器 {interpreter_id}: 成功创建 Solution 实例和方法 '{method_name}'")
+    black_box_fun = create_black_box_executor(source_code1, source_code2,method_name)
+    print(f"解释器 {interpreter_id}: 成功创建黑箱方法 '{method_name}'")
 
     # ========== 从队列中获取测试用例并执行 ==========
     results = []
@@ -105,7 +93,7 @@ def execute_in_interpreter(
         results_buff = []
         try:
             for num in cases:
-                results_buff.append(_method(num))
+                results_buff.append(black_box_fun(num))
         except Exception as e:
             print(f"线程{interpreter_id}执行黑箱任务 gid={group_id} 出错，报错信息如下：\n{e}")
             early_stop_queue.put(group_id)
@@ -147,22 +135,14 @@ def main():
     
     # ========== 顺序执行测试（用于基准比较） ==========
     start_time = time.time()
-    
-    import types
-    student_mod = types.ModuleType('student_solution')
-    student_mod.__dict__.update({
-        '__builtins__': __builtins__,
-        '__name__': 'student_solution',
-    })
-    exec(_SOLUTION_A_CODE, student_mod.__dict__)
-    exec(_SOLUTION_B_CODE, student_mod.__dict__)
-    Solution = student_mod.__dict__['Solution']
-    
-    solution = Solution()
+
+    method_name='is_sqrt_prime'
+    black_box_fun = create_black_box_executor(_SOLUTION_A_CODE,_SOLUTION_B_CODE,method_name)
+
     results_seq = []
     try:
         for num in test_cases:
-            results_seq.append(solution.is_sqrt_prime(num))
+            results_seq.append(black_box_fun(num))
     except Exception as e:
         print(f"顺序执行黑箱任务出错，报错信息如下：\n{e}")
     seq_time = time.time() - start_time
@@ -179,16 +159,14 @@ def main():
     geometric_decreasing_queue_generator(test_cases, test_queue, rate=_GDQG_RATE_)
     print(f"geom_rate = {_GDQG_RATE_}, case group num = {test_queue.qsize()}")
     
-    # 创建黑箱执行器代码
-    black_box_code = create_black_box_executor(_SOLUTION_A_CODE, _SOLUTION_B_CODE)
-    
     # 创建解释器池
     with concurrent.futures.InterpreterPoolExecutor(max_workers=_N_CORE_) as executor:
         func = partial(
             execute_in_interpreter,
             test_queue_id=test_queue.id,
             early_stop_queue_id=early_stop_queue.id,
-            black_box_code=black_box_code,
+            source_code1 = _SOLUTION_A_CODE, 
+            source_code2 = _SOLUTION_B_CODE,
             method_name='is_sqrt_prime',
         )
         

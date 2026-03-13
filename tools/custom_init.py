@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional
 from collections import deque
+import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
 
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
