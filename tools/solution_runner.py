@@ -13,6 +13,8 @@ from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge
 
+__DEBUG__ = True
+
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
 _CURRENT_DIR = Path(__file__).resolve().parent
@@ -24,7 +26,6 @@ if str(_CURRENT_DIR) not in sys.path:
 from examples_parser import parse_test_cases
 from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
 from compacted_json import CompactedJson
-
 """
 一个标准的测试样例的格式为：
     - 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
@@ -321,7 +322,8 @@ class SolutionRunner:
                 return wrong_count >= early_stop
 
         if -1==thread:
-            thread = 计算机核心线程数
+            cpu_count = os.cpu_count()
+            thread = cpu_count if cpu_count else 1
         if 1==thread:
             wrong_count = 0
             results = []
@@ -345,62 +347,76 @@ class SolutionRunner:
                     if _check_early_stop( len(results), wrong_count):
                         break # 触发早停
         else:
-            
-            def execute_in_interpreter(interpreter_id : int ,
-                                        group_queue :interpreters.Queue , 
-                                        early_stop_queue : interpreters.Queue, # 各线程上报停止信号的队列
-                                        output_queue: interpreters.Queue,    # 存放输出结果
-                                        )->List[Tuple[int,Any]]:
-                """在子线程中分组执行测试用例"""
-                start_time = time.time()
-                process_case_num = 0
+            # 使用多线程执行测试用例
+            with futures.InterpreterPoolExecutor(max_workers=thread) as pool:
+                def execute_in_interpreter(interpreter_id : int ,
+                                            group_queue :interpreters.Queue , 
+                                            early_stop_queue : interpreters.Queue, # 各线程上报停止信号的队列
+                                            output_queue: interpreters.Queue,    # 存放输出结果
+                                            ):
+                    
+                    
+                    """在子线程中分组执行测试用例"""
+                    start_time = time.time()
+                    process_case_num = 0
 
-                # 无停止信号则循环
-                while early_stop_queue.empty():
-                    try:
-                        # 队列非空时获取测试用例（block=False 表示为空队列时不阻塞）
-                        group_id, cases = group_queue.get(block=False)
-                    except:
-                        if group_queue.empty(): # 队列为空，跳出循环
-                            break
-                        else: continue
+                    # DEBUG:
+                    print(f"线程{interpreter_id:2d}：开始执行于：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+                    if __DEBUG__:
+                        early_stop_queue.put(0) # 向所有线程广播异常错误，进行早停
+                        output_queue.put( (None,None,None) )
+                        return None # DEBUG 时故意提前跳出，以阻止子线程继续执行
 
-                    results_buff = []
-                    wrong_count = 0
-                    for case in cases:
-                        result,log_lines = self._execute_single_case(case, func_name=func_name)
-                        error_log_path = get_error_log_path(result,log_lines)
-                        if error_log_path is not None:
-                            error_msg = f"线程{interpreter_id}执行第 {group_id} 组中的样例 {result['cid']} 出错（报错信息已经保存到日志:\n{error_log_path}）"
-                            push_exception_result(True,group_id,result['cid'])
-                            if skip_error:
-                                Warning(error_msg)
-                                continue # 报错的 result 不会进入 results_buff 中
-                            else:
-                                early_stop_queue.put(group_id) # 像所有线程广播异常错误，进行早停
-                                raise Exception(error_msg)
-                            
-                        # 结果错误记录
-                        if auto_log_wrong(result,log_lines):
-                            wrong_count += 1
-                        # 子线程不处理结果错误
-                        results_buff.append(result)
+                    # 无停止信号则循环
+                    while early_stop_queue.empty():
+                        try:
+                            # 队列非空时获取测试用例（block=False 表示为空队列时不阻塞）
+                            group_id, cases = group_queue.get(block=False)
+                        except:
+                            if group_queue.empty(): # 队列为空，跳出循环
+                                break
+                            else: continue
 
-                    try:
-                        output_queue.put( (group_id,results_buff,wrong_count) )
-                        process_case_num += len(results_buff)
-                    except Exception as e:
-                        raise IOError(f"线程{interpreter_id}无法提交输出结果到队列，报错信息如下：\n{e}")
+                        # DEBUG:
+                        print(f"线程{interpreter_id:2d}：got group_id = {group_id} ,case num = {len(cases)}")
 
-                end_time = time.time()
-                elapsed = end_time - start_time
-                print(f"子线程 {interpreter_id:2d} 计算 {process_case_num:8d} 个用例耗时: {elapsed:10.6f} s , 结束时刻: {end_time:20.6f}s")
+                        try:
+                            results_buff = []
+                            wrong_count = 0
+                            for case in cases:
+                                result,log_lines = self._execute_single_case(case, func_name=func_name)
+                                error_log_path = get_error_log_path(result,log_lines)
+                                if error_log_path is not None:
+                                    error_msg = f"线程{interpreter_id:2d}：执行第 {group_id} 组中的样例 {result['cid']} 出错（报错信息已经保存到日志:\n\t{error_log_path}\n）"
+                                    push_exception_result(True,group_id,result['cid'])
+                                    if skip_error: # 跳过样例计算中的错误
+                                        Warning(error_msg)
+                                        continue # 报错的 result 不会进入 results_buff 中
+                                    else:
+                                        early_stop_queue.put(group_id) # 向所有线程广播异常错误，进行早停
+                                        raise Exception(error_msg)
+                                    
+                                # 结果错误记录
+                                if auto_log_wrong(result,log_lines):
+                                    wrong_count += 1
+                                # 子线程不处理结果错误
+                                results_buff.append(result)
+
+                            output_queue.put( (group_id,results_buff,wrong_count) )
+                            process_case_num += len(results_buff)
+                        except Exception as e:
+                            # 上报空记录以触发主线程读取队列
+                            output_queue.put( (None,None,1) )
+                            raise IOError(f"线程{interpreter_id:2d}：出现异常错误，耗时：{time.time() - start_time:10.6f} s，报错信息如下：\n{e}")
+
+                    # 上报空记录以触发主线程读取队列
+                    output_queue.put( (None,None,0) )
+                    end_time = time.time()
+                    elapsed = end_time - start_time
+                    print(f"线程{interpreter_id:2d}：计算 {process_case_num:8d} 个用例耗时: {elapsed:10.6f} s , 结束时刻: {end_time:20.6f}s")
                 
-                return results
-
-            with interpreters.InterpreterPool(max_workers=thread) as pool:
-                groups_queue = interpreters.create_queue()
-                groups_num = self.geometric_decreasing_queue_generator(test_cases,groups_queue)
+                group_queue = interpreters.create_queue()
+                groups_num = self.geometric_decreasing_queue_generator(test_cases,group_queue)
                 
                 early_stop_queue = interpreters.create_queue() # 向各线程广播停止信号的队列
                 output_queue = interpreters.create_queue()   # 子线程上报结果的队列
@@ -408,20 +424,22 @@ class SolutionRunner:
                 for interpreter_id in range(thread):
                     pool.submit(execute_in_interpreter, 
                                 interpreter_id=interpreter_id,
-                                groups_queue=groups_queue,
+                                group_queue=group_queue,
                                 early_stop_queue=early_stop_queue,
                                 output_queue=output_queue
                                 )
 
                 output_buff = []
                 total_num, wrong_num = 0,0
-                # 等待各子线程结束
-                while pool.stop(?): # 如果没有这种函数，那就用 groups_num 等判断
+                # 当收集的“分组返回数量”小于总分组数时，且未收到早停信号时，继续收集输出。
+                # while len(output_buff) < groups_num and early_stop_queue.empty():
+                if True: # 故意将 while 改为只执行一次，以避免因为无限循环而卡死，如果还会卡死，则只能是queue阻塞卡死。
+                    print(f"output_buff.size: {len(output_buff)}") 
                     group_id,results,wrong_count = output_queue.get()
-                
-                    total_num += len(results)
-                    wrong_num += wrong_count
-                    output_buff.append((group_id,results)) # 后面一次性归并排序
+                    if group_id is not None:
+                        total_num += len(results)
+                        wrong_num += wrong_count
+                        output_buff.append((group_id,results)) # 后面一次性归并排序
 
                     if _check_early_stop( total_num, wrong_count):
                         early_stop_queue.put(group_id) # 触发早停，广播所有子线程提前结束
@@ -434,32 +452,25 @@ class SolutionRunner:
         return results
     
     @classmethod
-    def geometric_decreasing_queue_generator(cls,test_cases: List[_CASE_TYPE],queue:interpreters.Queue , rate: float = 0.1) -> int:
-        """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工。返回分组总数"""
-        group_id,idx = 0,0
+    def geometric_decreasing_queue_generator(cls, test_cases: List[_CASE_TYPE], queue: interpreters.Queue, rate: float = 0.1) -> int:
+        """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
+        group_id, idx = 0, 0
         # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
         while idx < len(test_cases):
-            chunk_size = max(1, int((len(test_cases)-idx) * rate))
+            chunk_size = max(1, int((len(test_cases) - idx) * rate))
             queue.put((group_id, test_cases[idx:idx+chunk_size]))
             idx += chunk_size
             group_id += 1
         return group_id
-        
+
     @classmethod
-    def merge_groups(cls,groups,ubonud_id:Optional[int] = None)->List[Any]:
+    def merge_groups(cls, groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[_CASE_TYPE]:
         """使用归并排序合并多个已排序列表"""
-        from heapq import merge
-        
         # 归并排序
         merged = merge(*groups, key=lambda x: x[0])
+        # 提取结果并展平
+        return [result for _, group_results in merged for result in group_results]
         
-        # 提取结果
-        if ubonud_id:
-            return [result for group_id, result in merged if group_id <= ubonud_id]
-        else:
-            return [result for group_id, result in merged]
-
-
     @classmethod
     def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
         right = valid = 0
