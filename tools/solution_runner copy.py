@@ -45,6 +45,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
+
 # solution_runner.py 文件顶部（类定义之前）
 def _execute_in_interpreter_worker(
     interpreter_id: int,
@@ -65,37 +66,37 @@ def _execute_in_interpreter_worker(
     """
     print(f"线程{interpreter_id}：开始")
 
-    # import time
-    # import sys
-    # import io
-    # import types
-    # import traceback
-    # from concurrent import interpreters
-    # from custom_init import ListNode, TreeNode, Optional, List, Dict
+    import time
+    import sys
+    import io
+    import types
+    import traceback
+    from concurrent import interpreters
+    from custom_init import ListNode, TreeNode, Optional, List, Dict
     
-    # print(f"线程{interpreter_id}：成功导入外部库")
+    print(f"线程{interpreter_id}：成功导入外部库")
 
-    # # 在子解释器中重建学生代码环境
-    # mod = types.ModuleType('student_solution')
-    # mod.__dict__.update({
-    #     'ListNode': ListNode,
-    #     'TreeNode': TreeNode,
-    #     'Optional': Optional,
-    #     'List': List,
-    #     'Dict': Dict,
-    #     '__builtins__': __builtins__,
-    # })
-    # exec(student_code, mod.__dict__)
+    # 在子解释器中重建学生代码环境
+    mod = types.ModuleType('student_solution')
+    mod.__dict__.update({
+        'ListNode': ListNode,
+        'TreeNode': TreeNode,
+        'Optional': Optional,
+        'List': List,
+        'Dict': Dict,
+        '__builtins__': __builtins__,
+    })
+    exec(student_code, mod.__dict__)
     
-    # # 创建 Solution 实例和方法
-    # Solution = mod.Solution
-    # instance = Solution()
-    # method = getattr(instance, method_name)
+    # 创建 Solution 实例和方法
+    Solution = mod.Solution
+    instance = Solution()
+    method = getattr(instance, method_name)
     
     start_time = time.time()
     process_case_num = 0
 
-    # print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
+    print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
     
     try:
         while True:
@@ -110,50 +111,48 @@ def _execute_in_interpreter_worker(
             
             results_buff = []
             
-            # for case in cases:
-            #     log_lines = []
-            #     result_dict = case.copy()
+            for case in cases:
+                log_lines = []
+                result_dict = case.copy()
                 
-            #     def _add_log(content: str):
-            #         log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
+                def _add_log(content: str):
+                    log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
                 
-            #     try:
-            #         original_stdout = sys.stdout
-            #         captured_output = io.StringIO()
+                try:
+                    original_stdout = sys.stdout
+                    captured_output = io.StringIO()
                     
-            #         input_val = case['input']
+                    input_val = case['input']
                     
-            #         if isinstance(input_val, dict):
-            #             sys.stdout = captured_output
-            #             output = method(**input_val)
-            #             sys.stdout = original_stdout
+                    if isinstance(input_val, dict):
+                        sys.stdout = captured_output
+                        output = method(**input_val)
+                        sys.stdout = original_stdout
                         
-            #         elif isinstance(input_val, tuple):
-            #             sys.stdout = captured_output
-            #             output = method(*input_val)
-            #             sys.stdout = original_stdout
-            #         else:
-            #             raise ValueError("input 必须是字典或元组")
+                    elif isinstance(input_val, tuple):
+                        sys.stdout = captured_output
+                        output = method(*input_val)
+                        sys.stdout = original_stdout
+                    else:
+                        raise ValueError("input 必须是字典或元组")
                     
-            #         result_dict['output'] = output
-            #         _add_log(f"OUTPUT: {output}")
+                    result_dict['output'] = output
+                    _add_log(f"OUTPUT: {output}")
                     
-            #     except Exception as e:
-            #         sys.stdout = original_stdout
-            #         result_dict['error'] = str(e)
-            #         result_dict['traceback'] = traceback.format_exc()
-            #         _add_log(f"ERROR: {traceback.format_exc()}")
+                except Exception as e:
+                    sys.stdout = original_stdout
+                    result_dict['error'] = str(e)
+                    result_dict['traceback'] = traceback.format_exc()
+                    _add_log(f"ERROR: {traceback.format_exc()}")
                 
-            #     results_buff.append(result_dict)
+                results_buff.append(result_dict)
             
-            # # 输出结果到队列
-            # output_queue.put((group_id, results_buff))
-            # process_case_num += len(results_buff)
+            # 输出结果到队列
+            output_queue.put((group_id, results_buff))
+            process_case_num += len(results_buff)
             
-            # # 调试输出
-            # print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
-
-            output_queue.put((group_id, []))
+            # 调试输出
+            print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
         
     except Exception as e:
         print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
@@ -468,8 +467,9 @@ class SolutionRunner:
                         )
                         for interpret_id in range(thread)
                     ]
-                    
-                    print(f"所有工作线程提交完成")
+
+                    worker_results = [f.result(timeout=timeout_s) for f in futures_res]
+                    print(f"所有工作线程完成: {worker_results}")
                 except TimeoutError:
                     print(f"⚠️ 执行超时 ({timeout_s}s)")
 

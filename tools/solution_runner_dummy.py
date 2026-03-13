@@ -45,6 +45,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
+
 # solution_runner.py 文件顶部（类定义之前）
 def _execute_in_interpreter_worker(
     interpreter_id: int,
@@ -92,23 +93,23 @@ def _execute_in_interpreter_worker(
     # instance = Solution()
     # method = getattr(instance, method_name)
     
-    start_time = time.time()
-    process_case_num = 0
+    # start_time = time.time()
+    # process_case_num = 0
 
     # print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
     
-    try:
-        while True:
-            # 从队列获取任务
-            try:
-                group_id, cases = group_queue.get_nowait()
-            except interpreters.QueueEmpty:
-                if group_queue.empty():
-                    break
-                time.sleep(0.001)
-                continue
+    # try:
+    #     while True:
+    #         # 从队列获取任务
+    #         try:
+    #             group_id, cases = group_queue.get_nowait()
+    #         except interpreters.QueueEmpty:
+    #             if group_queue.empty():
+    #                 break
+    #             time.sleep(0.001)
+    #             continue
             
-            results_buff = []
+    #         results_buff = []
             
             # for case in cases:
             #     log_lines = []
@@ -153,18 +154,18 @@ def _execute_in_interpreter_worker(
             # # 调试输出
             # print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
 
-            output_queue.put((group_id, []))
+    #         output_queue.put((group_id, []))
         
-    except Exception as e:
-        print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
-        output_queue.put((None, []))
-        raise
+    # except Exception as e:
+    #     print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
+    #     output_queue.put((None, []))
+    #     raise
     
-    end_time = time.time()
-    elapsed = end_time - start_time
-    print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时: {elapsed:.3f}s")
+    # end_time = time.time()
+    # elapsed = end_time - start_time
+    # print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时: {elapsed:.3f}s")
     
-    return (interpreter_id, process_case_num, elapsed)
+    # return (interpreter_id, process_case_num, elapsed)
 
 class SolutionRunner:
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
@@ -448,13 +449,13 @@ class SolutionRunner:
             
             # 创建共享队列
             group_queue = interpreters.create_queue()
-            output_queue = interpreters.create_queue()
             
             # 分割测试用例到队列
             groups_num = self.geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
             
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
                 
+                output_queue = interpreters.create_queue()
                 # 执行并收集结果（带超时）
                 try:
                     futures_res = [
@@ -477,16 +478,16 @@ class SolutionRunner:
                 output_buff = []
                 collected_groups = 0
                 
-                while collected_groups < groups_num:
-                    try:
-                        group_id, results = output_queue.get(timeout=2.0)
-                        if group_id is not None:
-                            output_buff.append((group_id, results))
-                            collected_groups += 1
-                            print(f"主线程: 已收集 {collected_groups}/{groups_num} 组")
-                    except interpreters.QueueEmpty:
-                        print(f"主线程: 等待结果... ({collected_groups}/{groups_num})")
-                        continue
+                # while collected_groups < groups_num:
+                #     try:
+                #         group_id, results = output_queue.get(timeout=2.0)
+                #         if group_id is not None:
+                #             output_buff.append((group_id, results))
+                #             collected_groups += 1
+                #             print(f"主线程: 已收集 {collected_groups}/{groups_num} 组")
+                #     except interpreters.QueueEmpty:
+                #         print(f"主线程: 等待结果... ({collected_groups}/{groups_num})")
+                #         continue
             
             # 合并结果
             results = self.merge_groups(output_buff)

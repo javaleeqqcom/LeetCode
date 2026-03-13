@@ -10,8 +10,6 @@ from Solution4 import Solution
 from itertools import chain
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 
-
-
 _N_CORE_ = 12
 _TIMEOUT_ = 60 # 最大超时时间
 # 用“等比递减分割器”分割测试用例，一个组合并用一个 group_id 标记即可
@@ -21,7 +19,7 @@ _GDQG_RATE_ = 1/_N_CORE_
 def generate_test_cases(n: int = 10000) -> List[int]:
     """生成 n 个随机 int32 正整数 (1 到 2^31-1)"""
     return [random.randint(1, (2**31) 
-                           + (2**11)
+                        #    + (2**11)
                            ) for _ in range(n)]
 
 def execute_in_interpreter(interpreter_id : int , test_queue :interpreters.Queue , early_stop_queue : interpreters.Queue)->List[Tuple[int,Any]]:
