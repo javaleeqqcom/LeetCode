@@ -6,8 +6,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print(f"当前工作目录：{os.getcwd()}")
       
 # ------------ 三选一进行调用来测试 -------------------
-# from tools.solution_runner import SolutionRunner, _CASE_TYPE
-from tools.solution_runner_err import SolutionRunner, _CASE_TYPE
+from tools.solution_runner import SolutionRunner, _CASE_TYPE
+# from tools.solution_runner_err import SolutionRunner, _CASE_TYPE
 # from tools.solution_runner_dummy import SolutionRunner, _CASE_TYPE
 
 from tools.custom_init import *

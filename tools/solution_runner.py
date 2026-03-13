@@ -13,8 +13,6 @@ from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge
 
-__DEBUG__ = True
-
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
 _CURRENT_DIR = Path(__file__).resolve().parent
@@ -26,6 +24,8 @@ if str(_CURRENT_DIR) not in sys.path:
 from examples_parser import parse_test_cases
 from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
 from compacted_json import CompactedJson
+from interpreters_runner import _execute_in_interpreter_worker
+
 """
 一个标准的测试样例的格式为：
     - 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
@@ -44,127 +44,6 @@ def _sanitize_filename(name: str) -> str:
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
-
-# solution_runner.py 文件顶部（类定义之前）
-def _execute_in_interpreter_worker(
-    interpreter_id: int,
-    student_code: str,
-    method_name: str,
-    group_queue: interpreters.Queue,
-    output_queue: interpreters.Queue,
-) -> tuple:
-    """
-    模块级 worker 函数，在子解释器中执行测试用例
-    
-    参数:
-        interpreter_id: 解释器 ID
-        student_code: 学生代码字符串（可 pickle）
-        method_name: 方法名
-        group_queue_id: 队列 ID（整数）
-        output_queue_id: 队列 ID（整数）
-    """
-    print(f"线程{interpreter_id}：开始")
-
-    # import time
-    # import sys
-    # import io
-    # import types
-    # import traceback
-    # from concurrent import interpreters
-    # from custom_init import ListNode, TreeNode, Optional, List, Dict
-    
-    # print(f"线程{interpreter_id}：成功导入外部库")
-
-    # # 在子解释器中重建学生代码环境
-    # mod = types.ModuleType('student_solution')
-    # mod.__dict__.update({
-    #     'ListNode': ListNode,
-    #     'TreeNode': TreeNode,
-    #     'Optional': Optional,
-    #     'List': List,
-    #     'Dict': Dict,
-    #     '__builtins__': __builtins__,
-    # })
-    # exec(student_code, mod.__dict__)
-    
-    # # 创建 Solution 实例和方法
-    # Solution = mod.Solution
-    # instance = Solution()
-    # method = getattr(instance, method_name)
-    
-    start_time = time.time()
-    process_case_num = 0
-
-    # print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
-    
-    try:
-        while True:
-            # 从队列获取任务
-            try:
-                group_id, cases = group_queue.get_nowait()
-            except interpreters.QueueEmpty:
-                if group_queue.empty():
-                    break
-                time.sleep(0.001)
-                continue
-            
-            results_buff = []
-            
-            # for case in cases:
-            #     log_lines = []
-            #     result_dict = case.copy()
-                
-            #     def _add_log(content: str):
-            #         log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
-                
-            #     try:
-            #         original_stdout = sys.stdout
-            #         captured_output = io.StringIO()
-                    
-            #         input_val = case['input']
-                    
-            #         if isinstance(input_val, dict):
-            #             sys.stdout = captured_output
-            #             output = method(**input_val)
-            #             sys.stdout = original_stdout
-                        
-            #         elif isinstance(input_val, tuple):
-            #             sys.stdout = captured_output
-            #             output = method(*input_val)
-            #             sys.stdout = original_stdout
-            #         else:
-            #             raise ValueError("input 必须是字典或元组")
-                    
-            #         result_dict['output'] = output
-            #         _add_log(f"OUTPUT: {output}")
-                    
-            #     except Exception as e:
-            #         sys.stdout = original_stdout
-            #         result_dict['error'] = str(e)
-            #         result_dict['traceback'] = traceback.format_exc()
-            #         _add_log(f"ERROR: {traceback.format_exc()}")
-                
-            #     results_buff.append(result_dict)
-            
-            # # 输出结果到队列
-            # output_queue.put((group_id, results_buff))
-            # process_case_num += len(results_buff)
-            
-            # # 调试输出
-            # print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
-
-            output_queue.put((group_id, []))
-        
-    except Exception as e:
-        print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
-        output_queue.put((None, []))
-        raise
-    
-    end_time = time.time()
-    elapsed = end_time - start_time
-    print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时: {elapsed:.3f}s")
-    
-    return (interpreter_id, process_case_num, elapsed)
 
 class SolutionRunner:
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
@@ -440,11 +319,17 @@ class SolutionRunner:
                     wrong_count += 1 
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
-
         else:
             # ========== 多线程执行 ==========
             from concurrent import futures, interpreters
-            from functools import partial
+            
+            # 获取 tools 目录路径
+            tools_dir = str(_CURRENT_DIR)
+            
+            # ========== 读取 custom_init.py 内容作为字符串 ==========
+            custom_init_path = _CURRENT_DIR / "custom_init.py"
+            with open(custom_init_path, 'r', encoding='utf-8') as f:
+                custom_init_code = f.read()
             
             # 创建共享队列
             group_queue = interpreters.create_queue()
@@ -454,26 +339,29 @@ class SolutionRunner:
             groups_num = self.geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
             
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
+                # ========== 直接传递所有参数为基本类型 ==========
+                futures_list = []
+                for i in range(thread):
+                    fut = executor.submit(
+                        _execute_in_interpreter_worker,
+                        i,                              # interpreter_id (int)
+                        self.student_code,              # student_code (str)
+                        self.method_name,               # method_name (str)
+                        group_queue.id,                 # group_queue_id (int)
+                        output_queue.id,                # output_queue_id (int)
+                        tools_dir,                      # tools_dir (str)
+                        custom_init_code,               # custom_init_code (str) ← 新增
+                    )
+                    futures_list.append(fut)
                 
-                # 执行并收集结果（带超时）
+                # 收集结果（带超时）
                 try:
-                    futures_res = [
-                        executor.submit(
-                            _execute_in_interpreter_worker,
-                            interpret_id,
-                            student_code = self.student_code,
-                            method_name = self.method_name,
-                            group_queue=group_queue,
-                            output_queue=output_queue,
-                        )
-                        for interpret_id in range(thread)
-                    ]
-                    
-                    print(f"所有工作线程提交完成")
+                    worker_results = [f.result(timeout=timeout_s) for f in futures_list]
+                    print(f"所有工作线程完成：{worker_results}")
                 except TimeoutError:
                     print(f"⚠️ 执行超时 ({timeout_s}s)")
-
-                # 收集输出队列结果（带超时）
+                
+                # 收集输出队列结果
                 output_buff = []
                 collected_groups = 0
                 
@@ -483,20 +371,16 @@ class SolutionRunner:
                         if group_id is not None:
                             output_buff.append((group_id, results))
                             collected_groups += 1
-                            print(f"主线程: 已收集 {collected_groups}/{groups_num} 组")
+                            print(f"主线程：已收集 {collected_groups}/{groups_num} 组")
                     except interpreters.QueueEmpty:
-                        print(f"主线程: 等待结果... ({collected_groups}/{groups_num})")
+                        print(f"主线程：等待结果... ({collected_groups}/{groups_num})")
                         continue
             
             # 合并结果
             results = self.merge_groups(output_buff)
             print(f"多线程完成：共 {len(results)} 个结果")
-
-        if summary:
-            self.summary_results(results)
         
-        return results
-    
+        return results    
 
 
     @classmethod
