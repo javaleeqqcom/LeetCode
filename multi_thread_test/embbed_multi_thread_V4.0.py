@@ -12,6 +12,7 @@ from typing import List, Tuple, Any, Callable
 from pathlib import Path
 from itertools import chain
 from functools import partial
+import types
 
 _N_CORE_ = 12
 _TIMEOUT_ = 60
@@ -20,26 +21,18 @@ _GDQG_RATE_ = 1/_N_CORE_
 # ========== 读取学生代码文件内容为字符串 ==========
 _CURRENT_DIR = Path(__file__).resolve().parent
 _SOLUTION_PATH = _CURRENT_DIR / "Solution6.py"
+_PRE_MOD_CODE = "import pre_mod"
 
-def create_black_box_executor(pre_import_path: os.PathLike,source_code: str, method_name:str)-> Callable:
+def create_black_box_executor(pre_mod:types.ModuleType,source_code_lst: List[str], method_name:str)-> Callable:
     """
     创建黑箱执行器代码字符串
-    ⚠️ 不导入任何学生代码可能用的库（math, bisect, typing 等）
+    ⚠️ 不导入任何学生代码可能用的库
     返回黑箱函数
     """
     
-    _types = __import__("types")
-
-    # 将 pre_import_path （也就是 tools/custom_init.py）导入为 student_mod 的环境。虽然可以用代码拼接或 exec()的方式实现，但是这种方式不安全，容易被学生代码注入攻击。
-    student_mod = _types.ModuleType('student_solution')
-    student_mod.__dict__.update({
-        '__builtins__': __builtins__,
-        '__name__': 'student_solution',
-    })
-    # 如果没办法再采用 exec() 的方式
-    
-    exec(source_code, student_mod.__dict__)
-    Solution = student_mod.__dict__['Solution']
+    for source_code in source_code_lst:
+        exec(source_code, pre_mod.__dict__)
+    Solution = pre_mod.__dict__['Solution']
     
     _solution = Solution()
     _method = getattr(_solution, method_name)
@@ -100,7 +93,6 @@ def execute_in_interpreter(
     
     return results
 
-
 def merge_sorted_lists(lists, max_id=-1) -> List[Any]:
     """使用归并排序合并多个已排序列表"""
     from heapq import merge
@@ -124,17 +116,27 @@ def geometric_decreasing_queue_generator(test_cases: List[int], queue: interpret
 
 
 def main():
+    with open(Path(os.getcwd())/"tools/custom_init.py" , 'r', encoding='utf-8') as f:
+        _common_init_code = f.read()
+
     # 获取学生代码
     with open(_SOLUTION_PATH, 'r', encoding='utf-8') as f:
         _students_code = f.read()
+    
+
+    pre_mod = types.ModuleType('student_solution')
+    pre_mod.__dict__.update({
+        '__builtins__': __builtins__,
+        '__name__': 'student_solution',
+    })
+    exec(_common_init_code,pre_mod.__dict__)
 
     # 查找 tools/custom_init.py 的位置，需要能兼容在 leetcode/ ， leetcode/*/ 目录下的代码都能兼容执行
     black_box_kwargs = {
-        'pre_import_path': tools/custom_init.py的位置,
-        'source_code':_students_code,
+        'pre_mod':pre_mod,
+        'source_code_lst': [_common_init_code, _students_code],
         'method_name':'is_sqrt_prime'
     }
-
     # 生成测试用例
     test_cases = generate_test_cases(1000000)
     
@@ -203,7 +205,6 @@ def main():
 def generate_test_cases(n: int = 10000) -> List[int]:
     """生成 n 个随机 int32 正整数 (1 到 2^31-1)"""
     return [random.randint(1, (2**31) - 1) for _ in range(n)]
-
 
 if __name__ == '__main__':
     main()
