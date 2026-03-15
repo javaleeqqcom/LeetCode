@@ -21,6 +21,7 @@ _CURRENT_DIR = Path(__file__).resolve().parent
 # 将 tools 目录添加到 sys.path，确保模块可导入
 if str(_CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(_CURRENT_DIR))
+print(f"tools dir:{_CURRENT_DIR}")
 
 # 直接导入，无需 try-except
 from examples_parser import parse_test_cases
@@ -59,6 +60,10 @@ def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
         '__name__': 'solution_module',
         '_sys':__import__("sys")
     })
+    # 将 tools 目录添加到 sys.path，确保模块可导入
+    _sys_path = module.__dict__['_sys'].path
+    if str(_CURRENT_DIR) not in _sys_path:
+        _sys_path.insert(0, str(_CURRENT_DIR))
 
     for source_code in source_code_lst:
         exec(source_code, module.__dict__)
@@ -196,6 +201,7 @@ def _execute_in_interpreter_worker(
     模块级 worker 函数，在子解释器中执行测试用例
     所有参数必须是可共享的基本类型（字符串、整数）
     """
+    
     print(f"线程{interpreter_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 

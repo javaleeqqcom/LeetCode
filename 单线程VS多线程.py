@@ -16,7 +16,7 @@ import numpy as np
 
 # 初始化暴力解法运行器
 暴力算法 = SolutionRunner(问题目录 / "P3130_bt.py")
-改进算法 = SolutionRunner(问题目录 /"P3130_V1.py")
+改进算法 = SolutionRunner(问题目录 /"P3130_故意WRong.py")
 
 # 生成测试用例指引文件
 # ask_file = None  # 设置为None将使用与brute.py同名的txt文件
@@ -54,6 +54,8 @@ expected_results = 暴力算法.run_as_expected(cases,thread=1)
 
 暴力算法.save_test_cases(expected_results)
 
+print("======== 暴力算法比较 ============")
+
 # 单线程
 print("=== 单线程 ===")
 results_single = 暴力算法.run_as_expected(cases, thread=1, timeout_s=60)
@@ -67,3 +69,17 @@ print(f"单线程结果数: {len(results_single)}")
 print(f"多线程结果数: {len(results_multi)}")
 print(f"结果一致: {len(results_single) == len(results_multi)}")
 
+print("======== 改进算法比较 ============")
+
+# 单线程
+print("=== 单线程 ===")
+results_single = 改进算法.run(expected_results,thread=1)
+
+# 多线程
+print("=== 多线程 ===")
+results_multi = 改进算法.run(expected_results, thread=4, timeout_s=60)
+
+# 比对
+print(f"单线程结果数: {len(results_single)}")
+print(f"多线程结果数: {len(results_multi)}")
+print(f"结果一致: {len(results_single) == len(results_multi)}")
