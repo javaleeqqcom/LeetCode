@@ -187,13 +187,12 @@ def _execute_single_case(
 
 def _execute_in_interpreter_worker(
     interpreter_id: int,
-    source_code_lst: Tuple[str],
+    source_code_lst: List[str],
     method_name:str,
     group_queue_id: int,
     output_queue_id: int,
     early_stop_queue: interpreters.Queue,
-    log_prefix:str,
-    log_folder:os.PathLike,
+    log_path:os.PathLike,
     skip_error = False,
     log_wrong = True,
 ) -> tuple:
@@ -241,7 +240,7 @@ def _execute_in_interpreter_worker(
                 result,log_lines = _execute_single_case(the_fun,case)
 
                 if 'error' in result:
-                    error_log_path = _log_result(result,log_lines,f"{log_prefix}_ERROR_",log_folder)
+                    error_log_path = _log_result(result,log_lines,"ERROR_",log_path)
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
@@ -251,7 +250,7 @@ def _execute_in_interpreter_worker(
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result): 
                     if log_wrong:
-                        _log_result(result,log_lines,f"{log_prefix}_Wrong_",log_folder)
+                        _log_result(result,log_lines,"Wrong_",log_path)
                     wrong_count += 1 
 
                 results_buff.append(result)
@@ -473,7 +472,7 @@ class SolutionRunner:
         self,
         test_cases: List[_CASE_TYPE],  # 严格要求是 List[CASE_TYPE]
         log_wrong: bool = True,        # 默认记录错误的测试样例
-        log_prefix: Optional[str] = None,
+        log_folder: Optional[str] = None,
         early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
@@ -493,12 +492,12 @@ class SolutionRunner:
                 if not isinstance(case['input'], (dict, tuple)):
                     raise ValueError(f"测试用例 {case['cid']} 的 'input' 必须是字典或元组")
             
-        # ========== 2. 执行所有用例 ==========
-        func_name = getattr(self.method, '__name__', 'unknown')\
-        
-        if log_prefix is None:
-            log_prefix = self.file_name
+        # 日志路径
+        log_path = self.relPath / (self.file_name if log_folder is None else log_folder)
+        os.makedirs(log_path,exist_ok=True)
 
+        print("log_path:",log_path)
+        # ========== 2. 执行所有用例 ==========
         if -1==thread:
             cpu_count = os.cpu_count()
             thread = cpu_count if cpu_count else 1
@@ -506,7 +505,6 @@ class SolutionRunner:
             wrong_count = 0
             results = []
             self.method
-            solution = self.solution_module.__dict__['Solution']()
             for case in test_cases:
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = _execute_single_case(
@@ -516,7 +514,7 @@ class SolutionRunner:
                 results.append(result)
 
                 if 'error' in result:
-                    error_log_path = _log_result(result,log_lines,f"{log_prefix}_ERROR_",self.relPath)
+                    error_log_path = _log_result(result,log_lines,"ERROR_",log_path)
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
@@ -524,7 +522,7 @@ class SolutionRunner:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result): 
                     if log_wrong:
-                        _log_result(result,log_lines,f"{log_prefix}_Wrong_",self.relPath)
+                        _log_result(result,log_lines,"Wrong_",log_path)
                     wrong_count += 1 
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
@@ -545,13 +543,12 @@ class SolutionRunner:
                     fut = executor.submit(
                         _execute_in_interpreter_worker,
                         i,
-                        (self.pre_code,self.student_code),  # 传递代码字符串
+                        [self.pre_code,self.student_code],  # 传递代码字符串
                         self.method_name,
                         group_queue.id,
                         output_queue.id,
                         early_stop_queue,
-                        log_prefix,
-                        self.relPath
+                        log_path
                         # 不直接传递 test_cases，而是从队列获取
                     )
                     futures_list.append(fut)

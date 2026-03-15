@@ -1,7 +1,4 @@
-# ========== 路径设置（勿删）==========
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# ===================================
+import os
 
 print(f"当前工作目录：{os.getcwd()}")
       
