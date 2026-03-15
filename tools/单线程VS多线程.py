@@ -67,10 +67,3 @@ print(f"单线程结果数: {len(results_single)}")
 print(f"多线程结果数: {len(results_multi)}")
 print(f"结果一致: {len(results_single) == len(results_multi)}")
 
-right = 0
-for case in results_single:
-    if case['expected'] != case['output']:
-        print(f"wrong: {case}")
-    else:
-        right += 1
-print(f"right/total: {right}/{len(results)}")

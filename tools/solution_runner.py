@@ -115,6 +115,13 @@ def geometric_decreasing_queue_generator( test_cases: List[Any], queue: interpre
 
 def merge_groups(groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[Any]:
     """使用归并排序合并多个已排序列表"""
+
+    print(f"merge_groups:")
+    for v in groups:
+        if not isinstance(v,tuple):
+            print(v)
+    print(f"merge_groups: END")
+
     # 归并排序
     merged = merge(*groups, key=lambda x: x[0])
     # 提取结果并展平
@@ -136,8 +143,7 @@ def _execute_in_interpreter_worker(
     # ========== 所有导入在子解释器内部完成 ==========
 
     # 创建子解释器的环境模块
-    sub_interpreter = interpreters.create()
-    module = sub_interpreter.call(_create_solution_module,source_code_lst)
+    module = _create_solution_module(source_code_lst)
 
     # 确保所有导入在子解释器内部完成
     # 通过 ID 重建队列
@@ -147,9 +153,8 @@ def _execute_in_interpreter_worker(
     print(f"线程{interpreter_id}: 队列重建成功")
 
     # 创建 Solution 实例和方法
-    instance = sub_interpreter.call(module.__dict__['Solution'])
+    instance = module.__dict__['Solution']()
     the_fun = getattr(instance,method_name)
-    # sub_interpreter.exec(f'solution = Solution(); the_fun = solution.{method_name}')
     
     start_time = time.time()
     process_case_num = 0
@@ -170,7 +175,7 @@ def _execute_in_interpreter_worker(
             
             for case in cases:
                 log_lines = []
-                result_dict = json.loads(case)
+                result_dict = case.copy()
                 
                 def _add_log(content: str):
                     log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
@@ -183,12 +188,12 @@ def _execute_in_interpreter_worker(
                     
                     if isinstance(input_val, dict):
                         sys.stdout = captured_output
-                        output = sub_interpreter.call(the_fun,**input_val)
+                        output = the_fun(**input_val)
                         sys.stdout = original_stdout
                         
                     elif isinstance(input_val, tuple):
                         sys.stdout = captured_output
-                        output = sub_interpreter.call(the_fun,*input_val)
+                        output = the_fun(*input_val)
                         sys.stdout = original_stdout
                     else:
                         raise ValueError("input 必须是字典或元组")
@@ -217,21 +222,16 @@ def _execute_in_interpreter_worker(
     end_time = time.time()
     elapsed = end_time - start_time
     print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
-    sub_interpreter.close()
     
     return (interpreter_id, process_case_num, elapsed)
 
-def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, timeout_s):
-    # 将 test_cases 序列化为 JSON 字符串
-    import json
-    test_cases_json = [json.dumps(case) for case in test_cases]
-    
+def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, timeout_s):    
     # 创建共享队列
     group_queue = interpreters.create_queue()
     output_queue = interpreters.create_queue()
     
     # 分割测试用例到队列
-    groups_num = geometric_decreasing_queue_generator(test_cases_json, group_queue, rate=1.0/thread)
+    groups_num = geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
     
     sys_path_list = str(_CURRENT_DIR.parent)
     print(f"tools_path: {sys_path_list}")
@@ -257,22 +257,30 @@ def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, 
             print(f"⚠️ 执行超时 ({timeout_s}s)")
         
         # 收集输出队列结果
-        output_buff = []
+        output_buff = [None]*groups_num
         collected_groups = 0
         
         while collected_groups < groups_num:
             try:
                 group_id, results = output_queue.get(timeout=2.0)
                 if group_id is not None:
-                    output_buff.append((group_id, results))
+                    output_buff[group_id] = results
                     collected_groups += 1
                     print(f"主线程：已收集 {collected_groups}/{groups_num} 组")
             except interpreters.QueueEmpty:
                 print(f"主线程：等待结果... ({collected_groups}/{groups_num})")
                 continue
-    
+
+    import itertools
+    outputs:List[List[Any]] = list(filter(bool,output_buff))
     # 合并结果
-    results = merge_groups(output_buff)
+    results = [res for output in outputs for res in output]
+
+    print("results BEGIN")
+    for v in results:
+        print(f"\t{v}")
+    print("results END")
+
     print(f"多线程完成：共 {len(results)} 个结果")
     return results
 
@@ -638,11 +646,14 @@ class SolutionRunner:
         for result in run_results:
             if 'error' not in result:
                 case_id += 1
-                expected_case = result.copy()
-                expected_case['cid'] = f"#{case_id}"
-                expected_case['expected'] = expected_case.pop('output')
-                expected_case.pop('elapsed', None)
-                expected_cases.append(expected_case)
+                output = result.copy()
+
+                # print(f"output={output}")
+
+                output['cid'] = f"#{case_id}"
+                output['expected'] = output.pop('output')
+                output.pop('elapsed', None)
+                expected_cases.append(output)
 
         print(f"✅ 从 {total_count} 个测试用例中筛选出 {case_id} 个有效用例")
         return expected_cases
