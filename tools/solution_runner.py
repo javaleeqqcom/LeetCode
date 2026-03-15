@@ -45,7 +45,37 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
+def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
+    """
+    创建黑箱执行器代码字符串
+    ⚠️ 不导入任何学生代码可能用的库
+    返回黑箱函数
+    """
+    _types = __import__("types")
+
+    module = _types.ModuleType('solution_module')
+    module.__dict__.update({
+        '__builtins__': __builtins__,
+        '__name__': 'solution_module',
+    })
+    
+    for source_code in source_code_lst:
+        exec(source_code, module.__dict__)
+
+    return module
+
 class SolutionRunner:
+    @classmethod
+    def _read_code(cls, code_file: os.PathLike) -> str:
+        assert os.path.exists(code_file), f"文件不存在: {code_file}"
+        # 确保文件类型为 ".py"
+        assert str(code_file).endswith('.py'), f"应当输入 .py 文件，实际为: {code_file}"
+        # 1. 读取并自动检测编码（支持中文）
+        with open(code_file, 'rb') as f:
+            raw = f.read()
+        result = from_bytes(raw).best()
+        return str(result) if result else raw.decode('utf-8', errors='ignore')
+
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
         """
         初始化 SolutionRunner，自动加载学生代码文件。
@@ -53,27 +83,27 @@ class SolutionRunner:
         :param main_method: 指定主方法名（当Solution有多个方法时），默认None表示自动选择唯一方法
         """
         # 1. 读取并自动检测编码（支持中文）
-        with open(solution_file, 'rb') as f:
-            raw = f.read()
-        result = from_bytes(raw).best()
-        self.student_code = str(result) if result else raw.decode('utf-8', errors='ignore')
+        self.student_code = self._read_code(solution_file)
+
+        # 2. 读取预执行代码（如果有）
+        self.pre_code = self._read_code(_CURRENT_DIR/"custom_init.py")
         
         # 从 solution_file 路径中提取相对目录（即文件所在目录）
-        self.solution_file = str(solution_file)
         solution_path = Path(solution_file).resolve()
         self.relPath = solution_path.parent
         self.file_name = os.path.splitext(os.path.basename(solution_path))[0]
 
         # 2. 创建虚拟执行环境
-        mod = types.ModuleType('student_solution')
-        mod.__dict__.update({
-            'ListNode': ListNode,
-            'TreeNode': TreeNode,
-            'Optional': Optional,
-            'List': List,
-            'Dict': Dict,
-            '__builtins__': __builtins__,
-        })
+        self.solution_module = _create_solution_module([self.pre_code ,self.student_code])
+        # mod = types.ModuleType('student_solution')
+        # mod.__dict__.update({
+        #     'ListNode': ListNode,
+        #     'TreeNode': TreeNode,
+        #     'Optional': Optional,
+        #     'List': List,
+        #     'Dict': Dict,
+        #     '__builtins__': __builtins__,
+        # })
 
         # 3. 执行学生代码（注入类型）
         exec(self.student_code, mod.__dict__)
