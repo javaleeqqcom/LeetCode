@@ -64,7 +64,6 @@ def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
 
     return module
 
-
 def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
     """生成唯一的日志文件路径（保存到 self.relPath 目录下）"""
     # 确保 relPath 是一个路径对象
@@ -103,7 +102,7 @@ def log_result(result:_CASE_TYPE,log_lines:List,log_prefix:str = "",log_path:Opt
     with open(log_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(log_lines))
         
-def geometric_decreasing_queue_generator( test_cases: List[_CASE_TYPE], queue: interpreters.Queue, rate: float = 0.1) -> int:
+def geometric_decreasing_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rate: float = 0.1) -> int:
     """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
     group_id, idx = 0, 0
     # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
@@ -113,7 +112,6 @@ def geometric_decreasing_queue_generator( test_cases: List[_CASE_TYPE], queue: i
         idx += chunk_size
         group_id += 1
     return group_id
-
 
 def merge_groups(groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[Any]:
     """使用归并排序合并多个已排序列表"""
@@ -138,9 +136,13 @@ def _execute_in_interpreter_worker(
     # 创建子解释器的环境模块
     _module = _create_solution_module(source_code_lst)
     _module.__dict__.update(
-        {'_interpreters':__import__('concurrent.interpreters')}
+        {
+            '_interpreters':__import__('concurrent.interpreters'),
+            '_json':__import__('json')
+            }
     )
     _interpreters = _module._interpreters
+    _json = _module._json
     
     # 确保所有导入在子解释器内部完成
     
@@ -172,7 +174,7 @@ def _execute_in_interpreter_worker(
             
             for case in cases:
                 log_lines = []
-                result_dict = case.copy()
+                result_dict = _json.loads(case)
                 
                 def _add_log(content: str):
                     log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
@@ -222,28 +224,29 @@ def _execute_in_interpreter_worker(
     
     return (interpreter_id, process_case_num, elapsed)
 
-def InterpreterExecute(test_cases,thread,student_code,method_name,timeout_s):
-    # ========== 多线程执行 ==========
-    from concurrent import futures, interpreters
+def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, timeout_s):
+    # 将 test_cases 序列化为 JSON 字符串
+    import json
+    test_cases_json = [json.dumps(case) for case in test_cases]
     
     # 创建共享队列
     group_queue = interpreters.create_queue()
     output_queue = interpreters.create_queue()
     
     # 分割测试用例到队列
-    groups_num = geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
+    groups_num = geometric_decreasing_queue_generator(test_cases_json, group_queue, rate=1.0/thread)
     
     with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
-        # ========== 直接传递所有参数为基本类型 ==========
         futures_list = []
         for i in range(thread):
             fut = executor.submit(
                 _execute_in_interpreter_worker,
-                i,                              # interpreter_id (int)
-                (student_code,),              # student_code (str)
-                method_name,               # method_name (str)
-                group_queue.id,                 # group_queue_id (int)
-                output_queue.id,                # output_queue_id (int)
+                i,
+                (student_code,),  # 传递代码字符串
+                method_name,
+                group_queue.id,
+                output_queue.id,
+                # 不直接传递 test_cases，而是从队列获取
             )
             futures_list.append(fut)
         
@@ -528,7 +531,7 @@ class SolutionRunner:
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
         else:
-            results = InterpreterExecute(test_cases,thread,self.student_code,self.method_name,timeout_s)
+            results = InterpreterExecute(test_cases,thread,self.student_code ,self.pre_code,self.method_name,timeout_s)
         return results    
 
 
