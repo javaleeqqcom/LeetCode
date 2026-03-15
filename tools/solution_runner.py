@@ -13,6 +13,8 @@ from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge
 
+__DEBUG__ = True
+
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
 _CURRENT_DIR = Path(__file__).resolve().parent
@@ -24,7 +26,6 @@ if str(_CURRENT_DIR) not in sys.path:
 from examples_parser import parse_test_cases
 from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
 from compacted_json import CompactedJson
-from interpreters_runner import _execute_in_interpreter_worker
 
 """
 一个标准的测试样例的格式为：
@@ -35,7 +36,6 @@ from interpreters_runner import _execute_in_interpreter_worker
 """
 _CASE_TYPE = Dict[str, Union[Dict[str, Any], Tuple, Any]]
 
-
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
 
@@ -45,7 +45,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
+def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库
@@ -63,6 +63,217 @@ def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
         exec(source_code, module.__dict__)
 
     return module
+
+
+def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
+    """生成唯一的日志文件路径（保存到 self.relPath 目录下）"""
+    # 确保 relPath 是一个路径对象
+    log_dir = Path(relPath)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 确保文件名以 .log 结尾
+    if not file_name.endswith('.log'):
+        file_name += '.log'
+    
+    # 生成完整路径
+    log_path = log_dir / _sanitize_filename(file_name)
+    
+    # 如果文件已存在，添加序号
+    if log_path.exists():
+        stem = log_path.stem
+        suffix = log_path.suffix
+        counter = 1
+        while True:
+            new_name = f"{stem}_{counter}{suffix}"
+            log_path = log_dir / new_name
+            if not log_path.exists():
+                break
+            counter += 1
+    
+    return log_path
+    
+def _is_wrong(result:_CASE_TYPE)->bool:
+    return 'expected' in result and 'output' in result and result['expected'] != result['output']
+
+def log_result(result:_CASE_TYPE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
+    log_path = _get_unique_log_path( 
+        Path(os.getcwd() if log_path is None else log_path)
+        , f"{log_prefix}_{result['cid']}.log"
+        )
+    with open(log_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(log_lines))
+        
+def geometric_decreasing_queue_generator( test_cases: List[_CASE_TYPE], queue: interpreters.Queue, rate: float = 0.1) -> int:
+    """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
+    group_id, idx = 0, 0
+    # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
+    while idx < len(test_cases):
+        chunk_size = max(1, int((len(test_cases) - idx) * rate))
+        queue.put((group_id, test_cases[idx:idx+chunk_size]))
+        idx += chunk_size
+        group_id += 1
+    return group_id
+
+
+def merge_groups(groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[Any]:
+    """使用归并排序合并多个已排序列表"""
+    # 归并排序
+    merged = merge(*groups, key=lambda x: x[0])
+    # 提取结果并展平
+    return [result for _, group_results in merged for result in group_results]
+    
+def _execute_in_interpreter_worker(
+    interpreter_id: int,
+    source_code_lst: Tuple[str], method_name:str,
+    group_queue_id: int,
+    output_queue_id: int
+) -> tuple:
+    """
+    模块级 worker 函数，在子解释器中执行测试用例
+    所有参数必须是可共享的基本类型（字符串、整数）
+    """
+    print(f"线程{interpreter_id}：开始")
+    # ========== 所有导入在子解释器内部完成 ==========
+
+    # 创建子解释器的环境模块
+    _module = _create_solution_module(source_code_lst)
+    _module.__dict__.update(
+        {'_interpreters':__import__('concurrent.interpreters')}
+    )
+    _interpreters = _module._interpreters
+    
+    # 确保所有导入在子解释器内部完成
+    
+    # 通过 ID 重建队列
+    group_queue = _interpreters.Queue(group_queue_id)
+    output_queue = _interpreters.Queue(output_queue_id)
+    print(f"线程{interpreter_id}: 队列重建成功")
+
+    # 创建 Solution 实例和方法
+    instance = _module.__dict__['Solution']()
+    method = getattr(instance, method_name)
+    
+    start_time = time.time()
+    process_case_num = 0
+
+    print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
+    
+    try:
+        while True:
+            try:
+                group_id, cases = group_queue.get_nowait()
+            except _interpreters.QueueEmpty:
+                if group_queue.empty():
+                    break
+                time.sleep(0.001)
+                continue
+            
+            results_buff = []
+            
+            for case in cases:
+                log_lines = []
+                result_dict = case.copy()
+                
+                def _add_log(content: str):
+                    log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
+                
+                try:
+                    original_stdout = sys.stdout
+                    captured_output = io.StringIO()
+                    
+                    input_val = case['input']
+                    
+                    if isinstance(input_val, dict):
+                        sys.stdout = captured_output
+                        output = method(**input_val)
+                        sys.stdout = original_stdout
+                        
+                    elif isinstance(input_val, tuple):
+                        sys.stdout = captured_output
+                        output = method(*input_val)
+                        sys.stdout = original_stdout
+                    else:
+                        raise ValueError("input 必须是字典或元组")
+                    
+                    result_dict['output'] = output
+                    _add_log(f"OUTPUT: {output}")
+                    
+                except Exception as e:
+                    sys.stdout = original_stdout
+                    result_dict['error'] = str(e)
+                    result_dict['traceback'] = traceback.format_exc()
+                    _add_log(f"ERROR: {traceback.format_exc()}")
+                
+                results_buff.append(result_dict)
+            
+            output_queue.put((group_id, results_buff))
+            process_case_num += len(results_buff)
+            
+            print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
+        
+    except Exception as e:
+        print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
+        output_queue.put((None, []))
+        raise
+    
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
+    
+    return (interpreter_id, process_case_num, elapsed)
+
+def InterpreterExecute(test_cases,thread,student_code,method_name,timeout_s):
+    # ========== 多线程执行 ==========
+    from concurrent import futures, interpreters
+    
+    # 创建共享队列
+    group_queue = interpreters.create_queue()
+    output_queue = interpreters.create_queue()
+    
+    # 分割测试用例到队列
+    groups_num = geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
+    
+    with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
+        # ========== 直接传递所有参数为基本类型 ==========
+        futures_list = []
+        for i in range(thread):
+            fut = executor.submit(
+                _execute_in_interpreter_worker,
+                i,                              # interpreter_id (int)
+                (student_code,),              # student_code (str)
+                method_name,               # method_name (str)
+                group_queue.id,                 # group_queue_id (int)
+                output_queue.id,                # output_queue_id (int)
+            )
+            futures_list.append(fut)
+        
+        # 收集结果（带超时）
+        try:
+            worker_results = [f.result(timeout=timeout_s) for f in futures_list]
+            print(f"所有工作线程完成：{worker_results}")
+        except TimeoutError:
+            print(f"⚠️ 执行超时 ({timeout_s}s)")
+        
+        # 收集输出队列结果
+        output_buff = []
+        collected_groups = 0
+        
+        while collected_groups < groups_num:
+            try:
+                group_id, results = output_queue.get(timeout=2.0)
+                if group_id is not None:
+                    output_buff.append((group_id, results))
+                    collected_groups += 1
+                    print(f"主线程：已收集 {collected_groups}/{groups_num} 组")
+            except interpreters.QueueEmpty:
+                print(f"主线程：等待结果... ({collected_groups}/{groups_num})")
+                continue
+    
+    # 合并结果
+    results = merge_groups(output_buff)
+    print(f"多线程完成：共 {len(results)} 个结果")
+    return results
+
 
 class SolutionRunner:
     @classmethod
@@ -84,6 +295,7 @@ class SolutionRunner:
         """
         # 1. 读取并自动检测编码（支持中文）
         self.student_code = self._read_code(solution_file)
+        self.solution_file = solution_file
 
         # 2. 读取预执行代码（如果有）
         self.pre_code = self._read_code(_CURRENT_DIR/"custom_init.py")
@@ -93,29 +305,17 @@ class SolutionRunner:
         self.relPath = solution_path.parent
         self.file_name = os.path.splitext(os.path.basename(solution_path))[0]
 
-        # 2. 创建虚拟执行环境
-        self.solution_module = _create_solution_module([self.pre_code ,self.student_code])
-        # mod = types.ModuleType('student_solution')
-        # mod.__dict__.update({
-        #     'ListNode': ListNode,
-        #     'TreeNode': TreeNode,
-        #     'Optional': Optional,
-        #     'List': List,
-        #     'Dict': Dict,
-        #     '__builtins__': __builtins__,
-        # })
+        # 2. 创建 solution 的虚拟环境
+        self.solution_module = _create_solution_module((self.student_code,))
 
-        # 3. 执行学生代码（注入类型）
-        exec(self.student_code, mod.__dict__)
-        
         # 4. 获取Solution类
-        if 'Solution' not in mod.__dict__:
+        if 'Solution' not in self.solution_module.__dict__:
             raise ValueError("学生代码中未定义 Solution 类")
-        self.Solution = mod.Solution
+        module_Solution = self.solution_module.__dict__['Solution']
 
-        # 5. 提取方法
+        # 5. 提取主方法名
         methods = []
-        for name, method in inspect.getmembers(self.Solution, predicate=inspect.isfunction):
+        for name, method in inspect.getmembers(module_Solution, predicate=inspect.isfunction):
             if not (name.startswith('__') and name.endswith('__')):
                 methods.append((name, method))
         
@@ -132,6 +332,18 @@ class SolutionRunner:
                 method_names = [name for name, _ in methods]
                 raise ValueError(f"Solution类必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个: {method_names}")
             self.method_name, self.method = methods[0]
+
+        # 6. 提出主方法的参数名和参数类型
+        self.instance = module_Solution()
+        bound_method = getattr(self.instance, self.method_name)
+        self.sig  = inspect.signature(bound_method)
+        self.sig_names = list(self.sig.parameters.keys())
+        self.sig_types = [v.annotation for v in self.sig.parameters.values()]
+
+        if __DEBUG__:
+            print(f"sig.parameters: {self.sig.parameters}")
+            print(f"主方法参数名: { self.sig_names}")
+            print(f"主方法参数类型: { self.sig_types }")
 
     def read_test_case(
         self,
@@ -158,15 +370,6 @@ class SolutionRunner:
         
         test_cases = []
         
-        # 创建临时实例获取绑定方法签名（用于JSON自动推断）
-        temp_instance = self.Solution()
-        bound_method = getattr(temp_instance, self.method_name)
-        sig = inspect.signature(bound_method)
-        param_names = list(sig.parameters.keys())
-        # 移除 self
-        if param_names and param_names == 'self':
-            param_names = param_names[1:]
-        
         for file_path in all_files:
             try:
                 # ========== 核心修改点：根据文件后缀分流处理 ==========
@@ -192,22 +395,22 @@ class SolutionRunner:
                         # 情况 A: 如果 input 是字典（标准格式），直接使用
                         if isinstance(converted_case['input'], dict):
                             # 验证签名
-                            sig.bind(**converted_case['input'])
+                            self.sig.bind(**converted_case['input'])
                             
                         # 情况 B: 如果 input 是列表/元组，且参数名已知，转换为字典
                         elif isinstance(converted_case['input'], (list, tuple)):
-                            if len(param_names) == len(converted_case['input']):
+                            if len(self.sig_names) == len(converted_case['input']):
                                 # 转换为字典格式，以便后续统一处理
-                                converted_case['input'] = dict(zip(param_names, converted_case['input']))
-                                sig.bind(**converted_case['input'])
+                                converted_case['input'] = dict(zip(self.sig_names, converted_case['input']))
+                                self.sig.bind(**converted_case['input'])
                             else:
-                                raise ValueError(f"参数数量不匹配: 函数需要 {len(param_names)} 个参数 {param_names}, 但输入为 {converted_case['input']}")
+                                raise ValueError(f"参数数量不匹配: 函数需要 {len(self.sig_names)} 个参数 {self.sig_names}, 但输入为 {converted_case['input']}")
                         
                         # 情况 C: 单个值（仅当函数只有一个参数时）
                         else:
-                            if len(param_names) == 1:
-                                converted_case['input'] = {param_names[0]: converted_case['input']}
-                                sig.bind(**converted_case['input'])
+                            if len(self.sig_names) == 1:
+                                converted_case['input'] = {self.sig_names[0]: converted_case['input']}
+                                self.sig.bind(**converted_case['input'])
                             else:
                                 raise ValueError("无法推断单值输入的参数名")
                         
@@ -248,33 +451,6 @@ class SolutionRunner:
         
         return test_cases
     
-    def _get_unique_log_path(self, file_name: str) -> Path:
-        """生成唯一的日志文件路径（保存到 self.relPath 目录下）"""
-        # 确保 relPath 是一个路径对象
-        log_dir = Path(self.relPath)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 确保文件名以 .log 结尾
-        if not file_name.endswith('.log'):
-            file_name += '.log'
-        
-        # 生成完整路径
-        log_path = log_dir / _sanitize_filename(file_name)
-        
-        # 如果文件已存在，添加序号
-        if log_path.exists():
-            stem = log_path.stem
-            suffix = log_path.suffix
-            counter = 1
-            while True:
-                new_name = f"{stem}_{counter}{suffix}"
-                log_path = log_dir / new_name
-                if not log_path.exists():
-                    break
-                counter += 1
-        
-        return log_path
-        
     def run_as_expected(self, 
         test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
         early_stop: Optional[Union[int, float]] = None,
@@ -328,7 +504,7 @@ class SolutionRunner:
         if 1==thread:
             wrong_count = 0
             results = []
-            solution = self.Solution() 
+            solution = self.solution_module.__dict__['Solution']()
             for case in test_cases:
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = self._execute_single_case(
@@ -338,101 +514,24 @@ class SolutionRunner:
                 )
                 results.append(result)
 
-                error_log_path = self.get_error_log_path(result,log_lines,log_prefix)
-                if error_log_path is not None:
+                if 'error' in result:
+                    log_result(result,log_lines,f"{log_prefix}_ERROR_",self.relPath)
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
                     else:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
-                elif self.auto_log_wrong(result,log_lines,log_wrong): 
+                elif _is_wrong(result): 
+                    if log_wrong:
+                        log_result(result,log_lines,f"{log_prefix}_Wrong_",self.relPath)
                     wrong_count += 1 
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
         else:
-            # ========== 多线程执行 ==========
-            from concurrent import futures, interpreters
-            
-            # 获取 tools 目录路径
-            tools_dir = str(_CURRENT_DIR)
-            
-            # ========== 读取 custom_init.py 内容作为字符串 ==========
-            custom_init_path = _CURRENT_DIR / "custom_init.py"
-            with open(custom_init_path, 'r', encoding='utf-8') as f:
-                custom_init_code = f.read()
-            
-            # 创建共享队列
-            group_queue = interpreters.create_queue()
-            output_queue = interpreters.create_queue()
-            
-            # 分割测试用例到队列
-            groups_num = self.geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
-            
-            with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
-                # ========== 直接传递所有参数为基本类型 ==========
-                futures_list = []
-                for i in range(thread):
-                    fut = executor.submit(
-                        _execute_in_interpreter_worker,
-                        i,                              # interpreter_id (int)
-                        self.student_code,              # student_code (str)
-                        self.method_name,               # method_name (str)
-                        group_queue.id,                 # group_queue_id (int)
-                        output_queue.id,                # output_queue_id (int)
-                        tools_dir,                      # tools_dir (str)
-                        custom_init_code,               # custom_init_code (str) ← 新增
-                    )
-                    futures_list.append(fut)
-                
-                # 收集结果（带超时）
-                try:
-                    worker_results = [f.result(timeout=timeout_s) for f in futures_list]
-                    print(f"所有工作线程完成：{worker_results}")
-                except TimeoutError:
-                    print(f"⚠️ 执行超时 ({timeout_s}s)")
-                
-                # 收集输出队列结果
-                output_buff = []
-                collected_groups = 0
-                
-                while collected_groups < groups_num:
-                    try:
-                        group_id, results = output_queue.get(timeout=2.0)
-                        if group_id is not None:
-                            output_buff.append((group_id, results))
-                            collected_groups += 1
-                            print(f"主线程：已收集 {collected_groups}/{groups_num} 组")
-                    except interpreters.QueueEmpty:
-                        print(f"主线程：等待结果... ({collected_groups}/{groups_num})")
-                        continue
-            
-            # 合并结果
-            results = self.merge_groups(output_buff)
-            print(f"多线程完成：共 {len(results)} 个结果")
-        
+            results = InterpreterExecute(test_cases,thread,self.student_code,self.method_name,timeout_s)
         return results    
 
 
-    @classmethod
-    def geometric_decreasing_queue_generator(cls, test_cases: List[_CASE_TYPE], queue: interpreters.Queue, rate: float = 0.1) -> int:
-        """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
-        group_id, idx = 0, 0
-        # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
-        while idx < len(test_cases):
-            chunk_size = max(1, int((len(test_cases) - idx) * rate))
-            queue.put((group_id, test_cases[idx:idx+chunk_size]))
-            idx += chunk_size
-            group_id += 1
-        return group_id
-
-    @classmethod
-    def merge_groups(cls, groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[_CASE_TYPE]:
-        """使用归并排序合并多个已排序列表"""
-        # 归并排序
-        merged = merge(*groups, key=lambda x: x[0])
-        # 提取结果并展平
-        return [result for _, group_results in merged for result in group_results]
-        
     @classmethod
     def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
         right = valid = 0
@@ -524,27 +623,6 @@ class SolutionRunner:
         
         return result_dict, log_lines
 
-    @classmethod
-    def get_error_log_path(cls,result:_CASE_TYPE,log_lines:List,log_prefix:str) -> Optional[os.PathLike]:
-        if 'error' in result:
-            # 单独记录报错的 log，以 self.solution_file 和 idx 命名
-            log_path = self._get_unique_log_path(f"{log_prefix}_ERROR_{result['cid']}.log")
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(log_lines))
-            return log_path
-        return None
-
-    @classmethod
-    def auto_log_wrong(cls,result:_CASE_TYPE,log_lines:List,log_wrong:bool) -> bool:
-        if 'expected' in result and 'output' in result and result['expected'] != result['output']: 
-            # 记录错误结果的日志
-            if log_wrong:
-                log_path = self._get_unique_log_path(f"{log_prefix}_Wrong_{result['cid']}.log")
-                with open(log_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(log_lines))
-            return True
-        return False
-
     def get_expected_cases(self, run_results: List[_CASE_TYPE]) -> List[_CASE_TYPE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
@@ -585,17 +663,7 @@ class SolutionRunner:
         """将元组形式的测试样例转换为字典形式
         临时函数：以后优化：需要增加参数类型识别，并且能够自动转换自定义类型
         """
-        # 获取被测函数的参数名
-        temp_instance = self.Solution()
-        bound_method = getattr(temp_instance, self.method_name)
-        sig = inspect.signature(bound_method)
-        params = list(sig.parameters.keys())
-        
-        # 排除 self 参数
-        if params and params[0] == 'self':
-            params = params[1:]
-        
-        m = len(params)
+        m = len(self.sig_names)
         if m == 0:
             raise ValueError("被测函数没有参数，无法转换元组格式测试用例")
         
@@ -617,7 +685,7 @@ class SolutionRunner:
         for i in range(num_cases):
             start_idx = i * m
             chunk = flat_values[start_idx:start_idx + m]
-            input_dict = dict(zip(params, chunk))
+            input_dict = dict(zip(self.sig_names, chunk))
             result.append({
                 "input": input_dict,
                 "cid": i

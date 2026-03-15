@@ -10,7 +10,6 @@ from tools.solution_runner import SolutionRunner, _CASE_TYPE
 # from tools.solution_runner_err import SolutionRunner, _CASE_TYPE
 # from tools.solution_runner_dummy import SolutionRunner, _CASE_TYPE
 
-from tools.custom_init import *
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path
