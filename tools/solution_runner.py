@@ -94,15 +94,16 @@ def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
 def _is_wrong(result:_CASE_TYPE)->bool:
     return 'expected' in result and 'output' in result and result['expected'] != result['output']
 
-def log_result(result:_CASE_TYPE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
+def _log_result(result:_CASE_TYPE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
     log_path = _get_unique_log_path( 
         Path(os.getcwd() if log_path is None else log_path)
         , f"{log_prefix}_{result['cid']}.log"
         )
     with open(log_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(log_lines))
+    return log_path
         
-def geometric_decreasing_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rate: float = 0.1) -> int:
+def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rate: float = 0.1) -> int:
     """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
     group_id, idx = 0, 0
     # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
@@ -113,32 +114,88 @@ def geometric_decreasing_queue_generator( test_cases: List[Any], queue: interpre
         group_id += 1
     return group_id
 
-def merge_groups(groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[Any]:
-    """使用归并排序合并多个已排序列表"""
-
-    print(f"merge_groups:")
-    for v in groups:
-        if not isinstance(v,tuple):
-            print(v)
-    print(f"merge_groups: END")
-
-    # 归并排序
-    merged = merge(*groups, key=lambda x: x[0])
-    # 提取结果并展平
-    return [result for _, group_results in merged for result in group_results]
+def _execute_single_case(
+    the_fun:Callable,
+    case: _CASE_TYPE
+) -> Tuple[_CASE_TYPE, List[str]]:
+    """执行单个测试用例（核心封装）"""
+    log_lines = []
+    result_dict = case.copy()
     
+    def _add_log(content: str):
+        log_lines.append(f"{case['cid']}:\t{content}")
+    
+    try:
+        # 保存原始 stdout
+        original_stdout = sys.stdout
+
+        _add_log(f"Running '{the_fun.__name__}' with case: {case.get('test_case_key', f'{case['cid']}')}")
+        
+        input_val = case['input']
+        # instance = self.Solution()
+        
+        # 创建字符串缓冲区捕获 print 输出
+        captured_output = io.StringIO()
+        
+        if isinstance(input_val, dict):
+            _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
+            # 重定向 stdout
+            sys.stdout = captured_output
+            output = the_fun( **input_val)
+            # 恢复 stdout
+            sys.stdout = original_stdout
+            # 获取并记录 print 内容
+            print_content = captured_output.getvalue()
+            if print_content.strip():
+                _add_log(f">>> PRINT OUTPUT:\n{print_content}")
+            
+        elif isinstance(input_val, tuple):
+            _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
+            # 重定向 stdout
+            sys.stdout = captured_output
+            output = the_fun( *input_val)
+            # 恢复 stdout
+            sys.stdout = original_stdout
+            # 获取并记录 print 内容
+            print_content = captured_output.getvalue()
+            if print_content.strip():
+                _add_log(f">>> PRINT OUTPUT:\n{print_content}")
+        else:
+            raise ValueError("测试用例的input必须是字典或元组")
+        
+        elapsed = time.perf_counter() - time.perf_counter()
+        result_dict['output'] = output
+        result_dict['elapsed'] = elapsed
+        _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compacted_json.dumps(output, indent=2)}")
+        
+    except Exception as e:
+        # 异常时也恢复 stdout
+        sys.stdout = original_stdout
+        elapsed = time.perf_counter() - time.perf_counter()
+        result_dict['error'] = str(e)
+        result_dict['traceback'] = traceback.format_exc()
+        result_dict['elapsed'] = elapsed
+        _add_log("!!! EXCEPTION OCCURRED:")
+        _add_log(traceback.format_exc())
+    
+    return result_dict, log_lines
+
 def _execute_in_interpreter_worker(
     interpreter_id: int,
     source_code_lst: Tuple[str],
     method_name:str,
     group_queue_id: int,
-    output_queue_id: int
+    output_queue_id: int,
+    early_stop_queue: interpreters.Queue,
+    log_prefix:str,
+    log_folder:os.PathLike,
+    skip_error = False,
+    log_wrong = True,
 ) -> tuple:
     """
     模块级 worker 函数，在子解释器中执行测试用例
     所有参数必须是可共享的基本类型（字符串、整数）
     """
-
     print(f"线程{interpreter_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 
@@ -162,7 +219,7 @@ def _execute_in_interpreter_worker(
     print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
     
     try:
-        while True:
+        while early_stop_queue.empty():
             try:
                 group_id, cases = group_queue.get_nowait()
             except interpreters.QueueEmpty:
@@ -172,44 +229,29 @@ def _execute_in_interpreter_worker(
                 continue
             
             results_buff = []
+            wrong_count = 0
             
             for case in cases:
-                log_lines = []
-                result_dict = case.copy()
-                
-                def _add_log(content: str):
-                    log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
-                
-                try:
-                    original_stdout = sys.stdout
-                    captured_output = io.StringIO()
-                    
-                    input_val = case['input']
-                    
-                    if isinstance(input_val, dict):
-                        sys.stdout = captured_output
-                        output = the_fun(**input_val)
-                        sys.stdout = original_stdout
-                        
-                    elif isinstance(input_val, tuple):
-                        sys.stdout = captured_output
-                        output = the_fun(*input_val)
-                        sys.stdout = original_stdout
+                result,log_lines = _execute_single_case(the_fun,case)
+
+                if 'error' in result:
+                    error_log_path = _log_result(result,log_lines,f"{log_prefix}_ERROR_",log_folder)
+                    if skip_error:
+                        Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
+                        wrong_count += 1 # error 当然也算“错误”
                     else:
-                        raise ValueError("input 必须是字典或元组")
-                    
-                    result_dict['output'] = output
-                    _add_log(f"OUTPUT: {output}")
-                    
-                except Exception as e:
-                    sys.stdout = original_stdout
-                    result_dict['error'] = str(e)
-                    result_dict['traceback'] = traceback.format_exc()
-                    _add_log(f"ERROR: {traceback.format_exc()}")
-                
-                results_buff.append(result_dict)
+                        # 出现报错，触发早停，以分组编号作为早停信息
+                        early_stop_queue.put(group_id)
+                        raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
+                elif _is_wrong(result): 
+                    if log_wrong:
+                        _log_result(result,log_lines,f"{log_prefix}_Wrong_",log_folder)
+                    wrong_count += 1 
+
+                results_buff.append(result)
             
-            output_queue.put((group_id, results_buff))
+            # 将 (分组id，该组错误数量，改组结果列表) 加入到输出队列
+            output_queue.put((group_id, wrong_count, results_buff))
             process_case_num += len(results_buff)
             
             print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
@@ -224,66 +266,6 @@ def _execute_in_interpreter_worker(
     print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
     
     return (interpreter_id, process_case_num, elapsed)
-
-def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, timeout_s):    
-    # 创建共享队列
-    group_queue = interpreters.create_queue()
-    output_queue = interpreters.create_queue()
-    
-    # 分割测试用例到队列
-    groups_num = geometric_decreasing_queue_generator(test_cases, group_queue, rate=1.0/thread)
-    
-    sys_path_list = str(_CURRENT_DIR.parent)
-    print(f"tools_path: {sys_path_list}")
-    with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
-        futures_list = []
-        for i in range(thread):
-            fut = executor.submit(
-                _execute_in_interpreter_worker,
-                i,
-                (student_code,),  # 传递代码字符串
-                method_name,
-                group_queue.id,
-                output_queue.id
-                # 不直接传递 test_cases，而是从队列获取
-            )
-            futures_list.append(fut)
-        
-        # 收集结果（带超时）
-        try:
-            worker_results = [f.result(timeout=timeout_s) for f in futures_list]
-            print(f"所有工作线程完成：{worker_results}")
-        except TimeoutError:
-            print(f"⚠️ 执行超时 ({timeout_s}s)")
-        
-        # 收集输出队列结果
-        output_buff = [None]*groups_num
-        collected_groups = 0
-        
-        while collected_groups < groups_num:
-            try:
-                group_id, results = output_queue.get(timeout=2.0)
-                if group_id is not None:
-                    output_buff[group_id] = results
-                    collected_groups += 1
-                    print(f"主线程：已收集 {collected_groups}/{groups_num} 组")
-            except interpreters.QueueEmpty:
-                print(f"主线程：等待结果... ({collected_groups}/{groups_num})")
-                continue
-
-    import itertools
-    outputs:List[List[Any]] = list(filter(bool,output_buff))
-    # 合并结果
-    results = [res for output in outputs for res in output]
-
-    print("results BEGIN")
-    for v in results:
-        print(f"\t{v}")
-    print("results END")
-
-    print(f"多线程完成：共 {len(results)} 个结果")
-    return results
-
 
 class SolutionRunner:
     @classmethod
@@ -349,8 +331,7 @@ class SolutionRunner:
 
         # 6. 提出主方法的参数名和参数类型
         self.instance = module_Solution()
-        bound_method = getattr(self.instance, self.method_name)
-        self.sig  = inspect.signature(bound_method)
+        self.sig  = inspect.signature(getattr(self.instance, self.method_name))
         self.sig_names = list(self.sig.parameters.keys())
         self.sig_types = [v.annotation for v in self.sig.parameters.values()]
 
@@ -518,18 +499,18 @@ class SolutionRunner:
         if 1==thread:
             wrong_count = 0
             results = []
+            self.method
             solution = self.solution_module.__dict__['Solution']()
             for case in test_cases:
                 # 执行单用例（核心封装，便于多进程改造）
-                result, log_lines = self._execute_single_case(
-                    solution,
-                    case=case,
-                    func_name=func_name,
+                result, log_lines = _execute_single_case(
+                    getattr(self.instance, self.method_name),
+                    case=case
                 )
                 results.append(result)
 
                 if 'error' in result:
-                    log_result(result,log_lines,f"{log_prefix}_ERROR_",self.relPath)
+                    error_log_path = _log_result(result,log_lines,f"{log_prefix}_ERROR_",self.relPath)
                     if skip_error:
                         Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
@@ -537,14 +518,72 @@ class SolutionRunner:
                         raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result): 
                     if log_wrong:
-                        log_result(result,log_lines,f"{log_prefix}_Wrong_",self.relPath)
+                        _log_result(result,log_lines,f"{log_prefix}_Wrong_",self.relPath)
                     wrong_count += 1 
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
         else:
-            results = InterpreterExecute(test_cases,thread,self.student_code ,self.pre_code,self.method_name,timeout_s)
-        return results    
+            # 创建共享队列
+            group_queue = interpreters.create_queue()
+            output_queue = interpreters.create_queue()
+            early_stop_queue = interpreters.create_queue()
+            
+            # 分割测试用例到队列
+            groups_num = _geom_queue_generator(test_cases, group_queue, rate=1.0/thread)
+            
+            sys_path_list = str(_CURRENT_DIR.parent)
+            print(f"tools_path: {sys_path_list}")
+            with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
+                futures_list = []
+                for i in range(thread):
+                    fut = executor.submit(
+                        _execute_in_interpreter_worker,
+                        i,
+                        (self.pre_code,self.student_code),  # 传递代码字符串
+                        self.method_name,
+                        group_queue.id,
+                        output_queue.id,
+                        early_stop_queue,
+                        log_prefix,
+                        self.relPath
+                        # 不直接传递 test_cases，而是从队列获取
+                    )
+                    futures_list.append(fut)
+                
+                # 收集结果（带超时）
+                try:
+                    worker_results = [f.result(timeout=timeout_s) for f in futures_list]
+                    print(f"所有工作线程完成：{worker_results}")
+                except TimeoutError:
+                    print(f"⚠️ 执行超时 ({timeout_s}s)")
+                
+                # 收集输出队列结果
+                output_buff = [None]*groups_num
+                output_count,wrong_count = 0,0
+                total_count = len(test_cases)  
+                
+                while output_count < len(test_cases):
+                    try:
+                        group_id, wcnt ,results = output_queue.get(timeout=2.0)
+                        if group_id is not None:
+                            output_buff[group_id] = results
+                            output_count += len(results)
+                            wrong_count += wcnt
+                            print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})")
+                            if self._check_early_stop( output_count, wrong_count ,early_stop):
+                                early_stop_queue.put(group_id)
+                                break # 触发早停
+                    except interpreters.QueueEmpty:
+                        continue
 
+            import itertools
+            outputs:List[List[Any]] = list(filter(bool,output_buff))
+            # 合并结果
+            results = [res for output in outputs for res in output]
+
+            print(f"多线程完成：共 {len(results)} 个结果")
+
+        return results    
 
     @classmethod
     def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
@@ -569,73 +608,6 @@ class SolutionRunner:
         else:
             return wrong_count >= early_stop
 
-
-    def _execute_single_case(
-        self, 
-        solution_instance, # 重大改进，必须由上级指定学生代码实例：1. 可以避免重复实例化带来的开销；2. 兼容多线程调用，各子线程独立构造学生代码实例（因为学生代码是黑箱，无法共享）
-        case: _CASE_TYPE,  func_name: str
-    ) -> Tuple[_CASE_TYPE, List[str]]:
-        """执行单个测试用例（核心封装）"""
-        log_lines = []
-        result_dict = case.copy()
-        
-        def _add_log(content: str):
-            log_lines.append(f"{case['cid']}:\t{content}")
-        
-        try:
-            # 保存原始 stdout
-            original_stdout = sys.stdout
-
-            _add_log(f"Running '{func_name}' with case: {case.get('test_case_key', f'{case['cid']}')}")
-            
-            input_val = case['input']
-            # instance = self.Solution()
-            
-            # 创建字符串缓冲区捕获 print 输出
-            captured_output = io.StringIO()
-            
-            if isinstance(input_val, dict):
-                _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
-                # 重定向 stdout
-                sys.stdout = captured_output
-                output = self.method(solution_instance, **input_val)
-                # 恢复 stdout
-                sys.stdout = original_stdout
-                # 获取并记录 print 内容
-                print_content = captured_output.getvalue()
-                if print_content.strip():
-                    _add_log(f">>> PRINT OUTPUT:\n{print_content}")
-                
-            elif isinstance(input_val, tuple):
-                _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
-                # 重定向 stdout
-                sys.stdout = captured_output
-                output = self.method(solution_instance, *input_val)
-                # 恢复 stdout
-                sys.stdout = original_stdout
-                # 获取并记录 print 内容
-                print_content = captured_output.getvalue()
-                if print_content.strip():
-                    _add_log(f">>> PRINT OUTPUT:\n{print_content}")
-            else:
-                raise ValueError("测试用例的input必须是字典或元组")
-            
-            elapsed = time.perf_counter() - time.perf_counter()
-            result_dict['output'] = output
-            result_dict['elapsed'] = elapsed
-            _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compacted_json.dumps(output, indent=2)}")
-            
-        except Exception as e:
-            # 异常时也恢复 stdout
-            sys.stdout = original_stdout
-            elapsed = time.perf_counter() - time.perf_counter()
-            result_dict['error'] = str(e)
-            result_dict['traceback'] = traceback.format_exc()
-            result_dict['elapsed'] = elapsed
-            _add_log("!!! EXCEPTION OCCURRED:")
-            _add_log(traceback.format_exc())
-        
-        return result_dict, log_lines
 
     def get_expected_cases(self, run_results: List[_CASE_TYPE]) -> List[_CASE_TYPE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
