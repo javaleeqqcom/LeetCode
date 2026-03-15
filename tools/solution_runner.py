@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_h
 import ast, re, json
 import types
 import traceback
-from charset_normalizer.api import from_bytes  # 自动检测编码
+# from charset_normalizer.api import from_bytes  # 自动检测编码（与py3.14多线程不兼容）
 from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge
@@ -45,7 +45,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
+def _create_solution_module(source_code_lst: Tuple[str],sys_path_lst : List[os.PathLike]=[])-> types.ModuleType:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库
@@ -57,11 +57,17 @@ def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
     module.__dict__.update({
         '__builtins__': __builtins__,
         '__name__': 'solution_module',
+        '_sys':__import__("sys")
     })
+
+    # 在子解释器内部设置 sys.path
+    _sys = module.__dict__["_sys"]
+    for p in sys_path_lst:
+        if p not in _sys.path:
+            _sys.path.insert(0, p)
     
     for source_code in source_code_lst:
         exec(source_code, module.__dict__)
-
     return module
 
 def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
@@ -124,7 +130,8 @@ def _execute_in_interpreter_worker(
     interpreter_id: int,
     source_code_lst: Tuple[str], method_name:str,
     group_queue_id: int,
-    output_queue_id: int
+    output_queue_id: int,
+    tools_path:os.PathLike
 ) -> tuple:
     """
     模块级 worker 函数，在子解释器中执行测试用例
@@ -134,16 +141,16 @@ def _execute_in_interpreter_worker(
     # ========== 所有导入在子解释器内部完成 ==========
 
     # 创建子解释器的环境模块
-    _module = _create_solution_module(source_code_lst)
+    _module = _create_solution_module(source_code_lst,[tools_path])
     _module.__dict__.update(
         {
             '_interpreters':__import__('concurrent.interpreters'),
             '_json':__import__('json')
-            }
+        }
     )
     _interpreters = _module._interpreters
     _json = _module._json
-    
+
     # 确保所有导入在子解释器内部完成
     
     # 通过 ID 重建队列
@@ -236,6 +243,8 @@ def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, 
     # 分割测试用例到队列
     groups_num = geometric_decreasing_queue_generator(test_cases_json, group_queue, rate=1.0/thread)
     
+    sys_path_list = str(_CURRENT_DIR.parent)
+    print(f"tools_path: {sys_path_list}")
     with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
         futures_list = []
         for i in range(thread):
@@ -246,6 +255,7 @@ def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, 
                 method_name,
                 group_queue.id,
                 output_queue.id,
+                sys_path_list
                 # 不直接传递 test_cases，而是从队列获取
             )
             futures_list.append(fut)
@@ -284,11 +294,15 @@ class SolutionRunner:
         assert os.path.exists(code_file), f"文件不存在: {code_file}"
         # 确保文件类型为 ".py"
         assert str(code_file).endswith('.py'), f"应当输入 .py 文件，实际为: {code_file}"
+        with open(code_file, 'r',encoding='utf-8') as f:
+            code = f.read()
+        return code
+
         # 1. 读取并自动检测编码（支持中文）
-        with open(code_file, 'rb') as f:
-            raw = f.read()
-        result = from_bytes(raw).best()
-        return str(result) if result else raw.decode('utf-8', errors='ignore')
+        # with open(code_file, 'rb') as f:
+        #     raw = f.read()
+        # result = from_bytes(raw).best()
+        # return str(result) if result else raw.decode('utf-8', errors='ignore')
 
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
         """

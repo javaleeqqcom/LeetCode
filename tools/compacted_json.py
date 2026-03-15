@@ -6,8 +6,7 @@ import random
 import string
 from typing import Any, List, Tuple, Dict, Optional, Callable, Union, Iterable
 from multiprocessing import Pool, cpu_count
-from functools import partial
-import numpy as np
+
 
 try:
     from random_object import _choice_random, _size_random, make_list_FuncWC, make_dict_FuncWC, set_random_seed,_func_weight_cost
