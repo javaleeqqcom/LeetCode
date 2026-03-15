@@ -45,7 +45,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _create_solution_module(source_code_lst: Tuple[str],sys_path_lst : List[os.PathLike]=[])-> types.ModuleType:
+def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库
@@ -60,12 +60,6 @@ def _create_solution_module(source_code_lst: Tuple[str],sys_path_lst : List[os.P
         '_sys':__import__("sys")
     })
 
-    # 在子解释器内部设置 sys.path
-    _sys = module.__dict__["_sys"]
-    for p in sys_path_lst:
-        if p not in _sys.path:
-            _sys.path.insert(0, p)
-    
     for source_code in source_code_lst:
         exec(source_code, module.__dict__)
     return module
@@ -128,39 +122,34 @@ def merge_groups(groups: List[Tuple[int, List[_CASE_TYPE]]]) -> List[Any]:
     
 def _execute_in_interpreter_worker(
     interpreter_id: int,
-    source_code_lst: Tuple[str], method_name:str,
+    source_code_lst: Tuple[str],
+    method_name:str,
     group_queue_id: int,
-    output_queue_id: int,
-    tools_path:os.PathLike
+    output_queue_id: int
 ) -> tuple:
     """
     模块级 worker 函数，在子解释器中执行测试用例
     所有参数必须是可共享的基本类型（字符串、整数）
     """
+
     print(f"线程{interpreter_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 
     # 创建子解释器的环境模块
-    _module = _create_solution_module(source_code_lst,[tools_path])
-    _module.__dict__.update(
-        {
-            '_interpreters':__import__('concurrent.interpreters'),
-            '_json':__import__('json')
-        }
-    )
-    _interpreters = _module.__dict__['_interpreters']
-    _json = _module._json
+    sub_interpreter = interpreters.create()
+    module = sub_interpreter.call(_create_solution_module,source_code_lst)
 
     # 确保所有导入在子解释器内部完成
-    
     # 通过 ID 重建队列
-    group_queue = _interpreters.Queue(group_queue_id)
-    output_queue = _interpreters.Queue(output_queue_id)
+    
+    group_queue = interpreters.Queue( group_queue_id)
+    output_queue = interpreters.Queue( output_queue_id)
     print(f"线程{interpreter_id}: 队列重建成功")
 
     # 创建 Solution 实例和方法
-    instance = _module.__dict__['Solution']()
-    method = getattr(instance, method_name)
+    instance = sub_interpreter.call(module.__dict__['Solution'])
+    the_fun = getattr(instance,method_name)
+    # sub_interpreter.exec(f'solution = Solution(); the_fun = solution.{method_name}')
     
     start_time = time.time()
     process_case_num = 0
@@ -171,7 +160,7 @@ def _execute_in_interpreter_worker(
         while True:
             try:
                 group_id, cases = group_queue.get_nowait()
-            except _interpreters.QueueEmpty:
+            except interpreters.QueueEmpty:
                 if group_queue.empty():
                     break
                 time.sleep(0.001)
@@ -181,7 +170,7 @@ def _execute_in_interpreter_worker(
             
             for case in cases:
                 log_lines = []
-                result_dict = _json.loads(case)
+                result_dict = json.loads(case)
                 
                 def _add_log(content: str):
                     log_lines.append(f"{case.get('cid', 'unknown')}: {content}")
@@ -194,12 +183,12 @@ def _execute_in_interpreter_worker(
                     
                     if isinstance(input_val, dict):
                         sys.stdout = captured_output
-                        output = method(**input_val)
+                        output = sub_interpreter.call(the_fun,**input_val)
                         sys.stdout = original_stdout
                         
                     elif isinstance(input_val, tuple):
                         sys.stdout = captured_output
-                        output = method(*input_val)
+                        output = sub_interpreter.call(the_fun,*input_val)
                         sys.stdout = original_stdout
                     else:
                         raise ValueError("input 必须是字典或元组")
@@ -228,6 +217,7 @@ def _execute_in_interpreter_worker(
     end_time = time.time()
     elapsed = end_time - start_time
     print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
+    sub_interpreter.close()
     
     return (interpreter_id, process_case_num, elapsed)
 
@@ -254,8 +244,7 @@ def InterpreterExecute(test_cases, thread, student_code, pre_code, method_name, 
                 (student_code,),  # 传递代码字符串
                 method_name,
                 group_queue.id,
-                output_queue.id,
-                sys_path_list
+                output_queue.id
                 # 不直接传递 test_cases，而是从队列获取
             )
             futures_list.append(fut)
