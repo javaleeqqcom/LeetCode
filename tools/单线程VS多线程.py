@@ -10,6 +10,7 @@ from solution_runner import SolutionRunner, _CASE_TYPE
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path
+import numpy as np
 
 问题目录 = Path("3130. Find All Possible Stable Binary Arrays II")
 
@@ -22,7 +23,7 @@ from pathlib import Path
 # brute.get_ask_for_cases(ask_file) 
 # exit(0)
 
-import numpy as np
+import random
 from typing import List, Union, Optional, Tuple
 
 def cases_generation(
@@ -32,15 +33,15 @@ def cases_generation(
 ) -> List[Tuple]:
     # 设置随机种子（仅影响后续随机生成部分）
     if seed is not None:
-        np.random.seed(seed)
+        random.seed(seed)
     
     test_cases = []
     # 补充随机用例至目标数量
     while len(test_cases) < num_test_cases:
-        bits = np.random.randint(1, 4)
-        one = int(round(bits * np.random.random()))
+        bits = random.randint(1, 4)
+        one = int(round(bits * random.random()))
         zero = bits - one
-        limit = np.random.randint(1, bits+1)
+        limit = random.randint(1, bits+1)
 
         test_cases.append((one,zero,limit))
     

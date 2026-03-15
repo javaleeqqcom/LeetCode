@@ -432,9 +432,9 @@ def sqrt_depth(**kwargs):
     depth = kwargs.get('depth', 0)
     return math.sqrt(depth)
 
-import pandas as pd
 
 if __name__ == "__main__":
+    import pandas as pd
     
     # 定义基础类型生成函数（与 compacted_json.py 命名一致）
     def _gen_none(*args, **kwargs) -> None: return None

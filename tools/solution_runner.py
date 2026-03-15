@@ -148,7 +148,7 @@ def _execute_in_interpreter_worker(
             '_json':__import__('json')
         }
     )
-    _interpreters = _module._interpreters
+    _interpreters = _module.__dict__['_interpreters']
     _json = _module._json
 
     # 确保所有导入在子解释器内部完成
