@@ -126,22 +126,25 @@ def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rat
 
 def _extract_actual_type(sig_type):
     """
-    从类型注解中提取实际类型，处理 Optional[T] 和 Union[T, None] 的情况
-    例如：Optional[ListNode] → ListNode, ListNode | None → ListNode
+    从类型注解中提取实际类型，用于注册表匹配
     """
-    # 处理 Python 3.10+ 的 T | None 语法
-    if hasattr(sig_type, '__origin__'):
-        origin = get_origin(sig_type)
+    origin = get_origin(sig_type)
+    
+    if origin is not None:
+        # 处理 Union/Optional 情况
         if origin is Union:
             args = get_args(sig_type)
             # 过滤掉 NoneType，返回第一个非 None 类型
             non_none_args = [arg for arg in args if arg is not type(None)]
             if len(non_none_args) == 1:
-                return non_none_args[0]
-    # 处理 typing.Optional 的情况
-    if sig_type is Optional:
-        return get_args(sig_type)[0]
-    # 直接返回原类型（如 ListNode）
+                return _extract_actual_type(non_none_args[0])
+            elif len(non_none_args) > 1:
+                # 多个非 None 类型，返回第一个（Union 情况）
+                return _extract_actual_type(non_none_args[0])
+        else:
+            return origin
+    
+    # 非泛型类型，直接返回
     return sig_type
 
 def _execute_single_case(
@@ -200,6 +203,9 @@ def _execute_single_case(
             
         elif isinstance(input_val, tuple):
             _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
+
+            输入类型检查与转化
+
             # 重定向 stdout
             sys.stdout = captured_output
             output = the_fun( *input_val)
