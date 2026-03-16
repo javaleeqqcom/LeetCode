@@ -30,7 +30,11 @@ def List2ListNode(lst: List[Any]) -> Optional[ListNode]:
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比
 def ListNode2List(node: Optional[ListNode]) -> List[Any]:
-    ...
+    res = []
+    while node is not None:
+        res.append(node.val)
+        node = node.next
+    return res
 
 # Definition for a binary tree node.
 class TreeNode:
@@ -175,6 +179,7 @@ input_parser_registry: Dict[Tuple[Any, Any], Callable] = {
     (list, ListNode): List2ListNode,
     (list, TreeNode): List2TreeNode,
     (ListNode, list):ListNode2List,
+    (TreeNode, list):TreeNode2List,
     # 可扩展，例如：
     # (Optional[ListNode], list): lambda x: List2ListNode(x) if x else None,
 }

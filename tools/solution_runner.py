@@ -351,16 +351,16 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[os.PathLike, List[os.PathLike]],
+        path_list: Union[os.PathLike, List[os.PathLike],str,List[str]],
         file_name_pattern: Optional[str] = None
     ) -> List[_CASE_TYPE]:
-        """读取并解析测试用例文件（自动完成类型转换）"""
-        from glob import glob
-        if not isinstance(path_list, list):
-            path_list = [path_list]
-            
+        """读取并解析测试用例文件（自动完成类型转换，非绝对路径自动转相对路径）"""
+        _path_list = path_list if isinstance(path_list, list) else [path_list]
+        for i,p in enumerate(_path_list):
+            _path_list[i] = Path(p) if os.path.exists(p) else Path(self.relPath)/p
+        # 读取所有文件，要求必须都存在
         all_files = []
-        for p in path_list:
+        for p in _path_list:
             p = Path(p)
             if p.is_file():
                 if file_name_pattern is None or p.match(file_name_pattern):
@@ -429,7 +429,7 @@ class SolutionRunner:
                     
                     # 这里做一个简单的兼容：尝试用旧方法，如果报错则尝试直接读取（如果 txt 里存的是 json 字符串）
                     try:
-                        parsed_list = parse_test_cases(file_path)
+                        test_cases = parse_test_cases(file_path)
                         # ... (原有处理 parsed_list 的逻辑) ...
                         # 由于原有逻辑较为复杂且依赖外部 parser，此处仅展示 JSON 逻辑的完善
                         # 建议：如果 txt 解析报错，可以在这里加一个 fallback：尝试 json.loads 每一行
