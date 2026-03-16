@@ -30,7 +30,7 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from examples_parser import parse_test_cases
-from custom_init import input_parser_registry, ListNode, TreeNode, Optional, List, Dict
+from custom_init import input_parser_registry
 from compacted_json import CompactedJson
 
 """
@@ -131,7 +131,10 @@ def _execute_single_case(
     """执行单个测试用例（核心封装）"""
     log_lines = []
     result_dict = case.copy()
-    
+    # 获取函数参数签名
+    sig = inspect.signature(the_fun)
+
+    # 日志格式
     def _add_log(content: str):
         log_lines.append(f"{case['cid']}:\t{content}")
     
@@ -149,6 +152,20 @@ def _execute_single_case(
         
         if isinstance(input_val, dict):
             _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
+            # 检查输入类型是否与 the_fun 一致
+            for key, value in input_val.items():
+                assert key in sig.parameters,f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
+                # 输入的参数类型与 the_fun 所需参数类型不一致
+                sig_type = sig.parameters[key].annotation
+                if sig_type != value.__class__:
+                    # 尝试进行类型转换
+                    try:
+                        input_val.update({
+                            key:input_parser_registry[(value.__class__ , sig_type)](value)
+                        })
+                    except Exception as e:
+                        raise ValueError(f"参数名 {key} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
+
             # 重定向 stdout
             sys.stdout = captured_output
             output = the_fun( **input_val)
@@ -658,6 +675,21 @@ class SolutionRunner:
         
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return Path(file_path)
+    
+    def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None)->str:
+        """自动向AI提问得到问题的测试样例生成器"""
+        from ai_prompts import TEST_CASE_GENERATOR
+        if not os.path.exists(documentation):
+            documentation = self.relPath/documentation
+        with open(documentation , encoding="utf-8") as fp:
+            request_text = fp.read()
+        codes = f"<init-code>\n{self.pre_code}\n</init-code>\n<student-code>\n{self.student_code}\n</student-code>"
+        if AI is not None:
+            raise ValueError("暂时不支持自动提问")
+            return None
+        # AI 未指定，或者网络等错误
+
+        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text)
     
     def tuple_to_cases(self, cases: List[Tuple]) -> List[_CASE_TYPE]:
         """将元组形式的测试样例转换为字典形式
