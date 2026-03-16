@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 import logging
 import datetime, time
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin
 import ast, re, json
 import types
 import traceback
@@ -29,9 +29,9 @@ if __DEBUG__:
     print(f"tools dir:{_TOOLS_DIR}")
 
 # 直接导入，无需 try-except
-from examples_parser import parse_test_cases
-from custom_init import input_parser_registry
-from compacted_json import CompactedJson
+from tools.examples_parser import parse_test_cases
+from tools.custom_init import input_parser_registry
+from tools.compacted_json import CompactedJson
 
 """
 一个标准的测试样例的格式为：
@@ -124,6 +124,26 @@ def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rat
         group_id += 1
     return group_id
 
+def _extract_actual_type(sig_type):
+    """
+    从类型注解中提取实际类型，处理 Optional[T] 和 Union[T, None] 的情况
+    例如：Optional[ListNode] → ListNode, ListNode | None → ListNode
+    """
+    # 处理 Python 3.10+ 的 T | None 语法
+    if hasattr(sig_type, '__origin__'):
+        origin = get_origin(sig_type)
+        if origin is Union:
+            args = get_args(sig_type)
+            # 过滤掉 NoneType，返回第一个非 None 类型
+            non_none_args = [arg for arg in args if arg is not type(None)]
+            if len(non_none_args) == 1:
+                return non_none_args[0]
+    # 处理 typing.Optional 的情况
+    if sig_type is Optional:
+        return get_args(sig_type)[0]
+    # 直接返回原类型（如 ListNode）
+    return sig_type
+
 def _execute_single_case(
     the_fun:Callable,
     case: _CASE_TYPE
@@ -154,15 +174,17 @@ def _execute_single_case(
             _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
             # 检查输入类型是否与 the_fun 一致
             for key, value in input_val.items():
-                assert key in sig.parameters,f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
                 # 输入的参数类型与 the_fun 所需参数类型不一致
-                sig_type = sig.parameters[key].annotation
+                assert key in sig.parameters,f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
+                # （提取实际类型 Optional/Union）
+                sig_type = _extract_actual_type(sig.parameters[key].annotation)
                 if sig_type != value.__class__:
-                    # 尝试进行类型转换
                     try:
                         input_val.update({
-                            key:input_parser_registry[(value.__class__ , sig_type)](value)
+                            key:input_parser_registry[(value.__class__, sig_type)](value)
                         })
+                    except KeyError:
+                        raise ValueError(f"参数名 {key} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
                     except Exception as e:
                         raise ValueError(f"参数名 {key} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
 
