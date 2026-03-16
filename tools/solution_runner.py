@@ -1,5 +1,6 @@
 # tools/solution_runner.py
 import os,sys,io
+import math
 import inspect
 from pathlib import Path
 import logging
@@ -13,15 +14,19 @@ from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge
 
-__DEBUG__ = True
+__DEBUG__ = False
 
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
-_CURRENT_DIR = Path(__file__).resolve().parent
+_TOOLS_DIR = Path(__file__).resolve().parent
 # 将 tools 目录添加到 sys.path，确保模块可导入
-if str(_CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(_CURRENT_DIR))
-print(f"tools dir:{_CURRENT_DIR}")
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+elif os.path.exists(_TOOLS_DIR/"tools"):
+    _TOOLS_DIR = _TOOLS_DIR/"tools"
+    sys.path.insert(0, str(_TOOLS_DIR))
+if __DEBUG__:
+    print(f"tools dir:{_TOOLS_DIR}")
 
 # 直接导入，无需 try-except
 from examples_parser import parse_test_cases
@@ -46,7 +51,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
+def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库
@@ -58,12 +63,12 @@ def _create_solution_module(source_code_lst: Tuple[str])-> types.ModuleType:
     module.__dict__.update({
         '__builtins__': __builtins__,
         '__name__': 'solution_module',
-        '_sys':__import__("sys")
+        '_sys':__import__("sys"),
     })
     # 将 tools 目录添加到 sys.path，确保模块可导入
     _sys_path = module.__dict__['_sys'].path
-    if str(_CURRENT_DIR) not in _sys_path:
-        _sys_path.insert(0, str(_CURRENT_DIR))
+    if str(_TOOLS_DIR) not in _sys_path:
+        _sys_path.insert(0, str(_TOOLS_DIR))
 
     for source_code in source_code_lst:
         exec(source_code, module.__dict__)
@@ -189,8 +194,8 @@ def _execute_in_interpreter_worker(
     interpreter_id: int,
     source_code_lst: List[str],
     method_name:str,
-    group_queue_id: int,
-    output_queue_id: int,
+    group_queue: interpreters.Queue,
+    output_queue: interpreters.Queue,
     early_stop_queue: interpreters.Queue,
     log_path:os.PathLike,
     skip_error = False,
@@ -200,19 +205,15 @@ def _execute_in_interpreter_worker(
     模块级 worker 函数，在子解释器中执行测试用例
     所有参数必须是可共享的基本类型（字符串、整数）
     """
-    
-    print(f"线程{interpreter_id}：开始")
+    if __DEBUG__:
+        print(f"线程{interpreter_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 
     # 创建子解释器的环境模块
     module = _create_solution_module(source_code_lst)
 
-    # 确保所有导入在子解释器内部完成
-    # 通过 ID 重建队列
-    
-    group_queue = interpreters.Queue( group_queue_id)
-    output_queue = interpreters.Queue( output_queue_id)
-    print(f"线程{interpreter_id}: 队列重建成功")
+    if __DEBUG__:
+        print(f"\n线程{interpreter_id}: 队列重建成功",end="")
 
     # 创建 Solution 实例和方法
     instance = module.__dict__['Solution']()
@@ -221,7 +222,8 @@ def _execute_in_interpreter_worker(
     start_time = time.time()
     process_case_num = 0
 
-    print(f"线程{interpreter_id}：成功创建 Solution 实例和方法。")
+    if __DEBUG__:
+        print(f"\n线程{interpreter_id}：成功创建 Solution 实例和方法。",end="")
     
     try:
         while early_stop_queue.empty():
@@ -242,12 +244,12 @@ def _execute_in_interpreter_worker(
                 if 'error' in result:
                     error_log_path = _log_result(result,log_lines,"ERROR_",log_path)
                     if skip_error:
-                        Warning(f"跳过报错用例（已经保存日志到 {error_log_path}）")
+                        Warning(f"\n跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
                     else:
                         # 出现报错，触发早停，以分组编号作为早停信息
                         early_stop_queue.put(group_id)
-                        raise Exception(f"执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
+                        raise Exception(f"\n执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result): 
                     if log_wrong:
                         _log_result(result,log_lines,"Wrong_",log_path)
@@ -259,16 +261,18 @@ def _execute_in_interpreter_worker(
             output_queue.put((group_id, wrong_count, results_buff))
             process_case_num += len(results_buff)
             
-            print(f"解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)")
+            if __DEBUG__:
+                print(f"\n解释器 {interpreter_id}: 完成组 {group_id} ({len(results_buff)} 个用例)",end="")
         
     except Exception as e:
-        print(f"解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
-        output_queue.put((None, []))
-        raise
+        early_stop_queue.put(None) # 早停所有线程
+        raise Exception(f"\n解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
     
     end_time = time.time()
     elapsed = end_time - start_time
-    print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
+    
+    if __DEBUG__:
+        print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
     
     return (interpreter_id, process_case_num, elapsed)
 
@@ -299,7 +303,7 @@ class SolutionRunner:
         self.solution_file = solution_file
 
         # 2. 读取预执行代码（如果有）
-        self.pre_code = self._read_code(_CURRENT_DIR/"custom_init.py")
+        self.pre_code = self._read_code(_TOOLS_DIR/"custom_init.py")
         
         # 从 solution_file 路径中提取相对目录（即文件所在目录）
         solution_path = Path(solution_file).resolve()
@@ -453,8 +457,8 @@ class SolutionRunner:
     
     def run_as_expected(self, 
         test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
-        early_stop: Optional[Union[int, float]] = None,
         thread: int = 1,
+        skip_error: bool = False,
         timeout_s: Optional[float] = 10
     )-> List[_CASE_TYPE]:
         # ========== 自动处理 test_cases 为元组列表的情况 ============
@@ -463,7 +467,7 @@ class SolutionRunner:
             # 如果是元组列表，则尝试按 self.method 的签名转换为标准 _CASE_TYPE 列表
             test_cases = self.tuple_to_cases(test_cases)
         
-        output = self.run(test_cases,log_wrong = False,thread = thread,timeout_s=timeout_s)
+        output = self.run(test_cases,log_wrong = False,thread = thread,skip_error = skip_error,timeout_s=timeout_s)
         expected_results = self.get_expected_cases(output)
 
         return expected_results
@@ -474,10 +478,10 @@ class SolutionRunner:
         log_wrong: bool = True,        # 默认记录错误的测试样例
         log_folder: Optional[str] = None,
         early_stop: Optional[Union[int, float]] = None,
+        skip_error = False,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
         summary: bool = False,
-        skip_error = False,
         check_cases_format = True
     ) -> List[_CASE_TYPE]:
         """执行测试用例（自动处理实例化）"""
@@ -496,7 +500,8 @@ class SolutionRunner:
         log_path = self.relPath / (self.file_name if log_folder is None else log_folder)
         os.makedirs(log_path,exist_ok=True)
 
-        print("log_path:",log_path)
+        if __DEBUG__:
+            print("log_path:",log_path)
         # ========== 2. 执行所有用例 ==========
         if -1==thread:
             cpu_count = os.cpu_count()
@@ -535,18 +540,16 @@ class SolutionRunner:
             # 分割测试用例到队列
             groups_num = _geom_queue_generator(test_cases, group_queue, rate=1.0/thread)
             
-            sys_path_list = str(_CURRENT_DIR.parent)
-            print(f"tools_path: {sys_path_list}")
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
-                futures_list = []
+                futures_list:List[futures.Future] = []
                 for i in range(thread):
                     fut = executor.submit(
                         _execute_in_interpreter_worker,
                         i,
                         [self.pre_code,self.student_code],  # 传递代码字符串
                         self.method_name,
-                        group_queue.id,
-                        output_queue.id,
+                        group_queue,
+                        output_queue,
                         early_stop_queue,
                         log_path
                         # 不直接传递 test_cases，而是从队列获取
@@ -556,36 +559,39 @@ class SolutionRunner:
                 # 收集结果（带超时）
                 try:
                     worker_results = [f.result(timeout=timeout_s) for f in futures_list]
-                    print(f"所有工作线程完成：{worker_results}")
+                    print(f"所有工作线程完成，结果为 (组ID，处理的样例数量，花费时间秒)：{worker_results}")
                 except TimeoutError:
                     print(f"⚠️ 执行超时 ({timeout_s}s)")
                 
                 # 收集输出队列结果
                 output_buff = [None]*groups_num
                 output_count,wrong_count = 0,0
-                total_count = len(test_cases)  
+                total_count = len(test_cases)
                 
-                while output_count < len(test_cases):
+                while output_count < total_count and (
+                        early_stop_queue.empty() or any(fut.running() for fut in futures_list)  
+                    ):  # 当出现早停信号时，需要检测是否所有子线程均已停止
                     try:
-                        group_id, wcnt ,results = output_queue.get(timeout=2.0)
+                        group_id, wcnt ,results = output_queue.get(timeout=timeout_s)
                         if group_id is not None:
                             output_buff[group_id] = results
                             output_count += len(results)
                             wrong_count += wcnt
-                            print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})")
+                            print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})",end= "\r")
+                            # 检查结果错误数量是否满足早停（非运行错误！）
                             if self._check_early_stop( output_count, wrong_count ,early_stop):
-                                early_stop_queue.put(group_id)
-                                break # 触发早停
+                                early_stop_queue.put(group_id) # 向子线程发出早停信号
                     except interpreters.QueueEmpty:
                         continue
+                print("")
 
             import itertools
             outputs:List[List[Any]] = list(filter(bool,output_buff))
             # 合并结果
             results = [res for output in outputs for res in output]
 
-            print(f"多线程完成：共 {len(results)} 个结果")
-
+        if summary:
+            self.summary_results(results,verbose=True)
         return results    
 
     @classmethod
@@ -603,12 +609,14 @@ class SolutionRunner:
         return right,valid
 
     @classmethod
-    def _check_early_stop(cls,total_cnt:int,wrong_count:int,early_stop:Optional[int|float]=None)->bool:
+    def _check_early_stop(cls,total_cnt:int,wrong_count:int,early_stop:Optional[int|float]=None,verbose=True)->bool:
         """检查是否触发早停"""
         if early_stop is None:return False
         if early_stop < 1:
+            if(verbose):print(f"错误样例比例 = {wrong_count}/{total_cnt} = {wrong_count/total_cnt:.4f} > {early_stop:.4f} (阈值)，触发早停。")
             return wrong_count > early_stop*total_cnt
         else:
+            if(verbose):print(f"错误样例数量 = {wrong_count} >= {math.ceil(early_stop):d} (阈值)，触发早停。")
             return wrong_count >= early_stop
 
 
