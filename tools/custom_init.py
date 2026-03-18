@@ -175,11 +175,13 @@ def List2TreeNode(level_order: List[Any]) -> Optional[TreeNode]:
 
 # ====== 【核心】注册转换规则 ======
 # 注册表：键 = (目标类型, 源类型)，值 = 转换函数
-input_parser_registry: Dict[Tuple[Any, Any], Callable] = {
+input_parser_registry: Dict[Tuple[type, type], Callable] = {
     (list, ListNode): List2ListNode,
     (list, TreeNode): List2TreeNode,
-    (ListNode, list):ListNode2List,
-    (TreeNode, list):TreeNode2List,
-    # 可扩展，例如：
-    # (Optional[ListNode], list): lambda x: List2ListNode(x) if x else None,
+    # 可按需求扩展
+}
+
+output_parser_registry: Dict[type,Callable] = {
+    ListNode : ListNode2List,
+    TreeNode : TreeNode2List
 }

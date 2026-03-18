@@ -30,7 +30,7 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.custom_init import input_parser_registry
+from tools.custom_init import input_parser_registry,output_parser_registry
 from tools.compacted_json import CompactedJson
 
 """
@@ -124,6 +124,47 @@ def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rat
         group_id += 1
     return group_id
 
+def convert_to_json_serializable(obj: Any, depth: int = 0) -> Any:
+    """
+    将对象转换为 JSON 可序列化的类型
+    利用 output_parser_registry 一次性智能转换自定义类型
+    """
+    # 超过 3 层，停止检查，避免如采用嵌套数组表示二叉树的情况
+    # 如果是 list[DIY 类型]，一般 DIY 类型不会太深
+    if depth > 3:
+        return obj
+    
+    # 检查是否是 output_parser_registry 中注册的自定义类型
+    obj_type = type(obj)
+    if obj_type in output_parser_registry:
+        return output_parser_registry[obj_type](obj)
+    
+    # 处理字典 - 递归转换所有值
+    if isinstance(obj, dict):
+        return {
+            key: convert_to_json_serializable(value, depth + 1)
+            for key, value in obj.items()
+        }
+    
+    # 处理列表 - 递归转换所有元素
+    if isinstance(obj, list):
+        # 如果列表为空或第一个元素是 JSON 原生类型，不需要深度检查后续元素
+        if not obj or isinstance(obj[0], (str, int, float, bool, type(None))):
+            return obj
+        # 否则递归转换每个元素
+        return [convert_to_json_serializable(item, depth + 1) for item in obj]
+    
+    # 处理元组返回
+    if isinstance(obj, tuple):
+        return (convert_to_json_serializable(item, depth + 1) for item in obj)
+    
+    # JSON 原生支持的类型直接返回
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    
+    # 其他类型，尝试转为字符串，方便追查错误
+    return str(obj)
+
 def _extract_actual_type(sig_type):
     """
     从类型注解中提取实际类型，用于注册表匹配
@@ -148,7 +189,7 @@ def _extract_actual_type(sig_type):
     return sig_type
 
 def _execute_single_case(
-    the_fun:Callable,
+    the_fun: Callable,
     case: _CASE_TYPE
 ) -> Tuple[_CASE_TYPE, List[str]]:
     """执行单个测试用例（核心封装）"""
@@ -161,62 +202,87 @@ def _execute_single_case(
     def _add_log(content: str):
         log_lines.append(f"{case['cid']}:\t{content}")
     
+    def _exchange_DIY_types(sig_type:type,value:Any,error_prefix:str)->List[Any]:
+        nonlocal the_fun
+        sig_type = _extract_actual_type(sig_type)
+        if sig_type == value.__class__:
+            return value
+        else:
+            try:
+                return input_parser_registry[(value.__class__, sig_type)](value)
+            except KeyError:
+                raise ValueError(f"{error_prefix} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
+            except Exception as e:
+                raise ValueError(f"{error_prefix} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}，错误信息：\n{e}")
+
     try:
         # 保存原始 stdout
         original_stdout = sys.stdout
 
-        _add_log(f"Running '{the_fun.__name__}' with case: {case.get('test_case_key', f'{case['cid']}')}")
+        _add_log(f"Running '{the_fun.__name__}' with case: {case.get('test_case_key', f"{case['cid']}")}")
         
         input_val = case['input']
-        # instance = self.Solution()
         
         # 创建字符串缓冲区捕获 print 输出
         captured_output = io.StringIO()
         
         if isinstance(input_val, dict):
             _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
+
+            format_input = []
             # 检查输入类型是否与 the_fun 一致
             for key, value in input_val.items():
                 # 输入的参数类型与 the_fun 所需参数类型不一致
-                assert key in sig.parameters,f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
-                # （提取实际类型 Optional/Union）
-                sig_type = _extract_actual_type(sig.parameters[key].annotation)
-                if sig_type != value.__class__:
-                    try:
-                        input_val.update({
-                            key:input_parser_registry[(value.__class__, sig_type)](value)
-                        })
-                    except KeyError:
-                        raise ValueError(f"参数名 {key} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
-                    except Exception as e:
-                        raise ValueError(f"参数名 {key} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
+                assert key in sig.parameters, f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
+                format_input.append((
+                    key,
+                    _exchange_DIY_types(
+                        sig.parameters[key].annotation,
+                        value,
+                        f"参数 {key}"
+                        )
+                ))
+
+            format_input = dict(format_input)
 
             # 重定向 stdout
             sys.stdout = captured_output
-            output = the_fun( **input_val)
-            # 恢复 stdout
-            sys.stdout = original_stdout
-            # 获取并记录 print 内容
-            print_content = captured_output.getvalue()
-            if print_content.strip():
-                _add_log(f">>> PRINT OUTPUT:\n{print_content}")
+            output = the_fun(**format_input)
             
         elif isinstance(input_val, tuple):
             _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
-
-            输入类型检查与转化
+            
+            # ============ 输入类型检查与转化（按位置匹配）============
+            param_list = list(sig.parameters.values())
+            format_input = []
+            assert len(param_list) == len(input_val), "输入参数数量与函数参数数量不匹配。"
+            
+            for i, value in enumerate(input_val):
+                param = param_list[i]
+                # 不能有 *args 和 **kwargs 类型的参数
+                assert param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                format_input.append(_exchange_DIY_types(param.annotation, value , f"第 {i} 个参数"))
+            
+            format_input = tuple(format_input)
+            # =======================================================
 
             # 重定向 stdout
             sys.stdout = captured_output
-            output = the_fun( *input_val)
+            output = the_fun(*input_val)
+        else:
             # 恢复 stdout
             sys.stdout = original_stdout
-            # 获取并记录 print 内容
-            print_content = captured_output.getvalue()
-            if print_content.strip():
-                _add_log(f">>> PRINT OUTPUT:\n{print_content}")
-        else:
-            raise ValueError("测试用例的input必须是字典或元组")
+            raise ValueError("测试用例的 input 必须是字典或元组")
+        
+        # 恢复 stdout
+        sys.stdout = original_stdout
+        # 获取并记录 print 内容
+        print_content = captured_output.getvalue()
+        if print_content.strip():
+            _add_log(f">>> PRINT OUTPUT:\n{print_content}")
+
+        # 将其转化为 LeetCode 的通用的输出类型（原生 JSON 的输入类型）
+        output = convert_to_json_serializable(output)
         
         elapsed = time.perf_counter() - time.perf_counter()
         result_dict['output'] = output
@@ -396,13 +462,14 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[os.PathLike, List[os.PathLike],str,List[str]],
+        path_list: Union[os.PathLike, List[os.PathLike]] = [],
         file_name_pattern: Optional[str] = None
     ) -> List[_CASE_TYPE]:
-        """读取并解析测试用例文件（自动完成类型转换，非绝对路径自动转相对路径）"""
+        """读取并解析测试用例文件（自动完成类型转换，非绝对路径自动转相对路径），若无指定文件名则尝试查找默认样例文件"""
         _path_list = path_list if isinstance(path_list, list) else [path_list]
         for i,p in enumerate(_path_list):
             _path_list[i] = Path(p) if os.path.exists(p) else Path(self.relPath)/p
+
         # 读取所有文件，要求必须都存在
         all_files = []
         for p in _path_list:
@@ -556,11 +623,13 @@ class SolutionRunner:
             results = []
             self.method
             for case in test_cases:
+
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = _execute_single_case(
                     getattr(self.instance, self.method_name),
                     case=case
                 )
+            
                 results.append(result)
 
                 if 'error' in result:
@@ -686,12 +755,15 @@ class SolutionRunner:
         print(f"✅ 从 {total_count} 个测试用例中筛选出 {case_id} 个有效用例")
         return expected_cases
     
-    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[os.PathLike] = None) -> os.PathLike:
+    def auto_path_cases(self) -> Path:
+        base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
+        # 保存到相对目录下
+        return self.relPath / f"{base_name}.json"
+
+    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[os.PathLike] = None) -> Path:
         """保存测试用例到JSON文件"""
         if file_path is None:
-            base_name = os.path.splitext(os.path.basename(self.solution_file))[0]
-            # 保存到相对目录下
-            file_path = self.relPath / f"{base_name}.json"  # 生成一个相对路径的文件名(此行代码报错！)
+            file_path = self.auto_path_cases()
         else:
             # 确保文件路径的目录存在
             os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
