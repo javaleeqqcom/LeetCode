@@ -30,7 +30,7 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.custom_init import input_parser_registry,output_parser_registry
+from tools.custom_init import input_parser_registry,output_parser_registry,_STANDARD_TYPE
 from tools.compacted_json import CompactedJson
 
 """
@@ -40,7 +40,7 @@ from tools.compacted_json import CompactedJson
         - 字典：其键为被测函数的变量名，其值则为变量值
         - 元组：按被测函数的变量顺序排列的变量值
 """
-_CASE_TYPE = Dict[str, Union[Dict[str, Any], Tuple, Any]]
+_CASE_TYPE = Dict[str, _STANDARD_TYPE]
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
@@ -187,6 +187,51 @@ def _extract_actual_type(sig_type):
     
     # 非泛型类型，直接返回
     return sig_type
+
+def _is_standard_type(sig_type) -> bool:
+    """
+    判断类型是否属于 _STANDARD_TYPE 范畴
+    _STANDARD_TYPE = Union[
+        _BASE_TYPE,  # int, float, bool, None, str
+        List["_STANDARD_TYPE"], 
+        Dict[Union[str, int], "_STANDARD_TYPE"]
+    ]
+    """
+    # 处理 Optional/Union 类型
+    origin = get_origin(sig_type)
+    
+    if origin is Union:
+        args = get_args(sig_type)
+        # 过滤掉 NoneType，检查所有非 None 类型
+        non_none_args = [arg for arg in args if arg is not type(None)]
+        # 所有非 None 类型都必须是标准类型
+        return all(_is_standard_type(arg) for arg in non_none_args)
+    
+    # 基础类型检查
+    if sig_type in (int, float, bool, str, type(None)):
+        return True
+    
+    # List 类型检查
+    if origin is list or sig_type is list:
+        args = get_args(sig_type)
+        if not args:  # 裸 list
+            return True
+        # 检查元素类型
+        return all(_is_standard_type(arg) for arg in args)
+    
+    # Dict 类型检查
+    if origin is dict or sig_type is dict:
+        args = get_args(sig_type)
+        if not args:  # 裸 dict
+            return True
+        # 检查键类型（必须是 str 或 int）和值类型
+        key_type, value_type = args[0], args[1] if len(args) > 1 else Any
+        key_ok = key_type in (str, int) or get_origin(key_type) is Union
+        value_ok = _is_standard_type(value_type)
+        return key_ok and value_ok
+    
+    # 其他类型（如 ListNode, TreeNode 等自定义类型）
+    return False
 
 def _execute_single_case(
     the_fun: Callable,
@@ -422,7 +467,7 @@ class SolutionRunner:
         self.file_name = os.path.splitext(os.path.basename(solution_path))[0]
 
         # 2. 创建 solution 的虚拟环境
-        self.solution_module = _create_solution_module((self.student_code,))
+        self.solution_module = _create_solution_module([self.pre_code ,self.student_code])
 
         # 4. 获取Solution类
         if 'Solution' not in self.solution_module.__dict__:
@@ -440,25 +485,30 @@ class SolutionRunner:
             method_dict = dict(methods)
             if main_method not in method_dict:
                 raise ValueError(f"指定的主方法 '{main_method}' 不存在于 Solution 类中")
-            self.method_name = main_method
-            self.method = method_dict[main_method]
+            self.main_method = main_method
         else:
             # 自动选择唯一方法
-            if len(methods) != 1:
-                method_names = [name for name, _ in methods]
-                raise ValueError(f"Solution类必须有且仅有一个非魔术方法，当前找到 {len(methods)} 个: {method_names}")
-            self.method_name, self.method = methods[0]
+            if len(methods) == 1:
+                self.main_method, _ = methods[0]
+            else:
+                print("存在多个方法，执行时必须定义 solution_callers 才能使用 run 及任何后继方法！")
+                self.main_method = None # 用 None 表示可调用方法不唯一
 
-        # 6. 提出主方法的参数名和参数类型
-        self.instance = module_Solution()
-        self.sig  = inspect.signature(getattr(self.instance, self.method_name))
-        self.sig_names = list(self.sig.parameters.keys())
-        self.sig_types = [v.annotation for v in self.sig.parameters.values()]
+        if self.main_method is not None:
+            # 6. 提出主方法的参数名和参数类型
+            self.instance = module_Solution()
+            self.sig  = inspect.signature(getattr(self.instance, self.main_method))
+            self.sig_names = list(self.sig.parameters.keys())
+            self.sig_types = [v.annotation for v in self.sig.parameters.values()]
 
-        if __DEBUG__:
-            print(f"sig.parameters: {self.sig.parameters}")
-            print(f"主方法参数名: { self.sig_names}")
-            print(f"主方法参数类型: { self.sig_types }")
+            self.has_custom_type = not all(_is_standard_type(t) for t in self.sig_types)
+
+            if __DEBUG__:
+                print(f"sig.parameters: {self.sig.parameters}")
+                print(f"主方法参数名: { self.sig_names}")
+                print(f"主方法参数类型: { self.sig_types }")
+        else:
+            self.has_custom_type = None
 
     def read_test_case(
         self,
@@ -621,12 +671,12 @@ class SolutionRunner:
         if 1==thread:
             wrong_count = 0
             results = []
-            self.method
+            
             for case in test_cases:
 
                 # 执行单用例（核心封装，便于多进程改造）
                 result, log_lines = _execute_single_case(
-                    getattr(self.instance, self.method_name),
+                    getattr(self.instance, self.main_method),
                     case=case
                 )
             
@@ -661,7 +711,7 @@ class SolutionRunner:
                         _execute_in_interpreter_worker,
                         i,
                         [self.pre_code,self.student_code],  # 传递代码字符串
-                        self.method_name,
+                        self.main_method,
                         group_queue,
                         output_queue,
                         early_stop_queue,
@@ -776,7 +826,7 @@ class SolutionRunner:
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return Path(file_path)
     
-    def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None)->str:
+    def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
         """自动向AI提问得到问题的测试样例生成器"""
         from ai_prompts import TEST_CASE_GENERATOR
         if not os.path.exists(documentation):
@@ -789,7 +839,8 @@ class SolutionRunner:
             return None
         # AI 未指定，或者网络等错误
 
-        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text)
+        # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
+        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
     
     def tuple_to_cases(self, cases: List[Tuple]) -> List[_CASE_TYPE]:
         """将元组形式的测试样例转换为字典形式

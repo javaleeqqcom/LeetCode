@@ -1,6 +1,14 @@
+from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional
 from collections import deque
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
+
+_BASE_TYPE = Union[int,float,bool,None,str]
+_STANDARD_TYPE = Union[
+    _BASE_TYPE, 
+    List["_STANDARD_TYPE"], 
+    Dict[Union[str, int], "_STANDARD_TYPE"]
+]
 
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
@@ -179,9 +187,16 @@ input_parser_registry: Dict[Tuple[type, type], Callable] = {
     (list, ListNode): List2ListNode,
     (list, TreeNode): List2TreeNode,
     # 可按需求扩展
+    # python 的 list 自动对应 JSON 的数组，
 }
 
 output_parser_registry: Dict[type,Callable] = {
     ListNode : ListNode2List,
     TreeNode : TreeNode2List
 }
+
+# 如下基础类型由 json.dump json.load 自动完成双向转化，无需额外注册转换方法：
+# 1. 题目中的数组，在 python 中一律以 list 格式为准（输入不会出现 tuple）。
+# 2. 题目中的 true 和 false 对应 python 的 True 和 False。
+# 3. 题目中的 null ，对应 python 的 None，特别地题目在数组中以 null 作为空指针占位，只需要在 python 代码的 list 构造 None 占位即可。
+# 另外：python 的 tuple 不会出现在函数输入输出中，所有数组都以 python list 形式出现。
