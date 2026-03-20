@@ -1,3 +1,4 @@
+from bt0 import Solution
 import random
 
 def test_cases_generator(random_case_num: int, max_n: int = 10000):

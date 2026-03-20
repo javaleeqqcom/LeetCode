@@ -1,18 +1,18 @@
 try:from args_parser import *
 except:None
-
-import os
-
+import os,sys
 print(f"当前工作目录：{os.getcwd()}")
       
 # ------------ 三选一进行调用来测试 -------------------
-from tools.solution_runner import SolutionRunner, _EXPECTED_CASE
+from tools.solution_runner import SolutionRunner
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path
 import numpy as np
 
 问题目录 = Path(r"特殊the_fun的题目\面试题 02.08. Linked List Cycle LCCI")
+sys.path.insert(0, str(问题目录))
+from bt0 import Solution
 
 # 初始化暴力解法运行器
 暴力算法 = SolutionRunner(问题目录 / "bt0.py")

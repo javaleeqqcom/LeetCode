@@ -4,6 +4,7 @@
 AI 提示词模板库 - 用于测试用例生成等自动化任务
 """
 from typing import List, Dict, Any, Union
+from tools.args_parser import _DEFAULT_TEST_CASES_GENERATOR_FILE_NAME
 
 # ============================================================================
 # 测试用例生成器 - 系统提示词
@@ -24,16 +25,16 @@ class TEST_CASE_GENERATOR:
 "<attentions>为代码设计需要注意的点，请根据本次问题的情况参考。"
 ]
     
-    TEMPLATE_UNIQUE:str = """
-```test_cases_generator.py
+    TEMPLATE_UNIQUE:str = f"""
+```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
 # 省略导入 init.* 和 answer.* 的代码，仅需写如下代码。所有输出必须可直接运行，非代码的说明必须用注释。
-def test_cases_generator(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
+def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
     # random_case_num：生成的随机样例数量，必含。
     # [, max_n:int ...]：用于指代与问题复杂度相关的参数（可以根据问题修改具体名称，可能为空，也可能不止 1 个参数）
 
     # 固定用例（用于覆盖各种可预见的边界情况，如空输入、临界值等），此处以 input_params 为元组类型为例
     res = [
-        {"input": (arg1, arg2)}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+        {{"input": (arg1, arg2)}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
         ...
     ] # 仅当很容易获知答案时，可以添加 "output" 键，注意 output 的值必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
 
@@ -42,8 +43,8 @@ def test_cases_generator(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE
 
     def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
         ...
-        return {"input": {"param1": val1, "param2": val2 ,...}}, # 此处以字典类型为例
-        # 仅当很容易获知答案时，返回：{"input": input_params, "output": 期望输出（_STANDARD_TYPE 类型）}
+        return {{"input": {{"param1": val1, "param2": val2 ,...}}}}, # 此处以字典类型为例
+        # 仅当很容易获知答案时，返回：{{"input": input_params, "output": 期望输出（_STANDARD_TYPE 类型）}}
     
     # 生成随机用例
     for(i in 0..random_case_num):
@@ -53,12 +54,12 @@ def test_cases_generator(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE
         res.append(单随机样例生成器 f(规模参数...))
     return res
 ```
-"""
+f"""
 
     TEMPLATE_CALLS="""
-```test_cases_generator.py
+```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
 # 如下代码本工程会拼接到<code>之后运行，无需重复中的代码。所有输出必须可直接运行，非代码的说明必须用注释。
-def test_cases_generator(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
+def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
     # random_case_num：生成的随机样例数量，必含。
     # [, max_n:int ...]：用于指代与问题复杂度相关的参数（可以根据问题修改具体名称，可能为空，也可能不止 1 个参数）
 
@@ -138,7 +139,7 @@ def main_caller(instance: object, main_method:None,args:？):
     ]
 
     ATTENTIONS_CONVERSION = [
-        "不要试图在 test_cases_generator 直接生成特殊类型的输出，因为这会导致本工程的样例保存中的 JSON 序列化失败。",
+        "不要试图在 {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME} 直接生成特殊类型的输出，因为这会导致本工程的样例保存中的 JSON 序列化失败。",
         "注意：input_parser_registry 仅能用于一种特殊类型转化为 _STANDARD_TYPE。",
         "若你认为<init-code>无法实现特殊类型与 _STANDARD_TYPE 的转化，你可以参考<conversion>模块实现转化和调用。",
         "输出若为特殊类型，则只需将转换函数加入到 output_parser_registry 中。",
@@ -158,7 +159,7 @@ else:
 ```
 会导致如 ValueError: empty range in randint(5000, 10) 的错误。""",
 "尽量用函数化平滑化设计，少用 if-else，代码应极简。如用负指数分布、对数正态分布、泊松分布等取整代替分段函数。",
-"test_cases_generator 函数的输出必须是 JSON 允许的输入类型。",
+"{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME} 函数的输出必须是 JSON 允许的输入类型。",
 "固定样例必须有的放矢，并且计算规模不能大，确保暴力算法可以快速执行。",
 "除非题目本身明确说明考察多线程，否则禁止使用 threading 等并发模块，本工程会用完全隔离的多线程环境调用测试代码，你无需考虑多线程。",
 "测试用例格式统一为：{\"input\": input_params [, \"output\": 期望值]}，并且 input_params 是否采用字典必须与<request>题目要求一致。`output`则仅在答案驱动型问题下为可选（如这些情况：先知道答案再根据答案构造问题考验学生；模拟类问题中答案可从内部状态中轻松获得，但在学生问题的输入中却比较难以较优复杂度获得答案）。",

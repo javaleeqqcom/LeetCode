@@ -15,6 +15,7 @@ from functools import partial  # 固定 test_queue 参数之用于多线程调�
 from heapq import merge
 
 __DEBUG__ = False
+__FULL_PATH__ = False
 
 # ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
@@ -30,9 +31,9 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from args_parser import input_parser_registry,output_parser_registry,_STANDARD_TYPE,_ARGS_CASE,_exchange_DIY_types
+from tools.args_parser import _STANDARD_TYPE,_CASE_TYPE,_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME
 from tools.compacted_json import CompactedJson
-from tools.ai_prompts import TEST_CASE_GENERATOR,_EXCHANGE_FUN_NAME
+from tools.ai_prompts import TEST_CASE_GENERATOR
 
 """
 一个标准的测试样例的格式为：
@@ -41,7 +42,6 @@ from tools.ai_prompts import TEST_CASE_GENERATOR,_EXCHANGE_FUN_NAME
         - 字典：其键为被测函数的变量名，其值则为变量值
         - 元组：按被测函数的变量顺序排列的变量值
 """
-_CASE_TYPE = Dict[str,Union[_STANDARD_TYPE,_ARGS_CASE]]
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
@@ -415,111 +415,74 @@ class SolutionRunner:
 
     def read_test_case(
         self,
-        path_list: Union[os.PathLike, List[os.PathLike]] = [],
-        file_name_pattern: Optional[str] = None
-    ) -> List[_EXPECTED_CASE]:
-        """读取并解析测试用例文件（仅限 _EXPECTED_CASE 类型，非绝对路径自动转相对路径），若无指定文件名则尝试查找默认样例文件"""
+        path_list: Union[os.PathLike, List[os.PathLike]] = []
+    ) -> List[_CASE_TYPE]:
+        """读取并解析测试用例文件（支持 _CASE_TYPE 格式，兼容元组和字典），若无指定文件名则尝试查找默认样例文件"""
         _path_list = path_list if isinstance(path_list, list) else [path_list]
-        for i,p in enumerate(_path_list):
-            _path_list[i] = Path(p) if os.path.exists(p) else Path(self.relPath)/p
-
-        # 读取所有文件，要求必须都存在
-        all_files = []
-        for p in _path_list:
-            p = Path(p)
-            if p.is_file():
-                if file_name_pattern is None or p.match(file_name_pattern):
-                    all_files.append(p.resolve())
-            elif p.is_dir():
-                pattern = file_name_pattern if file_name_pattern else "*"
-                matched = list(p.glob(pattern))
-                all_files.extend(f.resolve() for f in matched if f.is_file())
+        if 0==len(_path_list):
+            _path_list = list(Path(self.relPath).glob("*.json"))
+            if 0 == len(_path_list):
+                raise ValueError(f"read_test_case: path_list 为空，已尝试查找默认样例文件，但未找到，请检查当前目录{self.relPath}。")
             else:
-                raise FileNotFoundError(f"路径不存在: {p}")
-        
+                print(f"read_test_case: path_list 为空，已尝试查找默认样例文件，找到{len(_path_list)}个样例文件。")
+
         test_cases = []
+        global_is_ARGS = False  # 用于跨文件检测格式一致性
+        global_is_KWARGS = False
         
-        for file_path in all_files:
-            try:
-                # ========== 核心修改点：根据文件后缀分流处理 ==========
-                if file_path.suffix.lower() == '.json':
-                    # 1. 处理 JSON 文件
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        raw_data = json.load(f)
-                    
-                    # 确保是列表格式
-                    if not isinstance(raw_data, list):
-                        raw_data = [raw_data]
-                    
-                    for item in raw_data:
-                        # 如果JSON里已经是标准格式（含"input"键）
-                        if isinstance(item, dict) and 'input' in item:
-                            converted_case = item
-                        else:
-                            # 如果是裸数据，尝试包装
-                            converted_case = {'input': item}
-                        
-                        # === 关键：自动推断输入类型（字典 or 元组）===
-                        
-                        # 情况 A: 如果 input 是字典（标准格式），直接使用
-                        if isinstance(converted_case['input'], dict):
-                            # 验证签名
-                            self.sig.bind(**converted_case['input'])
-                            
-                        # 情况 B: 如果 input 是列表/元组，且参数名已知，转换为字典
-                        elif isinstance(converted_case['input'], (list, tuple)):
-                            if len(self.sig_names) == len(converted_case['input']):
-                                # 转换为字典格式，以便后续统一处理
-                                converted_case['input'] = dict(zip(self.sig_names, converted_case['input']))
-                                self.sig.bind(**converted_case['input'])
-                            else:
-                                raise ValueError(f"参数数量不匹配: 函数需要 {len(self.sig_names)} 个参数 {self.sig_names}, 但输入为 {converted_case['input']}")
-                        
-                        # 情况 C: 单个值（仅当函数只有一个参数时）
-                        else:
-                            if len(self.sig_names) == 1:
-                                converted_case['input'] = {self.sig_names[0]: converted_case['input']}
-                                self.sig.bind(**converted_case['input'])
-                            else:
-                                raise ValueError("无法推断单值输入的参数名")
-                        
-                        test_cases.append(converted_case)
+        for p in _path_list:
+            file_path = Path(p) if os.path.exists(p) else Path(self.relPath) / p
+            assert file_path.exists(), f"read_test_case: {file_path} 文件不存在"
+
+            def _format_input(case:_CASE_TYPE,i:int)->_CASE_TYPE:
+                nonlocal global_is_ARGS,global_is_KWARGS,file_path
+                # JSON 必须是标准格式（含"input"键）
+                assert isinstance(case, dict) and 'input' in case,'格式非法，JSON 样例文件不含"input"键。'
                 
-                else:
-                    # 2. 原有逻辑：处理 TXT 文件
-                    # 注意：这里需要传入 params_num，但我们现在无法从文件名得知，所以需要用户传入或在文件名中约定
-                    # 为了保持兼容，这里假设用户在 file_name_pattern 或其他方式传入，或者在 parse_test_cases 内部有默认逻辑
-                    # 如果你的 parse_test_cases 需要 params_num，这里会报错，建议在 README 中说明 TXT 必须配合 params_num 使用
-                    # 或者修改 parse_test_cases 支持不传 params_num 时返回原始对象（如果是 JSON-like 对象）
+                # 判断当前 case 的格式
+                if isinstance(case['input'], dict):
+                    assert global_is_ARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是元组 _ARGS 类型"
+                    global_is_KWARGS = True
                     
-                    # 这里做一个简单的兼容：尝试用旧方法，如果报错则尝试直接读取（如果 txt 里存的是 json 字符串）
-                    try:
-                        test_cases = parse_test_cases(file_path)
-                        # ... (原有处理 parsed_list 的逻辑) ...
-                        # 由于原有逻辑较为复杂且依赖外部 parser，此处仅展示 JSON 逻辑的完善
-                        # 建议：如果 txt 解析报错，可以在这里加一个 fallback：尝试 json.loads 每一行
-                    except Exception as e:
-                        # Fallback: 尝试直接读取文件内容作为 JSON（针对 .txt 里误存 JSON 的情况）
-                        try:
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                content = f.read().strip()
-                                if content.startswith('[') or content.startswith('{'):
-                                    data = json.loads(content)
-                                    if not isinstance(data, list):
-                                        data = [data]
-                                    # 复用上面的 JSON 处理逻辑
-                                    for item in data:
-                                        # ... (同上 JSON 处理逻辑) ...
-                                        # 为了简洁，这里调用一个提取函数，或者直接抛出 NotImplementedError 提示用 .json 后缀
-                                        pass
-                        except:
-                            raise RuntimeError(f"解析测试文件失败 (非JSON格式): {file_path}") from e
-            
-            except Exception as e:
-                raise RuntimeError(f"解析测试文件失败: {file_path}") from e
-        
-        return test_cases
+                elif isinstance(case['input'], list):
+                    assert global_is_KWARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是字典 _KWARGS 类型"
+                    global_is_ARGS = True
+                    
+                    # 统一转换为元组便于代入函数调用
+                    case['input'] = tuple(case['input'])
+
+                else:
+                    raise ValueError(f"文件 {file_path if __FULL_PATH__ else file_path.stem} 第 {i+1} 个用例 input 类型不正确，实际为 {type(case['input'])}")
+
+                # 添加 cid
+                case['cid'] = f"{file_path if __FULL_PATH__ else file_path.stem}_{i}"
+                return case
+
+            # ========== 根据文件后缀分流处理 ==========
+            if file_path.suffix.lower() == '.json':
+                # 1. 处理 JSON 文件
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    raw_data = json.load(f)
+                
+                assert isinstance(raw_data,list)
+                for i, item in enumerate(raw_data):
+                    test_cases.append(_format_input(item, i))
+            else:
+                # 2. 处理 TXT 文件（兼容旧格式）
+                try:
+                    parsed_list = parse_test_cases(file_path)
+                    
+                    for i, item in enumerate(parsed_list):
+                        # 如果已经是标准格式
+                        if isinstance(item, dict) and 'input' in item:
+                            test_cases.append(_format_input(item, i))
+                        else:
+                            test_cases.append(_format_input({'input': item}, i))
+                except Exception as e:
+                    raise RuntimeError(f"解析测试文件失败：{file_path}") from e
     
+        return test_cases
+
     def run_as_expected(self, 
         test_cases: Union[List[_EXPECTED_CASE] , List[_ARGS_CASE]], 
         thread: int = 1,
@@ -754,37 +717,3 @@ class SolutionRunner:
         # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
         return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
     
-    def tuple_to_cases(self, cases: List[_ARGS_CASE]) -> List[_EXPECTED_CASE]:
-        """将元组形式的测试样例转换为字典形式
-        临时函数：以后优化：需要增加参数类型识别，并且能够自动转换自定义类型
-        """
-        m = len(self.sig_names)
-        if m == 0:
-            raise ValueError("被测函数没有参数，无法转换元组格式测试用例")
-        
-        # 展平所有元组
-        flat_values = []
-        for case in cases:
-            if not isinstance(case, tuple):
-                raise ValueError(f"测试用例必须是元组格式，得到: {type(case)}")
-            flat_values.extend(case)
-        
-        # 检查总参数数量是否为参数个数的整数倍
-        total_values = len(flat_values)
-        if total_values % m != 0:
-            raise ValueError(f"总参数数量 {total_values} 不能被参数个数 {m} 整除")
-        
-        # 按参数数量分块
-        result = []
-        num_cases = total_values // m
-        for i in range(num_cases):
-            start_idx = i * m
-            chunk = flat_values[start_idx:start_idx + m]
-            input_dict = dict(zip(self.sig_names, chunk))
-            result.append({
-                "input": input_dict,
-                "cid": i  # 没有 expected 的用例不是完整用例，因此 cid 简单以整数表达
-                })
-        
-        return result
-            

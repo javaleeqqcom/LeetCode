@@ -18,6 +18,8 @@ _INPUT_PARAMS = Union[_ARGS,_KWARGS]
 # 标准样例类型 _CASE_TYPE：{"input": [args...] [, "output": value]}
 _CASE_TYPE = Dict[str, Union[_KWARGS, _ARGS , _STANDARD_TYPE]]
 
+_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
+
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
     def __init__(self, val:_STANDARD_TYPE=0, next=None):
