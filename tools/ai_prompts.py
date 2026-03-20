@@ -18,7 +18,7 @@ class TEST_CASE_GENERATOR:
 "<code>为被测代码，不可修改！其中包含本工程预定义输入输出转换代码<init-code>，以及学生代码<student-code>，其中必定包含 Solution 类（若不是则应报错，拒绝本次回答）。",
 
 "需要注意的是，由于 leetcode 多语种通用性，其样例的原始输入`input`和输出`output`只能是 JSON 输入类型（_STANDARD_TYPE），因此若学生代码的调用函数参数`params`类型并非_STANDARD_TYPE，则需要本工程定义的<init-code>代码实现转换，若无法转换则你需要修改<args_parser>中的代码以实现调用。",
-'测试用例统一格式为：`{"input": input_params [, "output": _STANDARD_TYPE]}`，其中 input_params 有两种格式：元组(Tuple)对应<request>中的`input`中参数没有命名的情况（则其元素的顺序必须按<request>中输入参数的顺序为准）；字典(Dict)对应<request>中的`input`中参数有命名的情况。而 output 为可选项，仅当该问题的答案在构造输入样例时很容易求得，甚至先有答案后构造输入样例的情况下，才允许添加可选项 output 为期望输出。注意不要试图在你的代码中完整地运行学生暴力算法的 Solution 对象来求得 output 输出，因为本工程可以用多线程的方式调用学生暴力算法，不需要你来运行。',
+'测试用例统一格式为：`{"input": input_params [, "expected": _STANDARD_TYPE]}`，其中 input_params 有两种格式：元组(Tuple)对应<request>中的`input`中参数没有命名的情况（则其元素的顺序必须按<request>中输入参数的顺序为准）；字典(Dict)对应<request>中的`input`中参数有命名的情况。而 expected 为可选项，与`output`格式相同，仅当该问题的答案在构造输入样例时很容易求得，甚至先有答案后构造输入样例的情况下，才允许添加可选项 expected 为期望输出。注意不要试图在你的代码中完整地运行学生暴力算法的 Solution 对象来求得 expected 输出，因为本工程可以用多线程的方式调用学生暴力算法，不需要你来运行。',
 "一般<request>中的参数与<student-code>中主函数的参数是一一对应的。但若对应不上，由于学生代码<student-code>在各编程语言中的函数名和参数 (params) 名及类型是强制固定的，不可修改！则需参考修改<args_parser>中的 main_caller 方法以正确处理参数映射，并以<conversion>模块输出 conversion.py 代码放在 <code> 代码后覆盖原有定义。",
 
 "你需要参考模板<template>设计样例生成代码。<template>的代码不依赖于<student-code>，而是在其之前执行。其核心目的在于生成题目输入`input`，并不实现调用和类型转换。",
@@ -36,7 +36,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
     res = [
         {{"input": (arg1, arg2)}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
         ...
-    ] # 仅当很容易获知答案时，可以添加 "output" 键，注意 output 的值必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+    ] # 仅当很容易获知答案时，可以添加 "expected" 键，注意 expected 的值必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
 
     # [可选：全局状态记录器，用于查重]
     ...
@@ -44,7 +44,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
     def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
         ...
         return {{"input": {{"param1": val1, "param2": val2 ,...}}}}, # 此处以字典类型为例
-        # 仅当很容易获知答案时，返回：{{"input": input_params, "output": 期望输出（_STANDARD_TYPE 类型）}}
+        # 仅当很容易获知答案时，返回：{{"input": input_params, "expected": 期望输出（_STANDARD_TYPE 类型）}}
     
     # 生成随机用例
     for(i in 0..random_case_num):
@@ -65,12 +65,12 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 
     # 固定用例（用于覆盖各种可预见的边界情况，注意至少有构造函数操作。但是要注意，若学生代码为暴力算法，规模不能过大。）
     res = [
-        {"input": (["Solution",...],[...], ...), "output": [None,...]}, # 第一个操作必定是构造函数，无返回值
+        {"input": (["Solution",...],[...], ...), "expected": [None,...]}, # 第一个操作必定是构造函数，无返回值
         ...
     ]
     # 上述为`input`无参数名的情况为例，若<request>中的输入有命名，则以字典格式为准
 
-    # 若难以获得期望`output`，则无需填写`output`，由学生提交的暴力算法计算得出
+    # 若难以获得期望`expected`，则无需填写`expected`，由学生提交的暴力算法计算得出
     # res = [{"input": [["Solution",...],[...], ...],}, ...]
 
     # 可选：由于该问题是多魔术方法的类实现问题，可能需要继承学生的 Solution 类，进行内部状态的窥探，方能生成合法的操作。但是要注意，只有当学生实现正确时，才可窥探其内部状态。否则，可能会导致错误的操作。
@@ -82,7 +82,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 
     def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
         # 返回格式：{"input": {"methods":["Solution",...],"params":[(__init__的args参数),...其余方法的参数（也可能为空元组表示无参数调用）]}}
-        # 上述为`input`有参数名的情况为例，若<request>中的输入无参数名，则应返回元组格式的 `input` 值。若可以轻松获得期望`output`，则应填写`output`值。
+        # 上述为`input`有参数名的情况为例，若<request>中的输入无参数名，则应返回元组格式的 `input` 值。若可以轻松获得期望`expected`，则应填写`expected`值。
 
         # 对于多方法调用问题，input 列表应包含所有操作所需的参数（按调用顺序）
         ...
@@ -127,7 +127,7 @@ def main_caller(instance: object, main_method:None,args:？):
     # - 多方法调用序列
     # - 特殊类型转换（可以重用<init-code>中定义的函数）
     
-    # 返回实际执行结果（用于与 output 比较）
+    # 返回实际执行结果（用于与 expected 比较）
     return actual_result
 ```
 """
@@ -162,7 +162,7 @@ else:
 "{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME} 函数的输出必须是 JSON 允许的输入类型。",
 "固定样例必须有的放矢，并且计算规模不能大，确保暴力算法可以快速执行。",
 "除非题目本身明确说明考察多线程，否则禁止使用 threading 等并发模块，本工程会用完全隔离的多线程环境调用测试代码，你无需考虑多线程。",
-"测试用例格式统一为：{\"input\": input_params [, \"output\": 期望值]}，并且 input_params 是否采用字典必须与<request>题目要求一致。`output`则仅在答案驱动型问题下为可选（如这些情况：先知道答案再根据答案构造问题考验学生；模拟类问题中答案可从内部状态中轻松获得，但在学生问题的输入中却比较难以较优复杂度获得答案）。",
+"测试用例格式统一为：{\"input\": input_params [, \"expected\": 期望值]}，并且 input_params 是否采用字典必须与<request>题目要求一致。`expected`则仅在答案驱动型问题下为可选（如这些情况：先知道答案再根据答案构造问题考验学生；模拟类问题中答案可从内部状态中轻松获得，但在学生问题的输入中却比较难以较优复杂度获得答案）。",
     ]
     
     @classmethod

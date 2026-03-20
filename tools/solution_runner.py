@@ -17,21 +17,22 @@ from heapq import merge
 __DEBUG__ = False
 __FULL_PATH__ = False
 
-# ========== 安全导入：基于当前文件路径 ==========
 # 获取 solution_runner.py 所在目录（即 tools 目录）
 _TOOLS_DIR = Path(__file__).resolve().parent
-# 将 tools 目录添加到 sys.path，确保模块可导入
-if str(_TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TOOLS_DIR))
-elif os.path.exists(_TOOLS_DIR/"tools"):
-    _TOOLS_DIR = _TOOLS_DIR/"tools"
-    sys.path.insert(0, str(_TOOLS_DIR))
+
+# ========== 安全导入：基于当前文件路径 ==========
 if __DEBUG__:
+    # 将 tools 目录添加到 sys.path，确保模块可导入
+    if str(_TOOLS_DIR) not in sys.path:
+        sys.path.insert(0, str(_TOOLS_DIR))
+    elif os.path.exists(_TOOLS_DIR/"tools"):
+        _TOOLS_DIR = _TOOLS_DIR/"tools"
+        sys.path.insert(0, str(_TOOLS_DIR))
     print(f"tools dir:{_TOOLS_DIR}")
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.args_parser import _STANDARD_TYPE,_CASE_TYPE,_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME
+from tools.args_parser import _STANDARD_TYPE,_CASE_TYPE,_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME,_is_standard_type
 from tools.compacted_json import CompactedJson
 from tools.ai_prompts import TEST_CASE_GENERATOR
 
@@ -322,7 +323,7 @@ class SolutionRunner:
         self.solution_file = solution_file
 
         # 2. 读取预执行代码（如果有）
-        self.pre_code = self._read_code(_TOOLS_DIR/"custom_init.py")
+        self.pre_code = self._read_code(_TOOLS_DIR/"args_parser.py")
         
         # 从 solution_file 路径中提取相对目录（即文件所在目录）
         solution_path = Path(solution_file).resolve()
@@ -376,50 +377,13 @@ class SolutionRunner:
         self.test_cases_generator_code = None
         self.exchange_code = None
 
-    def try_read_cases_and_exchange_codes(self)->bool:
-        if (self.relPath/"test_cases_generator.py").exists():
-            with open(self.relPath/"test_cases_generator.py", "r", encoding="utf-8") as f:
-                self.test_cases_generator_code = f.read()
-            if self.has_custom_type is False: # 无自定义类型，不需要 exchange code
-                return True
-            elif (self.relPath/"exchange.py").exists():
-                with open(self.relPath/"exchange.py", "r", encoding="utf-8") as f:
-                    self.exchange_code = f.read()
-                # 将转换函数导入到 solution_module 中
-                exec(self.exchange_code , self.solution_module.__dict__)
-                if _EXCHANGE_FUN_NAME not in self.solution_module.__dict__:
-                    raise ValueError(f'文件{self.relPath/"exchange.py"}未定义 {_EXCHANGE_FUN_NAME} 函数。')
-                _exchange = self.solution_module.__dict__[_EXCHANGE_FUN_NAME]
-                assert callable(_exchange) and (inspect.isfunction(_exchange) or inspect.ismethod(_exchange)), f'文件{self.relPath/"exchange.py"}定义了非法的 {_EXCHANGE_FUN_NAME} 变量，该变量固定为输入转换函数，不可为其他用途。'
-                return True
-        return False
-
-    def test_cases_generator(self,*args,**kwargs)->Union[List[_EXPECTED_CASE] , List[_ARGS_CASE]]:
-        if self.test_cases_generator_code is None:
-            raise Exception("请先执行 test_cases_generator_code 并成功返回 True.")
-        exec( self.test_cases_generator_code ,self.solution_module.__dict__)
-        _test_cases_generator = self.solution_module.__dict__['test_cases_generator']
-        cases = _test_cases_generator(*args,**kwargs)
-        is_dict = None
-        for i in range(len(cases)):
-            if isinstance(cases[i],dict):
-                assert not(is_dict is False),f"前{i-1}个测试用例是元组类型，而第{i}个测试用例则是字典类型，格式不统一。"
-                assert "expected" in cases[i] and "input" in cases[i], f"第{i}个测试用例是 _EXPECTED_CASE 类型，但是缺少`input`或`expected`键。"
-                cases[i]["cid"] = f"#{self.relPath.stem}_{i}"
-                is_dict = True
-            else:
-                assert isinstance(cases[i],tuple), f"第{i}个测试用例既不是字典类型也不是元组类型。"
-                assert not(is_dict is True),f"前{i-1}个测试用例是字典类型，而第{i}个测试用例不是，格式不统一。"
-                is_dict = False
-        return cases
-
     def read_test_case(
         self,
         path_list: Union[os.PathLike, List[os.PathLike]] = []
     ) -> List[_CASE_TYPE]:
-        """读取并解析测试用例文件（支持 _CASE_TYPE 格式，兼容元组和字典），若无指定文件名则尝试查找默认样例文件"""
+        """读取并解析测试用例文件（支持 _CASE_TYPE 格式，兼容元组和字典）"""
         _path_list = path_list if isinstance(path_list, list) else [path_list]
-        if 0==len(_path_list):
+        if 0 == len(_path_list):
             _path_list = list(Path(self.relPath).glob("*.json"))
             if 0 == len(_path_list):
                 raise ValueError(f"read_test_case: path_list 为空，已尝试查找默认样例文件，但未找到，请检查当前目录{self.relPath}。")
@@ -427,81 +391,55 @@ class SolutionRunner:
                 print(f"read_test_case: path_list 为空，已尝试查找默认样例文件，找到{len(_path_list)}个样例文件。")
 
         test_cases = []
-        global_is_ARGS = False  # 用于跨文件检测格式一致性
+        global_is_ARGS = False   # 用于跨文件检测格式一致性
         global_is_KWARGS = False
         
+        # ========== 定义在循环外，file_path 作为参数传入 ==========
+        def _format_input(case: _CASE_TYPE, file_path: Path, i: int) -> _CASE_TYPE:
+            nonlocal global_is_ARGS, global_is_KWARGS
+            # JSON 必须是标准格式（含"input"键）
+            assert isinstance(case, dict) and 'input' in case, '格式非法，JSON 样例文件不含"input"键。'
+            
+            # 判断当前 case 的格式
+            if isinstance(case['input'], dict):
+                assert global_is_ARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是元组 _ARGS 类型"
+                global_is_KWARGS = True
+                
+            elif isinstance(case['input'], list):
+                assert global_is_KWARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是字典 _KWARGS 类型"
+                global_is_ARGS = True
+                case['input'] = tuple(case['input'])  # 统一转换为元组
+
+            else:
+                raise ValueError(f"文件 {file_path if __FULL_PATH__ else file_path.stem} 第 {i+1} 个用例 input 类型不正确，实际为 {type(case['input'])}")
+
+            case['cid'] = f"{file_path if __FULL_PATH__ else file_path.stem}_{i}"
+            return case
+
+        # ========== 主循环 ==========
         for p in _path_list:
             file_path = Path(p) if os.path.exists(p) else Path(self.relPath) / p
             assert file_path.exists(), f"read_test_case: {file_path} 文件不存在"
 
-            def _format_input(case:_CASE_TYPE,i:int)->_CASE_TYPE:
-                nonlocal global_is_ARGS,global_is_KWARGS,file_path
-                # JSON 必须是标准格式（含"input"键）
-                assert isinstance(case, dict) and 'input' in case,'格式非法，JSON 样例文件不含"input"键。'
-                
-                # 判断当前 case 的格式
-                if isinstance(case['input'], dict):
-                    assert global_is_ARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是元组 _ARGS 类型"
-                    global_is_KWARGS = True
-                    
-                elif isinstance(case['input'], list):
-                    assert global_is_KWARGS is False, f"样例文件 {file_path if __FULL_PATH__ else file_path.stem} 中第 {i+1} 个样输入类型不一致，前面是字典 _KWARGS 类型"
-                    global_is_ARGS = True
-                    
-                    # 统一转换为元组便于代入函数调用
-                    case['input'] = tuple(case['input'])
-
-                else:
-                    raise ValueError(f"文件 {file_path if __FULL_PATH__ else file_path.stem} 第 {i+1} 个用例 input 类型不正确，实际为 {type(case['input'])}")
-
-                # 添加 cid
-                case['cid'] = f"{file_path if __FULL_PATH__ else file_path.stem}_{i}"
-                return case
-
-            # ========== 根据文件后缀分流处理 ==========
             if file_path.suffix.lower() == '.json':
-                # 1. 处理 JSON 文件
                 with open(file_path, 'r', encoding='utf-8') as f:
                     raw_data = json.load(f)
                 
-                assert isinstance(raw_data,list)
+                assert isinstance(raw_data, list), f"JSON 文件 {file_path} 根节点必须是列表"
                 for i, item in enumerate(raw_data):
-                    test_cases.append(_format_input(item, i))
+                    test_cases.append(_format_input(item, file_path, i))
             else:
-                # 2. 处理 TXT 文件（兼容旧格式）
                 try:
                     parsed_list = parse_test_cases(file_path)
-                    
                     for i, item in enumerate(parsed_list):
-                        # 如果已经是标准格式
                         if isinstance(item, dict) and 'input' in item:
-                            test_cases.append(_format_input(item, i))
+                            test_cases.append(_format_input(item, file_path, i))
                         else:
-                            test_cases.append(_format_input({'input': item}, i))
+                            test_cases.append(_format_input({'input': item}, file_path, i))
                 except Exception as e:
                     raise RuntimeError(f"解析测试文件失败：{file_path}") from e
-    
-        return test_cases
-
-    def run_as_expected(self, 
-        test_cases: Union[List[_EXPECTED_CASE] , List[_ARGS_CASE]], 
-        thread: int = 1,
-        skip_error: bool = False,
-        timeout_s: Optional[float] = 10
-    )-> List[_EXPECTED_CASE]:
-        # ========== 自动处理 test_cases 为元组列表的情况 ============
-        assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
-        is_tuples = list(map(lambda x: isinstance(x, tuple),test_cases))
-        if all(is_tuples):
-            # 如果是元组列表，则尝试按 self.method 的签名转换为标准 _CASE_TYPE 列表
-            test_cases = self.tuple_to_cases(test_cases)
-        else:
-            assert not any(is_tuples), "run_as_expected(test_cases) 不支持混合元组和非元组的情况"
         
-        output = self.run(test_cases,log_wrong = False,thread = thread,skip_error = skip_error,timeout_s=timeout_s)
-        expected_results = self.get_expected_cases(output)
-
-        return expected_results
+        return test_cases
 
     def run(
         self,

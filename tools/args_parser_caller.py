@@ -1,7 +1,6 @@
 from typing import Optional,List
 import inspect
-if not 定义了(parse_standard_input):
-    from tools.args_parser import _STANDARD_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
+from tools.args_parser import _STANDARD_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
 
 # Solution 有唯一带参数的非静态方法时，input_params 为元组类型时，系统会自动选择 main_caller_args 函数进行调用（仅检测首个样例，因此必须全样例一致）
 def main_caller_args(instance: object, main_method:Optional[str],args:_ARGS)->_STANDARD_TYPE:

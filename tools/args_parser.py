@@ -1,6 +1,6 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque
-from args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
+from tools.args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行

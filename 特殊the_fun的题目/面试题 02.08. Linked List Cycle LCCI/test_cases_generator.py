@@ -45,4 +45,4 @@ def test_cases_generator(random_case_num: int, max_n: int = 10000):
 
         res.append((head_list, pos))
 
-    return res
+    return [{"input":case,"output":case[1]} for case in res]

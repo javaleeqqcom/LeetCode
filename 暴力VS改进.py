@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 
 问题目录 = Path(r"特殊the_fun的题目\面试题 02.08. Linked List Cycle LCCI")
-sys.path.insert(0, str(问题目录))
+sys.path.insert(1, str(问题目录))
 from bt0 import Solution
+
 
 # 初始化暴力解法运行器
 暴力算法 = SolutionRunner(问题目录 / "bt0.py")
@@ -33,8 +34,14 @@ cases_path = 暴力算法.auto_path_cases()
 if cases_path.exists():
     print(f"从文件中读取测试用例：{cases_path}")
     expected_results = 暴力算法.read_test_case(cases_path)
-elif 暴力算法.try_read_cases_and_exchange_codes():
-    cases = 暴力算法.test_cases_generator(random_case_num = 100, max_n = 100)
+else:
+    from test_cases_generator import test_cases_generator
+    
+    cases = test_cases_generator(random_case_num = 100, max_n = 100)
+    print(cases[0])
+    print(cases[10])
+    exit(0)
+
     if len(cases) == 0:
         raise ValueError("没有生成测试用例！")
     if isinstance(cases[0],dict):
