@@ -30,8 +30,9 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.custom_init import input_parser_registry,output_parser_registry,_STANDARD_TYPE
+from args_parser import input_parser_registry,output_parser_registry,_STANDARD_TYPE,_ARGS_CASE,_exchange_DIY_types
 from tools.compacted_json import CompactedJson
+from tools.ai_prompts import TEST_CASE_GENERATOR,_EXCHANGE_FUN_NAME
 
 """
 一个标准的测试样例的格式为：
@@ -40,7 +41,7 @@ from tools.compacted_json import CompactedJson
         - 字典：其键为被测函数的变量名，其值则为变量值
         - 元组：按被测函数的变量顺序排列的变量值
 """
-_CASE_TYPE = Dict[str, _STANDARD_TYPE]
+_CASE_TYPE = Dict[str,Union[_STANDARD_TYPE,_ARGS_CASE]]
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
@@ -51,7 +52,7 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, '_')
     return name.strip().rstrip('.')
 
-def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
+def _create_solution_module(source_code_lst: List[Optional[str]])-> types.ModuleType:
     """
     创建黑箱执行器代码字符串
     ⚠️ 不导入任何学生代码可能用的库
@@ -71,7 +72,8 @@ def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
         _sys_path.insert(0, str(_TOOLS_DIR))
 
     for source_code in source_code_lst:
-        exec(source_code, module.__dict__)
+        if source_code is not None:
+            exec(source_code, module.__dict__)
     return module
 
 def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
@@ -101,10 +103,10 @@ def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
     
     return log_path
     
-def _is_wrong(result:_CASE_TYPE)->bool:
+def _is_wrong(result:_EXPECTED_CASE)->bool:
     return 'expected' in result and 'output' in result and result['expected'] != result['output']
 
-def _log_result(result:_CASE_TYPE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
+def _log_result(result:_EXPECTED_CASE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
     log_path = _get_unique_log_path( 
         Path(os.getcwd() if log_path is None else log_path)
         , f"{log_prefix}_{result['cid']}.log"
@@ -124,201 +126,56 @@ def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rat
         group_id += 1
     return group_id
 
-def convert_to_json_serializable(obj: Any, depth: int = 0) -> Any:
-    """
-    将对象转换为 JSON 可序列化的类型
-    利用 output_parser_registry 一次性智能转换自定义类型
-    """
-    # 超过 3 层，停止检查，避免如采用嵌套数组表示二叉树的情况
-    # 如果是 list[DIY 类型]，一般 DIY 类型不会太深
-    if depth > 3:
-        return obj
-    
-    # 检查是否是 output_parser_registry 中注册的自定义类型
-    obj_type = type(obj)
-    if obj_type in output_parser_registry:
-        return output_parser_registry[obj_type](obj)
-    
-    # 处理字典 - 递归转换所有值
-    if isinstance(obj, dict):
-        return {
-            key: convert_to_json_serializable(value, depth + 1)
-            for key, value in obj.items()
-        }
-    
-    # 处理列表 - 递归转换所有元素
-    if isinstance(obj, list):
-        # 如果列表为空或第一个元素是 JSON 原生类型，不需要深度检查后续元素
-        if not obj or isinstance(obj[0], (str, int, float, bool, type(None))):
-            return obj
-        # 否则递归转换每个元素
-        return [convert_to_json_serializable(item, depth + 1) for item in obj]
-    
-    # 处理元组返回
-    if isinstance(obj, tuple):
-        return (convert_to_json_serializable(item, depth + 1) for item in obj)
-    
-    # JSON 原生支持的类型直接返回
-    if isinstance(obj, (str, int, float, bool, type(None))):
-        return obj
-    
-    # 其他类型，尝试转为字符串，方便追查错误
-    return str(obj)
-
-def _extract_actual_type(sig_type):
-    """
-    从类型注解中提取实际类型，用于注册表匹配
-    """
-    origin = get_origin(sig_type)
-    
-    if origin is not None:
-        # 处理 Union/Optional 情况
-        if origin is Union:
-            args = get_args(sig_type)
-            # 过滤掉 NoneType，返回第一个非 None 类型
-            non_none_args = [arg for arg in args if arg is not type(None)]
-            if len(non_none_args) == 1:
-                return _extract_actual_type(non_none_args[0])
-            elif len(non_none_args) > 1:
-                # 多个非 None 类型，返回第一个（Union 情况）
-                return _extract_actual_type(non_none_args[0])
-        else:
-            return origin
-    
-    # 非泛型类型，直接返回
-    return sig_type
-
-def _is_standard_type(sig_type) -> bool:
-    """
-    判断类型是否属于 _STANDARD_TYPE 范畴
-    _STANDARD_TYPE = Union[
-        _BASE_TYPE,  # int, float, bool, None, str
-        List["_STANDARD_TYPE"], 
-        Dict[Union[str, int], "_STANDARD_TYPE"]
-    ]
-    """
-    # 处理 Optional/Union 类型
-    origin = get_origin(sig_type)
-    
-    if origin is Union:
-        args = get_args(sig_type)
-        # 过滤掉 NoneType，检查所有非 None 类型
-        non_none_args = [arg for arg in args if arg is not type(None)]
-        # 所有非 None 类型都必须是标准类型
-        return all(_is_standard_type(arg) for arg in non_none_args)
-    
-    # 基础类型检查
-    if sig_type in (int, float, bool, str, type(None)):
-        return True
-    
-    # List 类型检查
-    if origin is list or sig_type is list:
-        args = get_args(sig_type)
-        if not args:  # 裸 list
-            return True
-        # 检查元素类型
-        return all(_is_standard_type(arg) for arg in args)
-    
-    # Dict 类型检查
-    if origin is dict or sig_type is dict:
-        args = get_args(sig_type)
-        if not args:  # 裸 dict
-            return True
-        # 检查键类型（必须是 str 或 int）和值类型
-        key_type, value_type = args[0], args[1] if len(args) > 1 else Any
-        key_ok = key_type in (str, int) or get_origin(key_type) is Union
-        value_ok = _is_standard_type(value_type)
-        return key_ok and value_ok
-    
-    # 其他类型（如 ListNode, TreeNode 等自定义类型）
-    return False
-
-def _execute_single_case(
-    the_fun: Callable,
-    case: _CASE_TYPE
-) -> Tuple[_CASE_TYPE, List[str]]:
+def _execute_dict_case(
+    caller: Callable,
+    instance:'学生代码中的"Solution"类的实例',
+    case: _EXPECTED_CASE,
+    main_method:Optional[str]=None
+) -> Tuple[_EXPECTED_CASE, List[str]]:
     """执行单个测试用例（核心封装）"""
     log_lines = []
     result_dict = case.copy()
-    # 获取函数参数签名
-    sig = inspect.signature(the_fun)
-
     # 日志格式
     def _add_log(content: str):
         log_lines.append(f"{case['cid']}:\t{content}")
     
-    def _exchange_DIY_types(sig_type:type,value:Any,error_prefix:str)->List[Any]:
-        nonlocal the_fun
-        sig_type = _extract_actual_type(sig_type)
-        if sig_type == value.__class__:
-            return value
-        else:
-            try:
-                return input_parser_registry[(value.__class__, sig_type)](value)
-            except KeyError:
-                raise ValueError(f"{error_prefix} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}。")
-            except Exception as e:
-                raise ValueError(f"{error_prefix} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}，错误信息：\n{e}")
-
+    original_stdout = None
     try:
-        # 保存原始 stdout
-        original_stdout = sys.stdout
-
         _add_log(f"Running '{the_fun.__name__}' with case: {case.get('test_case_key', f"{case['cid']}")}")
         
         input_val = case['input']
-        
-        # 创建字符串缓冲区捕获 print 输出
-        captured_output = io.StringIO()
-        
-        if isinstance(input_val, dict):
+        if exchange is None:
+            # 获取函数参数签名
+            sig = inspect.signature(the_fun)
+            
+            assert isinstance(input_val,dict)
+            
             _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
 
-            format_input = []
-            # 检查输入类型是否与 the_fun 一致
-            for key, value in input_val.items():
-                # 输入的参数类型与 the_fun 所需参数类型不一致
-                assert key in sig.parameters, f"输入的参数名 {key} 不在函数 {the_fun.__name__} 的参数列表中。"
-                format_input.append((
-                    key,
-                    _exchange_DIY_types(
+            format_input = {
+                key:_exchange_DIY_types(
+                        the_fun,
                         sig.parameters[key].annotation,
                         value,
                         f"参数 {key}"
                         )
-                ))
-
-            format_input = dict(format_input)
-
-            # 重定向 stdout
-            sys.stdout = captured_output
-            output = the_fun(**format_input)
-            
-        elif isinstance(input_val, tuple):
-            _add_log(f">>> INPUT\n{_compacted_json.dumps(list(input_val), indent=2)}")
-            
-            # ============ 输入类型检查与转化（按位置匹配）============
-            param_list = list(sig.parameters.values())
-            format_input = []
-            assert len(param_list) == len(input_val), "输入参数数量与函数参数数量不匹配。"
-            
-            for i, value in enumerate(input_val):
-                param = param_list[i]
-                # 不能有 *args 和 **kwargs 类型的参数
-                assert param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                format_input.append(_exchange_DIY_types(param.annotation, value , f"第 {i} 个参数"))
-            
-            format_input = tuple(format_input)
-            # =======================================================
-
-            # 重定向 stdout
-            sys.stdout = captured_output
-            output = the_fun(*input_val)
+                for key,value in input_val.items()
+            }            
         else:
-            # 恢复 stdout
-            sys.stdout = original_stdout
-            raise ValueError("测试用例的 input 必须是字典或元组")
-        
+            
+            _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
+
+            format_input = exchange(input_val)
+
+        # 保存原始 stdout
+        original_stdout = sys.stdout
+
+        # 创建字符串缓冲区捕获 print 输出
+        captured_output = io.StringIO()
+        # 重定向 stdout
+        sys.stdout = captured_output
+        output = the_fun(**format_input)
+
         # 恢复 stdout
         sys.stdout = original_stdout
         # 获取并记录 print 内容
@@ -327,7 +184,7 @@ def _execute_single_case(
             _add_log(f">>> PRINT OUTPUT:\n{print_content}")
 
         # 将其转化为 LeetCode 的通用的输出类型（原生 JSON 的输入类型）
-        output = convert_to_json_serializable(output)
+        output = parse_output_to_standard(output)
         
         elapsed = time.perf_counter() - time.perf_counter()
         result_dict['output'] = output
@@ -336,7 +193,8 @@ def _execute_single_case(
         
     except Exception as e:
         # 异常时也恢复 stdout
-        sys.stdout = original_stdout
+        if original_stdout is not None:
+            sys.stdout = original_stdout
         elapsed = time.perf_counter() - time.perf_counter()
         result_dict['error'] = str(e)
         result_dict['traceback'] = traceback.format_exc()
@@ -348,7 +206,7 @@ def _execute_single_case(
 
 def _execute_in_interpreter_worker(
     interpreter_id: int,
-    source_code_lst: List[str],
+    source_code_lst: List[Optional[str]],
     method_name:str,
     group_queue: interpreters.Queue,
     output_queue: interpreters.Queue,
@@ -374,6 +232,11 @@ def _execute_in_interpreter_worker(
     # 创建 Solution 实例和方法
     instance = module.__dict__['Solution']()
     the_fun = getattr(instance,method_name)
+    if _EXCHANGE_FUN_NAME in  module.__dict__:
+        _exchange = module.__dict__[_EXCHANGE_FUN_NAME]
+        assert callable(_exchange) and (inspect.isfunction(_exchange) or inspect.ismethod(_exchange)), f"环境中定义了非法的 {_EXCHANGE_FUN_NAME} 变量，该变量固定为输入转换函数，不可为其他用途。"
+    else:
+        _exchange = None
     
     start_time = time.time()
     process_case_num = 0
@@ -395,7 +258,7 @@ def _execute_in_interpreter_worker(
             wrong_count = 0
             
             for case in cases:
-                result,log_lines = _execute_single_case(the_fun,case)
+                result,log_lines = _execute_single_case(the_fun,case,_exchange)
 
                 if 'error' in result:
                     error_log_path = _log_result(result,log_lines,"ERROR_",log_path)
@@ -510,12 +373,52 @@ class SolutionRunner:
         else:
             self.has_custom_type = None
 
+        self.test_cases_generator_code = None
+        self.exchange_code = None
+
+    def try_read_cases_and_exchange_codes(self)->bool:
+        if (self.relPath/"test_cases_generator.py").exists():
+            with open(self.relPath/"test_cases_generator.py", "r", encoding="utf-8") as f:
+                self.test_cases_generator_code = f.read()
+            if self.has_custom_type is False: # 无自定义类型，不需要 exchange code
+                return True
+            elif (self.relPath/"exchange.py").exists():
+                with open(self.relPath/"exchange.py", "r", encoding="utf-8") as f:
+                    self.exchange_code = f.read()
+                # 将转换函数导入到 solution_module 中
+                exec(self.exchange_code , self.solution_module.__dict__)
+                if _EXCHANGE_FUN_NAME not in self.solution_module.__dict__:
+                    raise ValueError(f'文件{self.relPath/"exchange.py"}未定义 {_EXCHANGE_FUN_NAME} 函数。')
+                _exchange = self.solution_module.__dict__[_EXCHANGE_FUN_NAME]
+                assert callable(_exchange) and (inspect.isfunction(_exchange) or inspect.ismethod(_exchange)), f'文件{self.relPath/"exchange.py"}定义了非法的 {_EXCHANGE_FUN_NAME} 变量，该变量固定为输入转换函数，不可为其他用途。'
+                return True
+        return False
+
+    def test_cases_generator(self,*args,**kwargs)->Union[List[_EXPECTED_CASE] , List[_ARGS_CASE]]:
+        if self.test_cases_generator_code is None:
+            raise Exception("请先执行 test_cases_generator_code 并成功返回 True.")
+        exec( self.test_cases_generator_code ,self.solution_module.__dict__)
+        _test_cases_generator = self.solution_module.__dict__['test_cases_generator']
+        cases = _test_cases_generator(*args,**kwargs)
+        is_dict = None
+        for i in range(len(cases)):
+            if isinstance(cases[i],dict):
+                assert not(is_dict is False),f"前{i-1}个测试用例是元组类型，而第{i}个测试用例则是字典类型，格式不统一。"
+                assert "expected" in cases[i] and "input" in cases[i], f"第{i}个测试用例是 _EXPECTED_CASE 类型，但是缺少`input`或`expected`键。"
+                cases[i]["cid"] = f"#{self.relPath.stem}_{i}"
+                is_dict = True
+            else:
+                assert isinstance(cases[i],tuple), f"第{i}个测试用例既不是字典类型也不是元组类型。"
+                assert not(is_dict is True),f"前{i-1}个测试用例是字典类型，而第{i}个测试用例不是，格式不统一。"
+                is_dict = False
+        return cases
+
     def read_test_case(
         self,
         path_list: Union[os.PathLike, List[os.PathLike]] = [],
         file_name_pattern: Optional[str] = None
-    ) -> List[_CASE_TYPE]:
-        """读取并解析测试用例文件（自动完成类型转换，非绝对路径自动转相对路径），若无指定文件名则尝试查找默认样例文件"""
+    ) -> List[_EXPECTED_CASE]:
+        """读取并解析测试用例文件（仅限 _EXPECTED_CASE 类型，非绝对路径自动转相对路径），若无指定文件名则尝试查找默认样例文件"""
         _path_list = path_list if isinstance(path_list, list) else [path_list]
         for i,p in enumerate(_path_list):
             _path_list[i] = Path(p) if os.path.exists(p) else Path(self.relPath)/p
@@ -618,16 +521,19 @@ class SolutionRunner:
         return test_cases
     
     def run_as_expected(self, 
-        test_cases: Union[List[_CASE_TYPE] , List[Tuple]],  # 严格要求是 List[CASE_TYPE]
+        test_cases: Union[List[_EXPECTED_CASE] , List[_ARGS_CASE]], 
         thread: int = 1,
         skip_error: bool = False,
         timeout_s: Optional[float] = 10
-    )-> List[_CASE_TYPE]:
+    )-> List[_EXPECTED_CASE]:
         # ========== 自动处理 test_cases 为元组列表的情况 ============
         assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
-        if all(map(lambda x: isinstance(x, tuple),test_cases)):
+        is_tuples = list(map(lambda x: isinstance(x, tuple),test_cases))
+        if all(is_tuples):
             # 如果是元组列表，则尝试按 self.method 的签名转换为标准 _CASE_TYPE 列表
             test_cases = self.tuple_to_cases(test_cases)
+        else:
+            assert not any(is_tuples), "run_as_expected(test_cases) 不支持混合元组和非元组的情况"
         
         output = self.run(test_cases,log_wrong = False,thread = thread,skip_error = skip_error,timeout_s=timeout_s)
         expected_results = self.get_expected_cases(output)
@@ -636,7 +542,7 @@ class SolutionRunner:
 
     def run(
         self,
-        test_cases: List[_CASE_TYPE],  # 严格要求是 List[CASE_TYPE]
+        test_cases: List[_EXPECTED_CASE],  # 严格要求是 List[CASE_TYPE]
         log_wrong: bool = True,        # 默认记录错误的测试样例
         log_folder: Optional[str] = None,
         early_stop: Optional[Union[int, float]] = None,
@@ -645,7 +551,7 @@ class SolutionRunner:
         timeout_s: Optional[float] = 10,
         summary: bool = False,
         check_cases_format = True
-    ) -> List[_CASE_TYPE]:
+    ) -> List[_EXPECTED_CASE]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
         if check_cases_format:
@@ -674,11 +580,15 @@ class SolutionRunner:
             
             for case in test_cases:
 
-                # 执行单用例（核心封装，便于多进程改造）
-                result, log_lines = _execute_single_case(
-                    getattr(self.instance, self.main_method),
-                    case=case
-                )
+                if self.main_method is not None:
+                    # 执行单用例（核心封装，便于多进程改造）
+                    result, log_lines = _execute_dict_case(
+                        getattr(self.instance, self.main_method),
+                        case=case,
+                        exchange=self.solution_module.__dict__[_EXCHANGE_FUN_NAME]
+                    )
+                else:
+                    raise Exception("暂不支持无 self.main_method 的情况")
             
                 results.append(result)
 
@@ -707,18 +617,21 @@ class SolutionRunner:
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
                 futures_list:List[futures.Future] = []
                 for i in range(thread):
-                    fut = executor.submit(
-                        _execute_in_interpreter_worker,
-                        i,
-                        [self.pre_code,self.student_code],  # 传递代码字符串
-                        self.main_method,
-                        group_queue,
-                        output_queue,
-                        early_stop_queue,
-                        log_path
-                        # 不直接传递 test_cases，而是从队列获取
-                    )
-                    futures_list.append(fut)
+                    if self.main_method is not None:
+                        fut = executor.submit(
+                            _execute_in_interpreter_worker,
+                            i,
+                            [self.pre_code,self.student_code,self.exchange_code],  # 传递代码字符串
+                            self.main_method,
+                            group_queue,
+                            output_queue,
+                            early_stop_queue,
+                            log_path
+                            # 不直接传递 test_cases，而是从队列获取
+                        )
+                        futures_list.append(fut)
+                    else:
+                        raise Exception("暂不支持无 self.main_method 的情况")
                 
                 # 收集结果（带超时）
                 try:
@@ -759,7 +672,7 @@ class SolutionRunner:
         return results    
 
     @classmethod
-    def summary_results(cls,results:List[_CASE_TYPE],verbose = True)-> Tuple[int,int]:
+    def summary_results(cls,results:List[_EXPECTED_CASE],verbose = True)-> Tuple[int,int]:
         right = valid = 0
         for case in results:
             if 'expected' in case and 'output' in case:
@@ -784,7 +697,7 @@ class SolutionRunner:
             return wrong_count >= early_stop
 
 
-    def get_expected_cases(self, run_results: List[_CASE_TYPE]) -> List[_CASE_TYPE]:
+    def get_expected_cases(self, run_results: List[_EXPECTED_CASE]) -> List[_EXPECTED_CASE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
         case_id = 0
@@ -797,7 +710,7 @@ class SolutionRunner:
 
                 # print(f"output={output}")
 
-                output['cid'] = f"#{case_id}"
+                output['cid'] = f"#{self.relPath.stem}_{case_id}"
                 output['expected'] = output.pop('output')
                 output.pop('elapsed', None)
                 expected_cases.append(output)
@@ -810,7 +723,7 @@ class SolutionRunner:
         # 保存到相对目录下
         return self.relPath / f"{base_name}.json"
 
-    def save_test_cases(self, test_cases: List[_CASE_TYPE], file_path: Optional[os.PathLike] = None) -> Path:
+    def save_test_cases(self, test_cases: List[_EXPECTED_CASE], file_path: Optional[os.PathLike] = None) -> Path:
         """保存测试用例到JSON文件"""
         if file_path is None:
             file_path = self.auto_path_cases()
@@ -828,7 +741,6 @@ class SolutionRunner:
     
     def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
         """自动向AI提问得到问题的测试样例生成器"""
-        from ai_prompts import TEST_CASE_GENERATOR
         if not os.path.exists(documentation):
             documentation = self.relPath/documentation
         with open(documentation , encoding="utf-8") as fp:
@@ -842,7 +754,7 @@ class SolutionRunner:
         # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
         return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
     
-    def tuple_to_cases(self, cases: List[Tuple]) -> List[_CASE_TYPE]:
+    def tuple_to_cases(self, cases: List[_ARGS_CASE]) -> List[_EXPECTED_CASE]:
         """将元组形式的测试样例转换为字典形式
         临时函数：以后优化：需要增加参数类型识别，并且能够自动转换自定义类型
         """
@@ -871,7 +783,7 @@ class SolutionRunner:
             input_dict = dict(zip(self.sig_names, chunk))
             result.append({
                 "input": input_dict,
-                "cid": i
+                "cid": i  # 没有 expected 的用例不是完整用例，因此 cid 简单以整数表达
                 })
         
         return result

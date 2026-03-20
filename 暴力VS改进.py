@@ -1,4 +1,4 @@
-try:from tools.custom_init import *
+try:from args_parser import *
 except:None
 
 import os
@@ -6,7 +6,7 @@ import os
 print(f"当前工作目录：{os.getcwd()}")
       
 # ------------ 三选一进行调用来测试 -------------------
-from tools.solution_runner import SolutionRunner, _CASE_TYPE
+from tools.solution_runner import SolutionRunner, _EXPECTED_CASE
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path
@@ -18,7 +18,7 @@ import numpy as np
 暴力算法 = SolutionRunner(问题目录 / "bt0.py")
 
 attached_attentions = [
-    "此题适合答案驱动，注意答案为成环节点下标，而非节点value。"
+    "此题适合答案驱动，无需暴力算法求解expected，注意答案为成环节点下标，而非节点value。"
 ]
 
 测试样例提问_file = 暴力算法.relPath/"测试样例提问.txt"
@@ -29,75 +29,25 @@ if not 测试样例提问_file.exists():
     print("等待测试样例提问完成！")
     exit(0)
 
-import random
-from typing import List, Dict, Union
-
-def test_cases_generator(random_case_num: int, max_n: int = 1000) -> List[Dict[str, Union[Dict[str, List[int]], int]]]:
-    """
-    生成测试用例，每个用例包含输入字典（head 链表数组，pos 环起始索引）和期望输出（pos 索引）。
-    固定用例覆盖边界情况，随机用例覆盖一般情况。
-    """
-    res = []
-
-    # ========== 固定边界用例 ==========
-    # 空链表
-    res.append({"input": {"head": [], "pos": -1}, "expected": -1})
-    # 单节点无环
-    res.append({"input": {"head": [1], "pos": -1}, "expected": -1})
-    # 单节点自环
-    res.append({"input": {"head": [1], "pos": 0}, "expected": 0})
-    # 两个节点无环
-    res.append({"input": {"head": [1, 2], "pos": -1}, "expected": -1})
-    # 两个节点，环在开头（尾节点指向头）
-    res.append({"input": {"head": [1, 2], "pos": 0}, "expected": 0})
-    # 两个节点，尾节点自环
-    res.append({"input": {"head": [1, 2], "pos": 1}, "expected": 1})
-    # 题目示例1
-    res.append({"input": {"head": [3, 2, 0, -4], "pos": 1}, "expected": 1})
-    # 题目示例2
-    res.append({"input": {"head": [1, 2], "pos": 0}, "expected": 0})
-    # 题目示例3
-    res.append({"input": {"head": [1], "pos": -1}, "expected": -1})
-    # 多节点，环在中间
-    res.append({"input": {"head": [1, 2, 3, 4, 5], "pos": 2}, "expected": 2})
-    # 环在开头
-    res.append({"input": {"head": [1, 2, 3, 4, 5], "pos": 0}, "expected": 0})
-    # 环在末尾（尾节点自环）
-    res.append({"input": {"head": [1, 2, 3, 4, 5], "pos": 4}, "expected": 4})
-    # 所有节点值相同，环在任意位置
-    res.append({"input": {"head": [7, 7, 7, 7, 7], "pos": 3}, "expected": 3})
-    # 包含负数
-    res.append({"input": {"head": [-5, -3, 0, 2, 8], "pos": 1}, "expected": 1})
-
-    # ========== 随机用例 ==========
-    for _ in range(random_case_num):
-        # 随机生成链表长度（1 ~ max_n）
-        n = random.randint(1, max_n)
-        # 随机生成节点值（范围 -10^9 ~ 10^9，这里简化为 -1000 ~ 1000）
-        head = [random.randint(-1000, 1000) for _ in range(n)]
-        # 随机决定是否有环，概率各半
-        if random.random() < 0.5:
-            pos = -1
-        else:
-            pos = random.randint(0, n - 1)
-        res.append({"input": {"head": head, "pos": pos}, "expected": pos})
-
-    return res
-
-
 cases_path = 暴力算法.auto_path_cases()
 if cases_path.exists():
     print(f"从文件中读取测试用例：{cases_path}")
     expected_results = 暴力算法.read_test_case(cases_path)
-else:
-    cases = test_cases_generator(random_case_num=1000,max_product = 100)
-    expected_results = 暴力算法.run_as_expected(cases,thread=1)
-    暴力算法.save_test_cases(expected_results , cases_path)
+elif 暴力算法.try_read_cases_and_exchange_codes():
+    cases = 暴力算法.test_cases_generator(random_case_num = 100, max_n = 100)
+    if len(cases) == 0:
+        raise ValueError("没有生成测试用例！")
+    if isinstance(cases[0],dict):
+        expected_results = cases
+    else:
+        expected_results = 暴力算法.run_as_expected(cases,thread=1)
+        暴力算法.save_test_cases(expected_results , cases_path)
 
 print("expected_results[0]=", expected_results[0])
 
-改进算法 = SolutionRunner(问题目录 / "V2.py")
+改进算法 = SolutionRunner(问题目录 / "bt0.py")
 
 # 多线程
 print("=== 多线程 ===")
+print(改进算法.try_read_cases_and_exchange_codes())
 results_multi = 改进算法.run(expected_results, thread=4, timeout_s=60,summary=True)

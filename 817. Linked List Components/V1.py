@@ -1,4 +1,4 @@
-try:from tools.custom_init import *
+try:from args_parser import *
 except:None
 
 class Solution:

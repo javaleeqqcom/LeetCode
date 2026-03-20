@@ -1,4 +1,4 @@
-try:from tools.custom_init import *
+try:from args_parser import *
 except:None
 # 超出时间限制
 # 49 / 59 个通过的测试用例

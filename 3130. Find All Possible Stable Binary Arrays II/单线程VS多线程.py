@@ -4,7 +4,7 @@ print(f"当前工作目录：{os.getcwd()}")
       
 # ------------ 三选一进行调用来测试 -------------------
 
-from solution_runner import SolutionRunner, _CASE_TYPE
+from solution_runner import SolutionRunner, _EXPECTED_CASE
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path

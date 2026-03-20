@@ -236,6 +236,17 @@ results = optimized.run(cases, log_suffix="_optimized")
 ---
 
 ## 🔮 下一步计划
+1. **简化输入输出格式**
+   - 本工程的 AI prompt过于复杂，被提问的AI总是搞错输入输出格式
+   - 统一输入样例格式为 _CASE_TYPE:{"input":input_args,"cid":[int|str][,"expected":_STANDARD_TYPE,"output":_STANDARD_TYPE,"error":str,...]}
+     - 其中 input_args 为 _ARGS_CASE 元组，表示题目与代码语言无关的输入参数`input`（不等价于学生代码主函数的参数）
+   - _CASE_TYPE 对 AI prompt 不可见，AI prompt 只需处理 _ARGS_CASE
+     - 原 custom_init.py 更名为 args_parser.py，负责将 `input` 转化为学生代码的调用
+     - 取消 kwargs 格式的调用，简化 AI prompt 的复杂度
+   - solution_runner.py 需要大改（对  AI prompt 不可见）
+   - args_parser.py 需要完整告知 AI prompt，因此尽量压缩，如将 TreeNode.print 的部分代码移动至 args_parser_tools.py
+   - 现在先处理唯一非魔术方法的情况，对于 Solution 中有多个方法的 caller 以后再设计
+   - 
 2. **自动向AI提问**
    - 注意：提问的范围仅限于测试学生的代码是否正确
    - 用于自动生成测试样例代码

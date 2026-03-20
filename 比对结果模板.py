@@ -5,8 +5,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 print(f"当前工作目录：{os.getcwd()}")
       
-from tools.solution_runner import SolutionRunner, _CASE_TYPE
-from tools.custom_init import *
+from tools.solution_runner import SolutionRunner, _EXPECTED_CASE
+from args_parser import *
 from typing import List, Union, Tuple, Dict, Any
 # 导入 Path 库
 from pathlib import Path

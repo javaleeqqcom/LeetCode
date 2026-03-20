@@ -1,0 +1,38 @@
+from typing import Optional,List
+import inspect
+from tools.args_parser import _STANDARD_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
+
+# Solution 有唯一带参数的非静态方法时，input_params 为元组类型时，系统会自动选择 main_caller_args 函数进行调用（仅检测首个样例，因此必须全样例一致）
+def main_caller_args(instance: object, main_method:Optional[str],args:_ARGS)->_STANDARD_TYPE:
+    assert main_method is not None, "当Solution类存在多个方法时，不能采用默认调用方法，必须自定义 main_caller 函数"
+    bind_func = getattr(instance, main_method)
+
+    # 获取函数参数签名
+    sig = inspect.signature(bind_func)
+    formated_args = (
+        parse_standard_input(value,sig_type,bind_func.__name__,i) 
+        for i,(value , sig_type) in enumerate(zip(args , sig.parameters.values()))
+        )
+
+    res = bind_func(*formated_args)
+    # 将结果转换为标准输出格式
+    return parse_output_to_standard(res)
+
+# Solution 有唯一带参数的非静态方法时，input_params 为字典类型时，类似地以 main_caller_kwargs 函数进行调用
+def main_caller_kwargs(instance: object, main_method:Optional[str],kwargs:_KWARGS)->_STANDARD_TYPE:
+    assert main_method is not None, "当Solution类存在多个方法时，不能采用默认调用方法，必须自定义 main_caller 函数"
+    bind_func = getattr(instance, main_method)
+
+    # 获取函数参数签名
+    sig = inspect.signature(bind_func)
+    assert len(kwargs) == len(sig.parameters), f"传入 kwargs 字典的参数个数与函数 {main_method} 参数个数不匹配"
+
+    # 仅当 input_params 的键与函数参数名完全一致时，才能进行转换，否则需要单独设计 main_caller_kwargs 函数
+    formated_kwargs = {
+        key: parse_standard_input(value, sig.parameters[key].annotation,bind_func.__name__ ,key) 
+        for key , value in kwargs.items()
+    }
+
+    res = bind_func(**formated_kwargs)
+    # 将结果转换为标准输出格式
+    return parse_output_to_standard(res)
