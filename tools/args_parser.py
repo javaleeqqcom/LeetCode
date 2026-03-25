@@ -58,6 +58,15 @@ def index_ListNode(node:ListNode, i:int)->Optional[ListNode]:
         cur = cur.next
     return cur
 
+# 用于防止篡改链表，将链表浅备份到列表中
+def ListNode_flatten(node:ListNode , max_cnt:int)->List[ListNode]:
+    res = []
+    while node and max_cnt>0:
+        res.append(node)
+        node = node.next
+        max_cnt -= 1
+    return res
+
 # ====== 转换函数 ======
 def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
     head = ListNode(lst[0])

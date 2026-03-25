@@ -133,9 +133,7 @@ f"""
 # 仅当 input_parser_registry 等无法实现转化，或参数无法位置一一对应时，请根据你的需要写一个 {_CUSTOM_CALLER_NAME} 函数。下面以链表环节点检测问题为例，其输入参数为 (head_list, pos) 元组形式，示例如下：
 def {_CUSTOM_CALLER_NAME}(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     # 将测试用例 (head_list, pos) 转换为 Solution.detectCycle 所需的参数。
-    # 由于 bind_func 返回的就是 pos 的预期结果，因此不需要额外的转换。
-    # 尽量利用 args_parser.py 已有函数简化设计
-
+    # bind_func 返回的节点需要转化为位置值，-1 表示无环。
     head_list, pos = args
     assert isinstance(head_list, list)
     assert isinstance(pos,int) and -1<=pos<len(head_list)
@@ -144,14 +142,27 @@ def {_CUSTOM_CALLER_NAME}(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     if not head_list:
         return -1
 
-    # 构造所有节点
-    nodes = List2ListNode(head_list)
+    # 构造所有节点并排列为list（尽量利用 args_parser.py 已有函数简化设计）
+    nodes = ListNode_flatten(List2ListNode(head_list),len(head_list))
 
     # 根据 pos 设置环
     if pos != -1: # 有环
-        index_ListNode(nodes,pos).next = nodes
+        nodes[-1].next = nodes[pos]
 
-    return bind_func(nodes)
+    # 调用学生提交的函数
+    circle = bind_func(nodes[0])
+
+    # 检查学生是否改变链表结构
+    assert ListNode_flatten(nodes[0],len(head_list)) == nodes
+
+    # 计算环的相对位置
+    if circle is None:
+        return -1
+    else:
+        for res,cur in enumerate(nodes):
+            if cur == circle:
+                return res
+        raise ValueError(f"{{bind_func.__name__}}返回值非法!")
 ```
 """
     
