@@ -4,9 +4,16 @@
 AI 提示词模板库 - 用于测试用例生成等自动化任务
 """
 from typing import List, Dict, Any, Union
-_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
+try:
+    from tools.args_parser import _CASE,_BASE_TYPE
+except:
+    from args_parser import _CASE,_BASE_TYPE
 
-待补充，若自定义 caller 必须遵循 _EXECUTE_CALLER 标准，请参考 args_parser.py
+_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
+# 自定义 caller 的命名暂时固定为
+_CUSTOM_CALLER_NAME = "custom_caller"
+
+# 待补充，若自定义 caller 必须遵循 _EXECUTE_CALLER 标准，请参考 args_parser.py
 
 # ============================================================================
 # 测试用例生成器 - 系统提示词
@@ -20,8 +27,8 @@ class TEST_CASE_GENERATOR:
 "<code>为被测代码，不可修改！其中包含本工程预定义输入输出转换代码<init-code>，以及学生代码<student-code>，其中必定包含 Solution 类（若不是则应报错，拒绝本次回答）。",
 
 "需要注意的是，由于 leetcode 多语种通用性，其样例的原始输入`input`和输出`output`只能是 JSON 输入类型（_STANDARD_TYPE），因此若学生代码的调用函数参数`params`类型并非_STANDARD_TYPE，则需要本工程定义的<init-code>代码实现转换，若无法转换则你需要修改<args_parser>中的代码以实现调用。",
-'测试用例统一格式为：`{"input": input_params [, "expected": _STANDARD_TYPE]}`，其中 input_params 有两种格式：元组(Tuple)对应<request>中的`input`中参数没有命名的情况（则其元素的顺序必须按<request>中输入参数的顺序为准）；字典(Dict)对应<request>中的`input`中参数有命名的情况。而 expected 为可选项，与`output`格式相同，仅当该问题的答案在构造输入样例时很容易求得，甚至先有答案后构造输入样例的情况下，才允许添加可选项 expected 为期望输出。注意不要试图在你的代码中完整地运行学生暴力算法的 Solution 对象来求得 expected 输出，因为本工程可以用多线程的方式调用学生暴力算法，不需要你来运行。',
-"一般<request>中的参数与<student-code>中主函数的参数是一一对应的。但若对应不上，由于学生代码<student-code>在各编程语言中的函数名和参数 (params) 名及类型是强制固定的，不可修改！则需参考修改<args_parser>中的 main_caller 方法以正确处理参数映射，并以<conversion>模块输出 conversion.py 代码放在 <code> 代码后覆盖原有定义。",
+f'测试用例统一格式为：`{{"input": input_params [, "expected": {_BASE_TYPE.__name__}]}}`，其中 input_params 有两种格式：元组(Tuple)对应<request>中的`input`中参数没有命名的情况（则其元素的顺序必须按<request>中输入参数的顺序为准）；字典(Dict)对应<request>中的`input`中参数有命名的情况。而 expected 为可选项，与`output`格式相同，仅当该问题的答案在构造输入样例时很容易求得，甚至先有答案后构造输入样例的情况下，才允许添加可选项 expected 为期望输出。注意不要试图在你的代码中完整地运行学生暴力算法的 Solution 对象来求得 expected 输出，因为本工程可以用多线程的方式调用学生暴力算法，不需要你来运行。',
+"一般<request>中的参数与<student-code>中主函数的参数是一一对应的。但若对应不上，由于学生代码<student-code>在各编程语言中的函数名和参数 (params) 名及类型是强制固定的，不可修改！则需参考修改<args_parser>中的 {_CUSTOM_CALLER_NAME} 方法以正确处理参数映射，并以<conversion>模块输出 conversion.py 代码放在 <code> 代码后覆盖原有定义。",
 
 "你需要参考模板<template>设计样例生成代码。<template>的代码不依赖于<student-code>，而是在其之前执行。其核心目的在于生成题目输入`input`，并不实现调用和类型转换。",
 "<attentions>为代码设计需要注意的点，请根据本次问题的情况参考。"
@@ -30,42 +37,45 @@ class TEST_CASE_GENERATOR:
     TEMPLATE_UNIQUE:str = f"""
 ```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
 # 省略导入 init.* 和 answer.* 的代码，仅需写如下代码。所有输出必须可直接运行，非代码的说明必须用注释。
-def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
+def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[{_CASE.__name__}]:
     # random_case_num：生成的随机样例数量，必含。
     # [, max_n:int ...]：用于指代与问题复杂度相关的参数（可以根据问题修改具体名称，可能为空，也可能不止 1 个参数）
 
     # 固定用例（用于覆盖各种可预见的边界情况，如空输入、临界值等），此处以 input_params 为元组类型为例
-    res = [
-        {{"input": (arg11, arg12) ,"cid":"#1"}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
-        {{"input": (arg21, arg22) ,"cid":"#2"}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+    cases = [
+        (arg11, arg12), # 注意所有的 arg* 参数必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
+        (arg21, arg22), # 注意所有的 arg* 参数必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
         ...
-    ] # 仅当很容易获知答案时，可以添加 "expected" 键，注意 expected 的值必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+    ] # 仅当很容易获知答案时，可以添加 "expected" 键，注意 expected 的值必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
+    fixed_cases = [{{"input":case,"cid":f"#{{i}}"}} for i,case in enumerate(cases)]
 
     # [可选：全局状态记录器，用于查重]
     ...
 
-    def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
+    def 单随机样例生成器 f(规模参数)->Dict[str, {_BASE_TYPE.__name__}]:
         ...
         return {{"param1": val1, "param2": val2 ,...}}, # 此处以字典类型为例
         # 仅当很容易获知答案时，返回：{{"input": input_params, "expected": 期望输出（_STANDARD_TYPE 类型）}}
     
     # 生成随机用例
+    res=[]
     for(i in 0..random_case_num):
         # [可选：规模参数随 i 增大而增大]
+        规模参数 = min(int(random.expovariate(max_n**(-0.5))),max_n) # 示例（采用负指数分布时）
         ...
 
-        res.append({{
+        cases.append({{
             "input":单随机样例生成器 f(规模参数...),
             "cid":i
         }})
-    return res
+    return fixed_cases + res
 ```
-f"""
+"""
 
     TEMPLATE_CALLS=f"""
 ```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
 # 如下代码本工程会拼接到<code>之后运行，无需重复中的代码。所有输出必须可直接运行，非代码的说明必须用注释。
-def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
+def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[{_CASE.__name__}]:
     # random_case_num：生成的随机样例数量，必含。
     # [, max_n:int ...]：用于指代与问题复杂度相关的参数（可以根据问题修改具体名称，可能为空，也可能不止 1 个参数）
 
@@ -86,7 +96,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
     class easy_Solution:
         ...
 
-    def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
+    def 单随机样例生成器 f(规模参数)->Dict[str, {_BASE_TYPE.__name__}]:
         # 返回格式：{{"methods":["Solution",...],"params":[(__init__的args参数),...其余方法的参数（也可能为空元组表示无参数调用）]}}
         # 上述为`input`有参数名的情况为例，若<request>中的输入无参数名，则应返回元组格式的 `input` 值。若可以轻松获得期望`expected`，则应填写`expected`值。
 
@@ -108,27 +118,49 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 ```
 f"""
 
-    CONVERSION_UNIQUE = """
+    CONVERSION_UNIQUE = f"""
 ```conversion.py
 # 丰富 input_parser_registry 转换器（可选）如遇到新的数据类型，可以参考  添加对应的转换器
-# def 示例转换函数1(params1:A_STAND_TYPE)->DIY_TYPE: # 注意禁止使用 lambda 等不可序列化对象，因为这会导致多线程无法复制环境变量
+# def 示例转换函数1(params1:{_BASE_TYPE.__name__})->Any: # 注意禁止使用 lambda 等不可序列化对象，因为这会导致多线程无法复制环境变量
 #     ...
-# input_parser_registry[(A_STAND_TYPE,DIY_TYPE)] = 示例转换函数1
+# input_parser_registry[({_BASE_TYPE.__name__},Any)] = 示例转换函数1
 
 # 当返回值为特殊类型时，需要利用 output_parser_registry 转化为 _STANDARD_TYPE：
-# def 示例转换函数2(params1:DIY_TYPE)->_STANDARD_TYPE:
+# def 示例转换函数2(params1:Any)->{_BASE_TYPE.__name__}:
 #     ...
-# output_parser_registry[DIY_TYPE] = 示例转换函数2
+# output_parser_registry[Any] = 示例转换函数2
 
-# 仅当 input_parser_registry 等无法实现转化，或参数无法位置一一对应时，才需要重写 main_caller* 函数。当 input_params 为元组类型时，请重新设计 main_caller_args ，系统拼接在 <init-code> 之后覆盖原有函数；同理当 input_params 为字典类型时，请重新设计 main_caller_kwargs
+# 仅当 input_parser_registry 等无法实现转化，或参数无法位置一一对应时，请根据你的需要写一个 {_CUSTOM_CALLER_NAME} 函数。下面以链表环节点检测问题为例，其输入参数为 (head_list, pos) 元组形式，示例如下：
+def {_CUSTOM_CALLER_NAME}(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
+    # 将测试用例 (head_list, pos) 转换为 Solution.detectCycle 所需的参数。
+    # 由于 bind_func 返回的就是 pos 的预期结果，因此不需要额外的转换。
+    # 尽量利用 args_parser.py 已有函数简化设计
+
+    head_list, pos = args
+    assert isinstance(head_list, list)
+    assert isinstance(pos,int) and -1<=pos<len(head_list)
+
+    # 空链表
+    if not head_list:
+        return -1
+
+    # 构造所有节点
+    nodes = List2ListNode(head_list)
+
+    # 根据 pos 设置环
+    if pos != -1: # 有环
+        index_ListNode(nodes,pos).next = nodes
+
+    return bind_func(nodes)
 ```
 """
-    CONVERSION_CALLS = """
+    
+    CONVERSION_CALLS = f"""
 ```conversion.py
-# 该代码会拼接在<code>之后运行，无需引用<init-code>中的函数即可调用，其中的 main_caller 会被覆盖。
-def main_caller(instance: object, main_method:None,args:？):
-    # 当 Solution 类存在多个方法时，必须重写 main_caller 函数。而且 main_method = None，因为不存在唯一的主方法
-    # test_case 格式：{"input": input_params}
+# 该代码会拼接在<code>之后运行，无需引用<init-code>中的函数即可调用，其中的 {_CUSTOM_CALLER_NAME} 会被覆盖。
+def {_CUSTOM_CALLER_NAME}(instance: object, main_method:None,args:？)->{_BASE_TYPE.__name__}:
+    # 当 Solution 类存在多个方法时，必须重写 {_CUSTOM_CALLER_NAME} 函数。而且 main_method = None，因为不存在唯一的主方法
+    # test_case 格式：{{"input": input_params}}
     params = test_case["input"]
     
     # 在此手动处理调用逻辑，例如：
@@ -143,16 +175,16 @@ def main_caller(instance: object, main_method:None,args:？):
 
     ATTENTIONS_UNIQUE = [
         "<student-code>仅有唯一非魔术方法且默认构造函数无参数，则你不需要调用构造函数，本工程会自动执行 `solution=Solution()`进行构造。",
-        "本工程会利用 input_parser_registry 函数尽可能逐个地将输入`input`的参数从 _STANDARD_TYPE 转化为 Solution 所需的自定义类型。",
-        "若 input 列表中的参数无法与 Solution 主函数的参数名一一对应，则必须重写`main_caller`函数。"
+        "本工程会利用 input_parser_registry 函数尽可能逐个地将输入`input`的参数从 {_BASE_TYPE.__name__} 转化为 Solution 所需的自定义类型。",
+        "若 input 列表中的参数无法与 Solution 主函数的参数名一一对应，则必须重写`{_CUSTOM_CALLER_NAME}`函数。"
     ]
 
     ATTENTIONS_CONVERSION = [
         "不要试图在 {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME} 直接生成特殊类型的输出，因为这会导致本工程的样例保存中的 JSON 序列化失败。",
         "注意：input_parser_registry 仅能用于一种特殊类型转化为 _STANDARD_TYPE。",
-        "若你认为<init-code>无法实现特殊类型与 _STANDARD_TYPE 的转化，你可以参考<conversion>模块实现转化和调用。",
+        "若你认为<init-code>无法实现特殊类型与 {_BASE_TYPE.__name__} 的转化，你可以参考<conversion>模块实现转化和调用。",
         "输出若为特殊类型，则只需将转换函数加入到 output_parser_registry 中。",
-        "若参数数量或顺序无法与函数签名一一对应，必须覆盖`main_caller`函数来手动处理调用逻辑。"
+        "若参数数量或顺序无法与函数签名一一对应，必须覆盖`{_CUSTOM_CALLER_NAME}`函数来手动处理调用逻辑。"
     ]
     
     ATTENTIONS = [

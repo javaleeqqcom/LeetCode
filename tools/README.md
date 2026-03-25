@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.4.6
+- 版本：0.4.7
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -236,16 +236,18 @@ results = optimized.run(cases, log_suffix="_optimized")
 ---
 
 ## 🔮 下一步计划
+
 1. **简化输入输出格式**
-   - 本工程的 AI prompt过于复杂，被提问的AI总是搞错输入输出格式
-   - 统一输入样例格式为 _CASE_TYPE:{"input":input_args,"cid":[int|str][,"expected":_STANDARD_TYPE,"output":_STANDARD_TYPE,"error":str,...]}
-     - 其中 input_args 为 _ARGS_CASE 元组，表示题目与代码语言无关的输入参数`input`（不等价于学生代码主函数的参数）
-   - _CASE_TYPE 对 AI prompt 不可见，AI prompt 只需处理 _ARGS_CASE
-     - 原 custom_init.py 更名为 args_parser.py，负责将 `input` 转化为学生代码的调用
-     - 取消 kwargs 格式的调用，简化 AI prompt 的复杂度
-   - solution_runner.py 需要大改（对  AI prompt 不可见）
-   - args_parser.py 需要完整告知 AI prompt，因此尽量压缩，如将 TreeNode.print 的部分代码移动至 args_parser_tools.py
-   - 现在先处理唯一非魔术方法的情况，对于 Solution 中有多个方法的 caller 以后再设计
+   - 本工程的 AI prompt 仍存在不够清晰的问题，导致被提问的AI有时会混淆输入输出格式
+   - 优化 AI prompt，使其更清晰地说明输入格式：
+     - `input_params` 有两种格式：
+       - 元组（`_ARGS`）：对应参数没有命名的情况，元素顺序按函数参数顺序
+       - 字典（`_KWARGS`）：对应参数有命名的情况，键为参数名
+     - `expected` 为可选项，仅在答案驱动型问题下使用
+   - `args_parser.py` 已完成重命名，且已尽量压缩，将 `TreeNode.print` 等功能移至 `args_parser_tools.py`
+   - 保持对 kwargs 格式的调用支持，但通过 AI prompt 优化，使 AI 生成的测试用例格式更规范
+   - 优化 `solution_runner.py`，使其更清晰地处理输入格式，减少对 AI prompt 的依赖
+   - 现在先完善唯一非魔术方法的测试用例生成，后续再处理 Solution 中有多个方法的情况
    - 
 2. **自动向AI提问**
    - 注意：提问的范围仅限于测试学生的代码是否正确

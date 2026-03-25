@@ -1,35 +1,40 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired
-from tools.args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
+try:
+    from tools.args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
+except:
+    from args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
 
-_BASE_TYPE = Union[int,float,bool,None,str]
-_STANDARD_TYPE = Union[
-    _BASE_TYPE, 
-    List["_STANDARD_TYPE"], 
-    Dict[Union[str, int], "_STANDARD_TYPE"]
+type _BASE_TYPE = Union[
+    int,float,bool,None,str, 
+    List["_BASE_TYPE"], 
+    Dict[Union[str, int], "_BASE_TYPE"]
 ]
-_ARGS = Tuple[_STANDARD_TYPE,...]
-_KWARGS = Dict[str,_STANDARD_TYPE]
+
+_ARGS = Tuple[_BASE_TYPE,...]
+_KWARGS = Dict[str,_BASE_TYPE]
 # <request>题目标准输入类型 _INPUT_PARAMS，要么是 args 元组，要么是 kwargs 字典，且都只能由基础类型组成
-_INPUT_PARAMS = Union[_ARGS,_KWARGS]
+_PARAMS = Union[_ARGS,_KWARGS]
 
-class _BASE_CASE(TypedDict):
-    input: _INPUT_PARAMS
+class _CASE(TypedDict):
+    input: _PARAMS
     cid: Union[int,str]
-    expected: NotRequired[_STANDARD_TYPE]
-    output: NotRequired[_STANDARD_TYPE]
+    expected: NotRequired[_BASE_TYPE]
+    output: NotRequired[_BASE_TYPE]
 
+# 待改进，采用泛型而非 Union
 _EXECUTE_CALLER = Union[
-    Callable[[object,Optional[str],_KWARGS],_STANDARD_TYPE],
-    Callable[[object,Optional[str],_ARGS],_STANDARD_TYPE]
+    Callable[[Any ,_PARAMS] , _BASE_TYPE],
+    Callable[[Any,_KWARGS],_BASE_TYPE],
+    Callable[[Any,_ARGS],_BASE_TYPE]
 ]
 
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:
-    def __init__(self, val:_STANDARD_TYPE=0, next=None):
+    def __init__(self, val:_BASE_TYPE=0, next:Optional[ListNode]=None):
         self.val = val
         self.next = next
 
@@ -43,9 +48,18 @@ class ListNode:
                 vals.append("...")
                 break
         return "<ListNode>:\n[" + ",".join(vals) + "]"
+    
+# 方便编程进行的索引操作
+def index_ListNode(node:ListNode, i:int)->Optional[ListNode]:
+    cur = node
+    while i>0:
+        assert isinstance(cur,ListNode),f"ListNode[{i}] is out of range!"
+        i -= 1
+        cur = cur.next
+    return cur
 
 # ====== 转换函数 ======
-def List2ListNode(lst: List[_STANDARD_TYPE]) -> Optional[ListNode]:
+def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
     head = ListNode(lst[0])
     cur = head
     for val in lst[1:]:
@@ -54,7 +68,7 @@ def List2ListNode(lst: List[_STANDARD_TYPE]) -> Optional[ListNode]:
     return head
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比
-def ListNode2List(node: Optional[ListNode]) -> List[_STANDARD_TYPE]:
+def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
     res = []
     while node is not None:
         res.append(node.val)
@@ -63,7 +77,7 @@ def ListNode2List(node: Optional[ListNode]) -> List[_STANDARD_TYPE]:
 
 # Definition for a binary tree node.
 class TreeNode:
-    def __init__(self, val:_STANDARD_TYPE=0, left=None, right=None):
+    def __init__(self, val:_BASE_TYPE=0, left=None, right=None):
         self.val = val
         self.left = left
         self.right = right
@@ -158,7 +172,7 @@ class TreeNode:
         # 反转回从根到叶的顺序
         return '\n'.join(reversed(lines))
     
-def TreeNode2List(root: Optional[TreeNode]) -> List[_STANDARD_TYPE]:
+def TreeNode2List(root: Optional[TreeNode]) -> List[_BASE_TYPE]:
     """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）"""
     if not root:
         return []
@@ -180,7 +194,7 @@ def TreeNode2List(root: Optional[TreeNode]) -> List[_STANDARD_TYPE]:
     
     return result
 
-def List2TreeNode(level_order: List[_STANDARD_TYPE]) -> Optional[TreeNode]:
+def List2TreeNode(level_order: List[_BASE_TYPE]) -> Optional[TreeNode]:
     if not level_order or level_order[0] is None:
         return None
     root = TreeNode(level_order[0])
@@ -274,7 +288,7 @@ def parse_output_to_standard(obj: Any, depth: int = 0) -> Any:
 def _i_pname2ErrorMsg(i_pname:Union[int,str])->str:
     if isinstance(i_pname,int): return f"第 {i_pname} 个题目参数"
     else: return f"题目参数 {i_pname}"
-def parse_standard_input(value:_STANDARD_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:
+def parse_standard_input(value:_BASE_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:
     act_type = _extract_actual_type(sig_type.annotation)
     if act_type == value.__class__:
         return value

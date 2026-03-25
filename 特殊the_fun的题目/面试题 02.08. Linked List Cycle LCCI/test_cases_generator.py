@@ -6,10 +6,9 @@ def test_cases_generator(random_case_num: int, max_n: int = 10000):
     生成测试用例，每个用例是一个元组 (head: List[int], pos: int)
     head 为链表节点值的列表，pos 为环的起始索引（-1 表示无环）
     """
-    res = []
 
     # ----- 固定边界用例 -----
-    fixed_cases = [
+    cases = [
         ([], -1),                     # 空链表
         ([1], -1),                    # 单节点无环
         ([1], 0),                     # 单节点自环
@@ -24,9 +23,9 @@ def test_cases_generator(random_case_num: int, max_n: int = 10000):
         ([i for i in range(100)], 0),  # 长链表，环指向头
         ([i for i in range(100)], 50), # 长链表，环指向中间
     ]
-    for head_list, pos in fixed_cases:
-        res.append((head_list, pos))
+    fixed_cases = [{"input":case,"cid":f"#{i}"} for i,case in enumerate(cases)]
 
+    cases = []
     # ----- 随机用例 -----
     for _ in range(random_case_num):
         # 链表长度：允许为0，均匀分布
@@ -43,6 +42,9 @@ def test_cases_generator(random_case_num: int, max_n: int = 10000):
             else:
                 pos = random.randint(0, n - 1)
 
-        res.append((head_list, pos))
+        cases.append((head_list, pos))
 
-    return [{"input":case,"expected":case[1]} for case in res]
+    return fixed_cases+[
+        {"input":case,"cid":i,"expected":case[1]} 
+        for i,case in enumerate(cases)
+        ]

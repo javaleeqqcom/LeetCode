@@ -33,28 +33,25 @@ if not 测试样例提问_file.exists():
 cases_path = 暴力算法.auto_path_cases()
 if cases_path.exists():
     print(f"从文件中读取测试用例：{cases_path}")
-    expected_results = 暴力算法.read_test_case(cases_path)
+    cases = 暴力算法.read_test_case(cases_path)
 else:
     from test_cases_generator import test_cases_generator
     
     cases = test_cases_generator(random_case_num = 100, max_n = 100)
-    print(cases[0])
-    print(cases[10])
-    exit(0)
+    # print(cases[0])
+    # print(cases[10])
+    # exit(0)
 
     if len(cases) == 0:
         raise ValueError("没有生成测试用例！")
     if isinstance(cases[0],dict):
-        expected_results = cases
-    else:
-        expected_results = 暴力算法.run_as_expected(cases,thread=1)
-        暴力算法.save_test_cases(expected_results , cases_path)
+        暴力算法.save_test_cases(cases , cases_path)
 
-print("expected_results[0]=", expected_results[0])
+print("expected_results[0]=", cases[0])
 
 改进算法 = SolutionRunner(问题目录 / "bt0.py")
 
 # 多线程
 print("=== 多线程 ===")
-print(改进算法.try_read_cases_and_exchange_codes())
-results_multi = 改进算法.run(expected_results, thread=4, timeout_s=60,summary=True)
+print(f"是否有 custom_caller ：{改进算法.has_custom_caller}")
+results_multi = 改进算法.run(cases, thread=4, timeout_s=60,summary=True)
