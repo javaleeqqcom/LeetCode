@@ -2,7 +2,11 @@ from typing import Optional,List
 import inspect
 from tools.args_parser import _STANDARD_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
 
-# Solution 有唯一带参数的非静态方法时，input_params 为元组类型时，系统会自动选择 main_caller_args 函数进行调用（仅检测首个样例，因此必须全样例一致）
+# 可能的改进：_EXECUTE_CALLER 标准的函数 简化为 两个输入：
+# 1. instance_or_func ：当 main_method 不存在时，则代入 Solution 对象，依靠 args 中调用；当 main_method 存在时由父函数传入 bind_func
+# 2. args 维持原状
+
+# _EXECUTE_CALLER 标准的函数: Solution 有唯一带参数的非静态方法时，input_params 为元组类型时，系统会自动选择 main_caller_args 函数进行调用（仅检测首个样例，因此必须全样例一致）
 def main_caller_args(instance: object, main_method:Optional[str],args:_ARGS)->_STANDARD_TYPE:
     assert main_method is not None, "当Solution类存在多个方法时，不能采用默认调用方法，必须自定义 main_caller 函数"
     bind_func = getattr(instance, main_method)
@@ -18,7 +22,7 @@ def main_caller_args(instance: object, main_method:Optional[str],args:_ARGS)->_S
     # 将结果转换为标准输出格式
     return parse_output_to_standard(res)
 
-# Solution 有唯一带参数的非静态方法时，input_params 为字典类型时，类似地以 main_caller_kwargs 函数进行调用
+# _EXECUTE_CALLER 标准的函数: Solution 有唯一带参数的非静态方法时，input_params 为字典类型时，类似地以 main_caller_kwargs 函数进行调用
 def main_caller_kwargs(instance: object, main_method:Optional[str],kwargs:_KWARGS)->_STANDARD_TYPE:
     assert main_method is not None, "当Solution类存在多个方法时，不能采用默认调用方法，必须自定义 main_caller 函数"
     bind_func = getattr(instance, main_method)

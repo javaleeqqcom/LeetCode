@@ -4,7 +4,9 @@
 AI 提示词模板库 - 用于测试用例生成等自动化任务
 """
 from typing import List, Dict, Any, Union
-from tools.args_parser import _DEFAULT_TEST_CASES_GENERATOR_FILE_NAME
+_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
+
+待补充，若自定义 caller 必须遵循 _EXECUTE_CALLER 标准，请参考 args_parser.py
 
 # ============================================================================
 # 测试用例生成器 - 系统提示词
@@ -34,7 +36,8 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 
     # 固定用例（用于覆盖各种可预见的边界情况，如空输入、临界值等），此处以 input_params 为元组类型为例
     res = [
-        {{"input": (arg1, arg2)}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+        {{"input": (arg11, arg12) ,"cid":"#1"}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
+        {{"input": (arg21, arg22) ,"cid":"#2"}}, # 注意所有的 arg* 参数必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
         ...
     ] # 仅当很容易获知答案时，可以添加 "expected" 键，注意 expected 的值必须为 _STANDARD_TYPE 类型，确保可以 JSON 序列化。
 
@@ -43,7 +46,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 
     def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
         ...
-        return {{"input": {{"param1": val1, "param2": val2 ,...}}}}, # 此处以字典类型为例
+        return {{"param1": val1, "param2": val2 ,...}}, # 此处以字典类型为例
         # 仅当很容易获知答案时，返回：{{"input": input_params, "expected": 期望输出（_STANDARD_TYPE 类型）}}
     
     # 生成随机用例
@@ -51,12 +54,15 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
         # [可选：规模参数随 i 增大而增大]
         ...
 
-        res.append(单随机样例生成器 f(规模参数...))
+        res.append({{
+            "input":单随机样例生成器 f(规模参数...),
+            "cid":i
+        }})
     return res
 ```
 f"""
 
-    TEMPLATE_CALLS="""
+    TEMPLATE_CALLS=f"""
 ```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
 # 如下代码本工程会拼接到<code>之后运行，无需重复中的代码。所有输出必须可直接运行，非代码的说明必须用注释。
 def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[_CASE_TYPE]:
@@ -65,13 +71,13 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
 
     # 固定用例（用于覆盖各种可预见的边界情况，注意至少有构造函数操作。但是要注意，若学生代码为暴力算法，规模不能过大。）
     res = [
-        {"input": (["Solution",...],[...], ...), "expected": [None,...]}, # 第一个操作必定是构造函数，无返回值
+        {{"input": (["Solution",...],[...], ...), "cid":"#1", "expected": [None,...]}}, # 第一个操作必定是构造函数，无返回值
         ...
     ]
     # 上述为`input`无参数名的情况为例，若<request>中的输入有命名，则以字典格式为准
 
     # 若难以获得期望`expected`，则无需填写`expected`，由学生提交的暴力算法计算得出
-    # res = [{"input": [["Solution",...],[...], ...],}, ...]
+    # res = [{{"input": [["Solution",...],[...], ...], "cid":"#1"}}, ...]
 
     # 可选：由于该问题是多魔术方法的类实现问题，可能需要继承学生的 Solution 类，进行内部状态的窥探，方能生成合法的操作。但是要注意，只有当学生实现正确时，才可窥探其内部状态。否则，可能会导致错误的操作。
     class inner_Solution(Solution):
@@ -81,7 +87,7 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
         ...
 
     def 单随机样例生成器 f(规模参数)->Dict[str, _STANDARD_TYPE]:
-        # 返回格式：{"input": {"methods":["Solution",...],"params":[(__init__的args参数),...其余方法的参数（也可能为空元组表示无参数调用）]}}
+        # 返回格式：{{"methods":["Solution",...],"params":[(__init__的args参数),...其余方法的参数（也可能为空元组表示无参数调用）]}}
         # 上述为`input`有参数名的情况为例，若<request>中的输入无参数名，则应返回元组格式的 `input` 值。若可以轻松获得期望`expected`，则应填写`expected`值。
 
         # 对于多方法调用问题，input 列表应包含所有操作所需的参数（按调用顺序）
@@ -94,7 +100,10 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
         # [可选：规模参数随 i 增大而增大]
         ...
 
-        res.append(单随机样例生成器 f(规模参数...))
+        res.append({{
+            "input":单随机样例生成器 f(规模参数...),
+            "cid":i
+        }})
     return res
 ```
 f"""

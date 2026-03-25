@@ -5,17 +5,6 @@ from typing import List, Any, Union
 from typing import List, Dict, Any, Union, Tuple, Optional
 from collections import defaultdict
 
-"""一个标准的测试样例的格式 _CASE_TYPE 可以是：
-- 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
-- 其中的 case 可以是：
-  - 字典 _PARAMS：其键为被测函数的变量名，其值则为变量值
-  - 元组：按被测函数的变量顺序排列的变量值"""
-
-_PARAMS = Dict[str, Any]
-_CASE_TYPE = Dict[str, Union[_PARAMS, Tuple, Any]]
-
-# _CASE_TYPE 是单个测试样例附加测试输出、期望输出、错误信息等附加信息的字典
-
 # ===== 新增：将 LeetCode 风格的 null/true/false 转为 Python 的 None/True/False =====
 def json_keywords_to_python(text: str) -> str:
     """ 将字符串中所有非字符串字面量的 'null', 'true', 'false' 替换为 Python 对应的 'None', 'True', 'False'。
@@ -45,7 +34,7 @@ def json_keywords_to_python(text: str) -> str:
                  |\b(?:null|true|false)\b # 关键字（单词边界） '''
     return re.sub(pattern, replacer, text, flags=re.VERBOSE)
 
-def _parse_dict_style_case(lines: List[str]) -> Dict[str,Union[_PARAMS ,Any]]:
+def _parse_dict_style_case(lines: List[str]) -> dict:
     """
     解析以字典风格表示的测试用例（该函数经过人工修订，并严格测试）
     """
@@ -104,7 +93,7 @@ def _parse_tuple_style_case(lines: List[str], trunk_num: int) -> List[Dict[str, 
         for i in range(0, len(case_params), trunk_num)
     ]
 
-def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -> List[_CASE_TYPE]:
+def parse_test_cases(file_path: os.PathLike, params_num: Optional[int] = None) -> List[dict]:
     """
     解析测试样例文件
     :param file_path: 测试样例文件路径

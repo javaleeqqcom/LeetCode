@@ -1,5 +1,5 @@
 from __future__ import annotations  # 必须放在文件第一行
-from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque
+from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired
 from tools.args_parser_tools import _is_standard_type,_extract_actual_type # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
@@ -15,10 +15,17 @@ _ARGS = Tuple[_STANDARD_TYPE,...]
 _KWARGS = Dict[str,_STANDARD_TYPE]
 # <request>题目标准输入类型 _INPUT_PARAMS，要么是 args 元组，要么是 kwargs 字典，且都只能由基础类型组成
 _INPUT_PARAMS = Union[_ARGS,_KWARGS]
-# 标准样例类型 _CASE_TYPE：{"input": [args...] [, "output": value]}
-_CASE_TYPE = Dict[str, Union[_KWARGS, _ARGS , _STANDARD_TYPE]]
 
-_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
+class _BASE_CASE(TypedDict):
+    input: _INPUT_PARAMS
+    cid: Union[int,str]
+    expected: NotRequired[_STANDARD_TYPE]
+    output: NotRequired[_STANDARD_TYPE]
+
+_EXECUTE_CALLER = Union[
+    Callable[[object,Optional[str],_KWARGS],_STANDARD_TYPE],
+    Callable[[object,Optional[str],_ARGS],_STANDARD_TYPE]
+]
 
 # 示例：LeetCode 常见结构（学生可按题追加）
 class ListNode:

@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 import logging
 import datetime, time
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,NotRequired,TypedDict
 import ast, re, json
 import types
 import traceback
@@ -32,7 +32,8 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.args_parser import _STANDARD_TYPE,_CASE_TYPE,_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME,_is_standard_type
+from tools.args_parser import _STANDARD_TYPE,_INPUT_PARAMS,_BASE_CASE,_EXECUTE_CALLER,_is_standard_type,parse_output_to_standard
+from tools.args_parser_caller import main_caller_args,main_caller_kwargs
 from tools.compacted_json import CompactedJson
 from tools.ai_prompts import TEST_CASE_GENERATOR
 
@@ -43,6 +44,10 @@ from tools.ai_prompts import TEST_CASE_GENERATOR
         - 字典：其键为被测函数的变量名，其值则为变量值
         - 元组：按被测函数的变量顺序排列的变量值
 """
+class _RESULT_CASE(_BASE_CASE): # TypedDict 类
+    elapsed: NotRequired[float]
+    error: NotRequired[str]
+    traceback: NotRequired[str]
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
@@ -104,10 +109,10 @@ def _get_unique_log_path(relPath: os.PathLike, file_name: str) -> Path:
     
     return log_path
     
-def _is_wrong(result:_EXPECTED_CASE)->bool:
+def _is_wrong(result:_RESULT_CASE)->bool:
     return 'expected' in result and 'output' in result and result['expected'] != result['output']
 
-def _log_result(result:_EXPECTED_CASE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
+def _log_result(result:_RESULT_CASE,log_lines:List,log_prefix:str = "",log_path:Optional[os.PathLike]=None):
     log_path = _get_unique_log_path( 
         Path(os.getcwd() if log_path is None else log_path)
         , f"{log_prefix}_{result['cid']}.log"
@@ -128,45 +133,28 @@ def _geom_queue_generator( test_cases: List[Any], queue: interpreters.Queue, rat
     return group_id
 
 def _execute_dict_case(
-    caller: Callable,
-    instance:'学生代码中的"Solution"类的实例',
-    case: _EXPECTED_CASE,
-    main_method:Optional[str]=None
-) -> Tuple[_EXPECTED_CASE, List[str]]:
+    caller: _EXECUTE_CALLER,
+    instance:object,
+    main_method:Optional[str],
+    case: _BASE_CASE
+) -> Tuple[_RESULT_CASE, List[str]]:
     """执行单个测试用例（核心封装）"""
     log_lines = []
-    result_dict = case.copy()
+
+    # 根据基类 _BASE_CASE 构造结果字典
+    result_dict:_RESULT_CASE = {**case} 
     # 日志格式
     def _add_log(content: str):
         log_lines.append(f"{case['cid']}:\t{content}")
     
     original_stdout = None
     try:
-        _add_log(f"Running '{the_fun.__name__}' with case: {case.get('test_case_key', f"{case['cid']}")}")
+        _add_log(f"Running '{main_method if main_method is not None else "multi_methods"}' with case: {case.get('test_case_key', f"{case['cid']}")}")
         
+        # 提取输入
         input_val = case['input']
-        if exchange is None:
-            # 获取函数参数签名
-            sig = inspect.signature(the_fun)
-            
-            assert isinstance(input_val,dict)
-            
-            _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
-
-            format_input = {
-                key:_exchange_DIY_types(
-                        the_fun,
-                        sig.parameters[key].annotation,
-                        value,
-                        f"参数 {key}"
-                        )
-                for key,value in input_val.items()
-            }            
-        else:
-            
-            _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
-
-            format_input = exchange(input_val)
+        # 记录输入到 log
+        _add_log(f">>> INPUT\n{_compacted_json.dumps(input_val, indent=2)}")
 
         # 保存原始 stdout
         original_stdout = sys.stdout
@@ -175,7 +163,8 @@ def _execute_dict_case(
         captured_output = io.StringIO()
         # 重定向 stdout
         sys.stdout = captured_output
-        output = the_fun(**format_input)
+        # 执行方法并返回结果
+        output_val = caller(instance,main_method,input_val)
 
         # 恢复 stdout
         sys.stdout = original_stdout
@@ -185,9 +174,10 @@ def _execute_dict_case(
             _add_log(f">>> PRINT OUTPUT:\n{print_content}")
 
         # 将其转化为 LeetCode 的通用的输出类型（原生 JSON 的输入类型）
-        output = parse_output_to_standard(output)
+        output:_STANDARD_TYPE = parse_output_to_standard(output_val)
         
         elapsed = time.perf_counter() - time.perf_counter()
+        # 记录结果
         result_dict['output'] = output
         result_dict['elapsed'] = elapsed
         _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compacted_json.dumps(output, indent=2)}")
@@ -208,7 +198,8 @@ def _execute_dict_case(
 def _execute_in_interpreter_worker(
     interpreter_id: int,
     source_code_lst: List[Optional[str]],
-    method_name:str,
+    method_name:Optional[str],
+    caller_name:str,
     group_queue: interpreters.Queue,
     output_queue: interpreters.Queue,
     early_stop_queue: interpreters.Queue,
@@ -224,6 +215,9 @@ def _execute_in_interpreter_worker(
         print(f"线程{interpreter_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 
+    # 记录线程执行时间以统计加速比
+    start_time = time.time()
+
     # 创建子解释器的环境模块
     module = _create_solution_module(source_code_lst)
 
@@ -232,23 +226,21 @@ def _execute_in_interpreter_worker(
 
     # 创建 Solution 实例和方法
     instance = module.__dict__['Solution']()
-    the_fun = getattr(instance,method_name)
-    if _EXCHANGE_FUN_NAME in  module.__dict__:
-        _exchange = module.__dict__[_EXCHANGE_FUN_NAME]
-        assert callable(_exchange) and (inspect.isfunction(_exchange) or inspect.ismethod(_exchange)), f"环境中定义了非法的 {_EXCHANGE_FUN_NAME} 变量，该变量固定为输入转换函数，不可为其他用途。"
-    else:
-        _exchange = None
+    # 读取 caller 方法（默认定义在 args_parser_caller.py 中，已由 source_code_lst 读取）
+    assert 'caller_name' in module.__dict__,f"ERROR in _execute_in_interpreter_worker:source_code_lst 中未定义 {caller_name} 方法。"
+    caller:_EXECUTE_CALLER = module.__dict__['caller_name']
     
-    start_time = time.time()
-    process_case_num = 0
-
     if __DEBUG__:
         print(f"\n线程{interpreter_id}：成功创建 Solution 实例和方法。",end="")
     
+    process_case_num = 0
+
     try:
         while early_stop_queue.empty():
             try:
-                group_id, cases = group_queue.get_nowait()
+                qval = group_queue.get_nowait()
+                assert isinstance(qval,tuple),f"Queue value of group_queue must be a tuple. Value received:{qval}"
+                group_id, cases = qval
             except interpreters.QueueEmpty:
                 if group_queue.empty():
                     break
@@ -259,7 +251,7 @@ def _execute_in_interpreter_worker(
             wrong_count = 0
             
             for case in cases:
-                result,log_lines = _execute_single_case(the_fun,case,_exchange)
+                result,log_lines = _execute_dict_case(caller,instance,method_name,case)
 
                 if 'error' in result:
                     error_log_path = _log_result(result,log_lines,"ERROR_",log_path)
@@ -380,7 +372,7 @@ class SolutionRunner:
     def read_test_case(
         self,
         path_list: Union[os.PathLike, List[os.PathLike]] = []
-    ) -> List[_CASE_TYPE]:
+    ) -> List[_BASE_CASE]:
         """读取并解析测试用例文件（支持 _CASE_TYPE 格式，兼容元组和字典）"""
         _path_list = path_list if isinstance(path_list, list) else [path_list]
         if 0 == len(_path_list):
@@ -395,7 +387,7 @@ class SolutionRunner:
         global_is_KWARGS = False
         
         # ========== 定义在循环外，file_path 作为参数传入 ==========
-        def _format_input(case: _CASE_TYPE, file_path: Path, i: int) -> _CASE_TYPE:
+        def _format_input(case: _BASE_CASE, file_path: Path, i: int) -> _BASE_CASE:
             nonlocal global_is_ARGS, global_is_KWARGS
             # JSON 必须是标准格式（含"input"键）
             assert isinstance(case, dict) and 'input' in case, '格式非法，JSON 样例文件不含"input"键。'
@@ -432,38 +424,54 @@ class SolutionRunner:
                 try:
                     parsed_list = parse_test_cases(file_path)
                     for i, item in enumerate(parsed_list):
-                        if isinstance(item, dict) and 'input' in item:
-                            test_cases.append(_format_input(item, file_path, i))
-                        else:
-                            test_cases.append(_format_input({'input': item}, file_path, i))
+                        assert isinstance(item, dict) and 'input' in item
+                        test_cases.append(_format_input(_BASE_CASE(**item,cid=i), file_path, i))
                 except Exception as e:
                     raise RuntimeError(f"解析测试文件失败：{file_path}") from e
         
         return test_cases
 
+    
+
+    @classmethod
+    def _check_cases_is_kwargs(cls, case:Any)->bool:
+        if not isinstance(case, dict):
+            raise ValueError(f"测试用例 {case['cid']} 必须至少含有 'input' 键的字典类型")
+        if 'input' not in case:
+            raise ValueError(f"测试用例 {case['cid']} 缺少 'input' 键")
+        if isinstance(case['input'], dict):
+            return True
+        elif isinstance(case['input'], tuple):
+            return False
+        else:
+            raise ValueError(f"测试用例 {case['cid']} 的 'input' 必须是字典或元组")
+
     def run(
         self,
-        test_cases: List[_EXPECTED_CASE],  # 严格要求是 List[CASE_TYPE]
+        test_cases: List[_BASE_CASE],  # 严格要求是 List[CASE_TYPE]
         log_wrong: bool = True,        # 默认记录错误的测试样例
         log_folder: Optional[str] = None,
         early_stop: Optional[Union[int, float]] = None,
         skip_error = False,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
-        summary: bool = False,
-        check_cases_format = True
-    ) -> List[_EXPECTED_CASE]:
+        summary: bool = False
+    ) -> List[_RESULT_CASE]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
-        if check_cases_format:
-            assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
-            for case in test_cases:
-                if not isinstance(case, dict):
-                    raise ValueError(f"测试用例 {case['cid']} 必须至少含有 'input' 键的字典类型")
-                if 'input' not in case:
-                    raise ValueError(f"测试用例 {case['cid']} 缺少 'input' 键")
-                if not isinstance(case['input'], (dict, tuple)):
-                    raise ValueError(f"测试用例 {case['cid']} 的 'input' 必须是字典或元组")
+        assert isinstance(test_cases, list), "test_cases 必需是 list 类型"
+        if 0 == len(test_cases): 
+            Warning("SolutionRunner.run：test_cases 为空列表，无需执行。")
+            return []
+        case = test_cases[0]
+        if self._check_cases_is_kwargs(test_cases[0]):
+            caller:_EXECUTE_CALLER = main_caller_kwargs
+        else:
+            caller:_EXECUTE_CALLER = main_caller_args
+
+        if __DEBUG__: # 检查所有对象
+            for case in test_cases[1:]: 
+                self._check_cases_is_kwargs(case)
             
         # 日志路径
         log_path = self.relPath / (self.file_name if log_folder is None else log_folder)
@@ -484,9 +492,10 @@ class SolutionRunner:
                 if self.main_method is not None:
                     # 执行单用例（核心封装，便于多进程改造）
                     result, log_lines = _execute_dict_case(
-                        getattr(self.instance, self.main_method),
-                        case=case,
-                        exchange=self.solution_module.__dict__[_EXCHANGE_FUN_NAME]
+                        caller,
+                        self.instance,
+                        self.main_method,
+                        case
                     )
                 else:
                     raise Exception("暂不支持无 self.main_method 的情况")
