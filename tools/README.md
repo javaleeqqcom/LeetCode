@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.4.9
+- 版本：0.4.10
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -248,6 +248,7 @@ results = optimized.run(cases, log_suffix="_optimized")
    - 保持对 kwargs 格式的调用支持，但通过 AI prompt 优化，使 AI 生成的测试用例格式更规范
    - 优化 `solution_runner.py`，使其更清晰地处理输入格式，减少对 AI prompt 的依赖
    - 现在先完善唯一非魔术方法的测试用例生成，后续再处理 Solution 中有多个方法的情况
+   - args_parser.py 中的自定义类方法有死循环的风险，必须完善。如链表成环、树有环等，需增加环路检测。
    - 
 2. **自动向AI提问**
    - 注意：提问的范围仅限于测试学生的代码是否正确

@@ -1,5 +1,5 @@
 
-from tools.args_parser import ListNode,List2ListNode,index_ListNode,ListNode2List,ListNode_flatten
+from tools.args_parser import ListNode,ListNodeKit
 def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     # 将测试用例 (head_list, pos) 转换为 Solution.detectCycle 所需的参数。
     # bind_func 返回的节点需要转化为位置值，-1 表示无环。
@@ -14,7 +14,7 @@ def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
         return -1
 
     # 构造所有节点并排列为list（尽量利用 args_parser.py 已有函数简化设计）
-    nodes = ListNode_flatten(List2ListNode(head_list),len(head_list))
+    nodes,_ = ListNodeKit.flatten(ListNodeKit.List2ListNode(head_list))
 
     # 根据 pos 设置环
     if pos != -1: # 有环
@@ -24,7 +24,8 @@ def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     circle = bind_func(nodes[0])
 
     # 检查学生是否改变链表结构
-    assert ListNode_flatten(nodes[0],len(head_list)) == nodes
+    after = ListNodeKit.flatten(nodes[0])
+    assert after[0] == nodes and after[1] == pos
 
     # 计算环的相对位置
     if circle is None:

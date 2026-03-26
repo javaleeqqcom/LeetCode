@@ -1,2 +1,4 @@
-a = (("name1",int,"name3",str),("name2",float))
-b= {a:4}
+
+for i in range(-1):
+    print(i)
+print("OK")
