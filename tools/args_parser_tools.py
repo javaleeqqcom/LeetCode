@@ -207,6 +207,14 @@ class ListNodeKit(Generic[T_NEXT]):
             cur = cur.next
         return cur
 
+    def __eq__(self, other: Any) -> bool:
+        """支持与ListNode或ListNodeKit的比较，使用ID比较确保正确性"""
+        if isinstance(other, ListNodeKit):
+            return id(self._node) == id(other._node)
+        else:
+            return id(self._node) == id(other)
+        return False
+
 # 用于 TreeNodeKit（但需要保留一定的泛用性）
 # class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
 #     def __init__(self, root: T) -> None:
