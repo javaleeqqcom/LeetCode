@@ -122,23 +122,23 @@ class SafeFlatten(Generic[T]):
         """子类必须实现：返回下一个节点（类型必须为 Optional[T]）"""
         raise NotImplementedError
     
-class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
-    def __init__(self, root: T) -> None:
-        super().__init__()
-        self.node_queue = deque([root])
+# class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
+#     def __init__(self, root: T) -> None:
+#         super().__init__()
+#         self.node_queue = deque([root])
 
-    @classmethod
-    def _push_queue(cls, queue: Deque[T],node:T):
-        """子类必须实现：将 node 的子节点加入队"""
-        # 如 if node.left: queue.append(node.left)
-        raise NotImplementedError
+#     @classmethod
+#     def _push_queue(cls, queue: Deque[T],node:T):
+#         """子类必须实现：将 node 的子节点加入队"""
+#         # 如 if node.left: queue.append(node.left)
+#         raise NotImplementedError
 
-    @classmethod
-    def _get_next(cls, queue: Deque[T]) -> Optional[Deque[T]]:
-        if queue:
-            cur = queue.popleft()
-            if cur is not None:
-                cls._push_queue(queue,cur)
-            return queue
-        else:
-            return None
+#     @classmethod
+#     def _get_next(cls, queue: Deque[T]) -> Optional[Deque[T]]:
+#         if queue:
+#             cur = queue.popleft()
+#             if cur is not None:
+#                 cls._push_queue(queue,cur)
+#             return queue
+#         else:
+#             return None
