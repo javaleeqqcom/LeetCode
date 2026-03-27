@@ -1,5 +1,5 @@
-try:from args_parser import *
-except:None
+try: from args_parser import *; DEBUG=True
+except: DEBUG = False
 import os,sys
 print(f"当前工作目录：{os.getcwd()}")
       
@@ -48,10 +48,11 @@ else:
         暴力算法.save_test_cases(cases , cases_path)
 
 print("expected_results[0]=", cases[0])
+print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "bt0.py")
+改进算法 = SolutionRunner(问题目录 / "w2.py")
 
 # 多线程
 print("=== 多线程 ===")
-print(f"是否有 custom_caller ：{改进算法.has_custom_caller}")
+print(f"改进算法 是否有 custom_caller ：{改进算法.has_custom_caller}")
 results_multi = 改进算法.run(cases, thread=4, timeout_s=60,summary=True)

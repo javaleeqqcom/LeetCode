@@ -519,6 +519,10 @@ class SolutionRunner:
             
             if self.has_custom_caller:
                 caller = self.solution_module.__dict__[_CUSTOM_CALLER_NAME]
+
+                if __DEBUG__:
+                    print(f"调用了 {_CUSTOM_CALLER_NAME}")
+
             if self._check_cases_is_kwargs(test_cases[0]):
                 caller:_EXECUTE_CALLER = main_caller_kwargs
             else:
@@ -572,6 +576,9 @@ class SolutionRunner:
             # 分割测试用例到队列
             groups_num = _geom_queue_generator(test_cases, group_queue, rate=1.0/thread)
             
+            if __DEBUG__:
+                print(f"多线程caller = {caller_name}")
+
             with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
                 futures_list:List[futures.Future] = []
                 for i in range(thread):

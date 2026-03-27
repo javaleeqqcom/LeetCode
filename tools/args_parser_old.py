@@ -1,9 +1,9 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
-    from tools.args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKit # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,SafeIterator,SafeFlatten # 此部分代表过于冗长故放在 args_parser_tools
 except:
-    from args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKit # 此部分代表过于冗长故放在 args_parser_tools
+    from args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,SafeIterator,SafeFlatten # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -38,6 +38,44 @@ class ListNode:
         self.val = val
         self.next = next
 
+class ListNodeKit(SafeFlatten[ListNode]):
+    """安全遍历链表的工具，不修改 ListNode 基础类"""
+    @classmethod
+    def _get_next(cls, node: ListNode) -> Optional[ListNode]:
+        return node.next
+    
+    def __init__(self,head) -> None:
+        self.head = head
+
+    def __repr__(self)->str:
+        """安全打印链表，自动标记环（> 和 ^）"""
+        nodes, circle_index = self.flatten(self.head)
+        
+        # 先序列化环之前的节点（circle_index==-1时会返回空列表）
+        str_lst = [_formated_string(nodes[i].val) for i in range(circle_index)]
+
+        # 有环
+        if circle_index != -1:
+            str_lst.append(">")
+
+        # 序列化环之后的节点
+        str_lst += [_formated_string(nodes[i].val) for i in range(circle_index,len(nodes))]
+        
+        # 有环
+        if circle_index != -1:
+            str_lst.append("^")
+
+        return "<ListNode>:[" + ",".join(str_lst) + "]"
+    
+    # 方便编程进行的索引操作
+    def __getitem__(self, i:int)->Optional[ListNode]:
+        cur = self.head
+        while i>0:
+            assert isinstance(cur,ListNode),f"ListNode[{i}] is out of range!"
+            i -= 1
+            cur = cur.next
+        return cur
+    
 # ====== 转换函数 ======
 def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
     head = ListNode(lst[0])
@@ -49,7 +87,7 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
-    nodes,circle = ListNodeKit(node).flatten()
+    nodes,circle = ListNodeKit.flatten(node)
     assert circle != -1, "参数 ListNode 代表的链表有环！"
     return [node.val for node in nodes]
 

@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable
+from collections import deque
 
 def _is_standard_type(sig_type) -> bool:
     """
@@ -93,58 +94,146 @@ def _formated_string(val):
         return str(val)
 
 T = TypeVar("T") # 泛型变量
-class SafeIterator(Generic[T]):
-    """通用环检测迭代器，适配链表/树的遍历"""
-    def __init__(self, start_node: T, max_cnt: int = 10**8):
-        self.seen = set()
-        self.current: Optional[T] = start_node
-        self.max_cnt = max_cnt
-        self.count = 0
+ITER_TYPE = TypeVar("ITER_TYPE", bound=Iterable) # 可迭代对象类型变量
 
-    def __iter__(self) -> Iterator[T]:
-        return self
-
-    def __next__(self) -> T:
-        if self.current is None or self.count >= self.max_cnt:
-            raise StopIteration
-        
-        # 检测环（关键！）
-        if id(self.current) in self.seen:
-            raise StopIteration("环检测：已访问过此节点")
-        
-        self.seen.add(id(self.current))
-        node = self.current
-        self.current = self._get_next(node)  # 由子类实现
-        self.count += 1
-        return node
-
-    def _get_next(self, node: T) -> Optional[T]:
-        """子类必须实现：返回下一个节点（类型必须为 Optional[T]）"""
-        raise NotImplementedError
-    
-class SafeFlatten(Generic[T]):
+class SafeFlatten(Generic[T,ITER_TYPE]):
     """安全地扁平化一个可迭代对象，自动环检测，避免成环死循环。
     返回格式: (节点列表, 环节点索引)
     """
     @classmethod
-    def flatten(cls, node: Optional[T]) -> Tuple[List[T], int]:
-        """扁平化节点结构，返回节点列表和环索引（-1表示无环）"""
+    def flatten(cls, iter:ITER_TYPE) -> Tuple[List[T], int]:
+        """
+        扁平化节点结构，返回节点列表和环索引（-1表示无环）
+        节点需要通过 iter 构造成可迭代对象
+        """
         seen = {}  # 存储节点id -> 索引
         res = []
-        current = node
         
-        while current is not None:
-            node_id = id(current)
+        for cur in iter:
+            node_id = id(cur)
             if node_id in seen:
                 return res, seen[node_id]  # 返回当前列表和环开始索引
             
             seen[node_id] = len(res)
-            res.append(current)
-            current = cls._get_next(current)
+            res.append(cur)
         
         return res, -1
+    
+# 待修订，用于 ListNodeKit
+class IterNext(Generic[T]):
+    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
+    def __init__(self, head: T):
+        """初始化迭代器，从指定节点开始"""
+        self.link = head
+    
+    def __next__(self) -> T:
+        """返回当前节点并移动到下一个节点"""
+        if self.link is None:
+            raise StopIteration
+        node = self.link
+        self.link = node.next  # 移动到下一个节点
+        return node
+    
+    def __iter__(self) -> 'IterNext[T]':
+        """返回自身，使对象可迭代"""
+        return self
+    
+from typing import Optional, List, Tuple, TypeVar, Generic, Any, Protocol, runtime_checkable
 
-    @classmethod
-    def _get_next(cls, node: T) -> Optional[T]:
-        """子类必须实现：返回下一个节点（类型必须为 Optional[T]）"""
-        raise NotImplementedError
+@runtime_checkable
+class HasNext(Protocol):
+    next: Optional[Any]
+    val: Any
+
+# 定义支持 .next 属性的协议（泛型约束）
+T_NEXT = TypeVar("T_NEXT",bound=HasNext)
+
+class ListNodeKit(Generic[T_NEXT]):
+    """
+    链表调试增强工具。
+    用法: link = ListNodeKit(head_node)
+    """
+    def __init__(self, node: T_NEXT):
+        if node is None:
+            raise ValueError("Cannot wrap None as ListNodeKit")
+        
+        # 核心黑魔法：直接修改实例类型，使其具备 ListNodeKit 的方法
+        # 这样 link.next 访问到的依然是原始内存地址，但类型已变
+        if not isinstance(node, ListNodeKit):
+            node.__class__ = type(
+                f"ListNodeKit_{type(node).__name__}", 
+                (ListNodeKit, type(node)), 
+                {}
+            )
+        self._origin = node # 保留引用（虽然 self 已经是该 node 了）
+
+    @property
+    def next(self) -> Optional['ListNodeKit[T_NEXT]']:
+        """劫持 next 属性，实现递归包装"""
+        # 获取原始对象的 next 属性
+        nxt = super().__getattribute__('next')
+        if nxt is None:
+            return None
+        return ListNodeKit(nxt)
+
+    def flatten(self) -> Tuple[List[T_NEXT], int]:
+        """复用你的 SafeFlatten 逻辑"""
+        # 注意：这里 self 已经是一个可迭代的起点
+        it = IterNext[T_NEXT](self) 
+        return SafeFlatten[T_NEXT, IterNext[T_NEXT]].flatten(it)
+
+    def __getitem__(self, i: int) -> 'ListNodeKit[T_NEXT]':
+        """支持索引访问，如 link[5]"""
+        cur = self
+        for _ in range(i):
+            cur = cur.next
+            if cur is None:
+                raise IndexError("Link list index out of range")
+        return cur
+
+    def __repr__(self) -> str:
+        """安全打印逻辑"""
+        try:
+            nodes, circle_index = self.flatten()
+            
+            def _fmt(n): 
+                val = getattr(n, 'val', '?')
+                return f"{val}"
+
+            if circle_index == -1:
+                # 无环: [1, 2, 3]
+                str_lst = [_fmt(n) for n in nodes]
+            else:
+                # 有环: [1, >, 2, 3, ^] 表示 2,3 成环
+                before = [_fmt(nodes[i]) for i in range(circle_index)]
+                after = [_fmt(nodes[i]) for i in range(circle_index, len(nodes))]
+                str_lst = before + [">"] + after + ["^"]
+                
+            return f"<{type(self._origin).__name__}Kit>:[{' -> '.join(str_lst)}]"
+        except Exception as e:
+            return f"<ListNodeKit Error: {e}>"
+
+    def __call__(self):
+        """兼容 link.next() 写法"""
+        return self
+
+
+# 用于 TreeNodeKit（但需要保留一定的泛用性）
+# class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
+#     def __init__(self, root: T) -> None:
+#         super().__init__()
+#         self.node_queue = deque([root])
+
+#     def __next__(self):
+#         """子类可以修改：将 node 的子节点加入队"""
+#         if self.node_queue:
+#             node = self.node_queue.popleft()
+#             if node:
+#                 yield node
+#                 if node.left:
+#                     self.node_queue.append(node.left)
+#                 if node.right:
+#                     ...
+    
+#     def __iter__(self):
+#         ...
