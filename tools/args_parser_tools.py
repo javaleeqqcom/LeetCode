@@ -165,13 +165,24 @@ class ListNodeKit(Generic[T_NEXT]):
             return ListNodeKit(self._node.next)  # 返回ListNodeKit代理
         return getattr(self._node, name)
 
+    # def flatten(self) -> Tuple[List[T_NEXT], int]:
+    #     """安全扁平化链表，返回节点列表和环索引"""
+    #     if self._node is None: # "标记1"
+    #         return [], -1
+    #     # 使用迭代器遍历ListNodeKit对象
+    #     it = IterNext[ListNodeKit[T_NEXT]](self)
+    #     Node_List, circle_index =  SafeFlatten[ListNodeKit[T_NEXT], IterNext[ListNodeKit[T_NEXT]]].flatten(it)
+    #     return [node._node for node in Node_List],circle_index # 当取消注释时会报错
+    #     # return Node_List,circle_index
+
     def flatten(self) -> Tuple[List[T_NEXT], int]:
-        """安全扁平化链表，返回节点列表和环索引"""
-        if self._node is None and "标记1":
+        assert hasattr(self,"_node") ,f"ListNodeKit.flatten(self) ,其中 self._node 未定义, 实际 type(self) = {type(self)}"
+        if self._node is None: # 标记2
             return [], -1
-        # 使用迭代器遍历ListNodeKit对象
-        it = IterNext[ListNodeKit[T_NEXT]](self)
-        return SafeFlatten[T_NEXT, IterNext[ListNodeKit[T_NEXT]]].flatten(it)
+        it = IterNext[T_NEXT](self._node)  # 👈 从原始节点开始
+        Node_List, circle_index = SafeFlatten[T_NEXT, IterNext[T_NEXT]].flatten(it)
+
+        return Node_List, circle_index
 
     def __repr__(self) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
