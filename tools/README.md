@@ -34,11 +34,36 @@
 - 使用 `ast.literal_eval` 安全解析嵌套结构
 - ⚠️ 学生不可修改（调试完成后建议设为只读）
 
-### 🧱 `tools/custom_init.py`
-👉 定义 LeetCode 标准数据结构
-- `ListNode` / `TreeNode`：带友好 `__repr__`（打印链表/树结构）
+
+
+### 🧱 `tools/args_parser.py`
+👉 定义 LeetCode 标准数据结构及链表安全工具类
+- `ListNode` / `TreeNode`：带友好 `__repr__`（打印链表/树结构，自动处理环路）
 - `input_parser_registry`：注册类型转换器（如 `(ListNode, list) → List2ListNode`）
 - 预导入常用类型：`Optional`, `List`, `Dict`
+- 在 `args_parser_tools` 模块中提供了 **`ListNodeKit`** 链表安全增强工具类
+
+#### ListNodeKit
+- **安全扁平化**：自动检测环路（返回节点列表和环起始索引，-1表示无环）
+- **死循环防护**：处理带环链表时能自动检测首个成环节点并终止迭代，避免死循环
+- **篡改验证**：通过 `flatten()` 方法验证学生代码是否修改链表结构
+- **可视化打印**：`to_string()` 安全打印链表，若链表有环，则以 `>` 表示环起点，结尾 `^` 表示最后一个节点后继到环起点。
+- **便捷操作**：支持 `ListNodeKit(head)[index]` 索引访问，简化测试用例验证
+
+```python
+# 使用示例
+head = List2ListNode([1,2,3,4,5])
+ListNodeKit(head)[4].next = head  # 创建环
+
+# 安全检测
+nodes, cycle_idx = ListNodeKit(head).flatten()
+assert cycle_idx == 0  # 环起点在索引0
+
+# 验证链表未被篡改
+student_result = solve(head)
+after_nodes, _ = ListNodeKit(student_result).flatten()
+assert after_nodes == nodes  # 确保学生未修改链表结构
+```
 
 ### `tools/compacted_json.py`
 用于将 JSON 数据进行压缩，减少文件大小。

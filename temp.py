@@ -1,24 +1,12 @@
+from tools.args_parser import *
+head = List2ListNode([1,2,3,4,5])
+ListNodeKit(head)[4].next = head  # 创建环
 
-    def __repr__(self) -> str:
-        """安全打印链表，自动标记环（> 和 ^）"""
-        nodes, circle_index = self.flatten()
-        str_lst = []
-        
-        # 环之前的节点
-        for i in range(circle_index):
-            str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
-        
-        # 有环标记
-        if circle_index != -1:
-            str_lst.append(">")
-        
-        # 环之后的节点
-        for i in range(circle_index, len(nodes)):
-            str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
-        
-        # 环结束标记
-        if circle_index != -1:
-            str_lst.append("^")
-        
-        return f"<ListNodeKit>:[{','.join(str_lst)}]"
-    
+# 安全检测
+nodes, cycle_idx = ListNodeKit(head).flatten()
+assert cycle_idx == 0  # 环起点在索引0
+
+# 验证链表未被篡改
+student_result = solve(head)
+after_nodes, _ = ListNodeKit(student_result).flatten()
+assert after_nodes == nodes  # 确保学生未修改链表结构

@@ -165,6 +165,16 @@ class ListNodeKit(Generic[T_NEXT]):
                 return None
             return ListNodeKit(self._node.next)  # 返回ListNodeKit代理
         return getattr(self._node, name)
+    
+    def __setattr__(self, name: str, value: Any) -> None:
+        return super().__setattr__(name, value)
+
+    @property
+    def next(self) -> Optional['ListNodeKit[T_NEXT]']:
+        assert self._node is not None, "next 属性只能在非空节点上调用。"
+        if self._node.next is None:
+            return None
+        return ListNodeKit(self._node.next)  # 返回ListNodeKit代理
 
     def flatten(self:Optional[Union[ListNodeKit[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
         """
