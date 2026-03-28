@@ -8,6 +8,9 @@ def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     assert isinstance(pos,int) and -1<=pos<len(head_list), "args[1] 必须是 int，且在有效范围内"
 
     print("调用了 custom_caller !!!")
+    # 特殊测试
+    assert ListNodeKit(None)._node is None , "ListNodeKit(None)._node is None"
+    assert False == bool(ListNodeKit(None)), "False == bool(ListNodeKit(None))"
 
     # 空链表
     if not head_list:

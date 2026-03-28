@@ -149,15 +149,14 @@ class IterNext(Generic[T_NEXT]):
         return self
     
 class ListNodeKit(Generic[T_NEXT]):
-    """
-    链表调试增强工具，使用代理模式（安全实现）
-    用法: link = ListNodeKit(head_node)
-    """
+    """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
     def __init__(self, node: Optional[T_NEXT], prep_property: str = "val"):
-        self._node = node  # 保留原始节点，不修改原始对象
+        # 使用 object.__setattr__ 避免触发 __setattr__，防止无限递归
+        object.__setattr__(self, '_node', node)
+        # 保留原始节点，不修改原始对象
         if node is not None:
             assert hasattr(node, prep_property), f"ListNodeKit 的 node 参数对象非空，但缺少属性 {prep_property} （其通过 prep_property 参数设置）"
-            self._prep_property = prep_property
+        object.__setattr__(self, '_prep_property', prep_property)
 
     def __getattr__(self, name: str) -> Any:
         """代理属性访问，使next属性返回ListNodeKit"""
@@ -168,52 +167,35 @@ class ListNodeKit(Generic[T_NEXT]):
             if self._node.next is None:
                 return None
             return ListNodeKit(self._node.next)
-        # elif name != "_node" and name != "_prep_property":
-            # 映射到 _node
-        elif name == "_node":
-            if __DEBUG__:
-                print(f"__getattr__({name}).val = {self._node.val}")
+        # 关键修复：安全访问内部属性（避免递归）
+        if name in ('_node', '_prep_property'):
+            return object.__getattribute__(self, name)
+        # 对于其他属性，直接映射到 _node
+        return getattr(self._node, name)
 
-            return self._node  # 直接返回内部属性，避免递归
-        elif name == "_prep_property":
-            return self._prep_property  # 直接返回内部属性，避免递归
-        else:
-            return getattr(self._node, name)
-    
     def __setattr__(self, name: str, value: Any) -> None:
         if name == 'next':
             if self._node is None:
                 raise AttributeError("Cannot set next on a None node")
-            
             # 类型转换：将 ListNodeKit 转换为原始 ListNode
             if isinstance(value, ListNodeKit):
-                value = value._node # 标记5
-
+                value = value._node
             # 类型验证：确保 value 是 ListNode 或 None
             if value is not None and not isinstance(value, self._node.__class__):
                 raise TypeError(
                     f"Expected {self._node.__class__.__name__} or None, got {type(value)}"
                 )
-            
             self._node.next = value
+        elif name in ('_node', '_prep_property'):
+            # 使用 object.__setattr__ 设置内部属性，避免触发 __setattr__ 本身
+            object.__setattr__(self, name, value)
+        else:
+            # 对于其他属性，设置到 _node
+            setattr(self._node, name, value)
 
-        elif name == "_node":
-            self._node = value # 标记4
-        elif name == "_prep_property":
-            # 不能修改 _prep_property
-            raise AttributeError("Cannot set _prep_property")
-        else: 
-        # elif name != "_node" and name != "_prep_property":
-            setattr(self._node, name ,value)
-    
     def __bool__(self):
         return self._node is not None
     
-    # 定义这个是不是能测试 ListNodeKit is None ？
-    def __isub__(self, other):
-        if other is None:
-            return self._node is None
-
     def flatten(self:Optional[Union[ListNodeKit[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
         """
         1. 实例调用：kit.flatten() -> arg 为 kit 实例
@@ -272,14 +254,14 @@ class ListNodeKit(Generic[T_NEXT]):
             cur = cur.next
         return cur
     
-# class ListNodeKitDecorator(Generic[T_NEXT]):
-#     要实现增加如下功能到被装饰的符合 T_NEXT 定义的类的装饰器：
-#     - next 读写与基类 T_NEXT 互通；
-#     - flatten
-#     - to_string
-#     - __repr__
-#     - __getitem__
+原 ListNodeKit 去掉 __repr__ 方法
 
+def ListNodePrepDecorator(prep_property:str = "val"):
+    - __repr__
+
+@ListNodeKitDecorator("val")
+class ListNodeKit2:
+    pass
 
 # 用于 TreeNodeKit（但需要保留一定的泛用性）
 # class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
