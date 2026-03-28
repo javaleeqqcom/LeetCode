@@ -2,15 +2,13 @@ from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_h
 
 from collections import deque
 
-__DEBUG__ = True
-
-def _is_standard_type(sig_type) -> bool:
+def _is_base_type(sig_type) -> bool:
     """
-    判断类型是否属于 _STANDARD_TYPE 范畴
-    _STANDARD_TYPE = Union[
+    判断类型是否属于 _BASE_TYPE 范畴
+    _BASE_TYPE = Union[
         _BASE_TYPE,  # int, float, bool, None, str
-        List["_STANDARD_TYPE"], 
-        Dict[Union[str, int], "_STANDARD_TYPE"]
+        List["_BASE_TYPE"], 
+        Dict[Union[str, int], "_BASE_TYPE"]
     ]
     """
     # 处理 Optional/Union 类型
@@ -21,7 +19,7 @@ def _is_standard_type(sig_type) -> bool:
         # 过滤掉 NoneType，检查所有非 None 类型
         non_none_args = [arg for arg in args if arg is not type(None)]
         # 所有非 None 类型都必须是标准类型
-        return all(_is_standard_type(arg) for arg in non_none_args)
+        return all(_is_base_type(arg) for arg in non_none_args)
     
     # 基础类型检查
     if sig_type in (int, float, bool, str, type(None)):
@@ -33,7 +31,7 @@ def _is_standard_type(sig_type) -> bool:
         if not args:  # 裸 list
             return True
         # 检查元素类型
-        return all(_is_standard_type(arg) for arg in args)
+        return all(_is_base_type(arg) for arg in args)
     
     # Dict 类型检查
     if origin is dict or sig_type is dict:
@@ -43,7 +41,7 @@ def _is_standard_type(sig_type) -> bool:
         # 检查键类型（必须是 str 或 int）和值类型
         key_type, value_type = args[0], args[1] if len(args) > 1 else Any
         key_ok = key_type in (str, int) or get_origin(key_type) is Union
-        value_ok = _is_standard_type(value_type)
+        value_ok = _is_base_type(value_type)
         return key_ok and value_ok
     
     # 其他类型（如 ListNode, TreeNode 等自定义类型）
@@ -250,12 +248,12 @@ class ListNodeKitBase(Generic[T_NEXT]):
             
         return id(self._node) == id(other_node)
 
-def ListNodeKitDecorator(prep_property: str = "val"):
+def ReprDecorator(prep_property: str = "val"):
     """
-    类装饰器：为 ListNodeKit 注入指定的打印属性
+    类装饰器：为 ToStringClass 注入指定的打印属性，调用 to_string(self,prep_property) 实现默认打印行为。
     用法: 
-    @ListNodeKitDecorator("value")
-    class MyListNodeKit(ListNodeKit): pass
+    @ReprDecorator("value")
+    class HasReprClass(ToStringClass): pass
     """
     def wrapper(cls):
         # 在被装饰的类中定义 __repr__，利用闭包捕获 prep_property

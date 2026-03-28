@@ -2,7 +2,7 @@
 from tools.args_parser_tools import *
 from tools.args_parser import *
 
-@ListNodeKitDecorator(prep_property="val")
+@ReprDecorator(prep_property="val")
 class ListNodeKit(ListNode):
     pass
 

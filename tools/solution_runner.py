@@ -37,7 +37,7 @@ if __DEBUG__:
 
 # 直接导入，无需 try-except
 from tools.examples_parser import parse_test_cases
-from tools.args_parser import _BASE_TYPE,_PARAMS,_CASE,_EXECUTE_CALLER,_is_standard_type,parse_output_to_standard
+from tools.args_parser import _BASE_TYPE,_PARAMS,_CASE,_EXECUTE_CALLER,_is_base_type,parse_output_to_standard
 from tools.def_conversion import main_caller_args,main_caller_kwargs
 from tools.compacted_json import CompactedJson
 from tools.ai_prompts import TEST_CASE_GENERATOR,_CUSTOM_CALLER_NAME
@@ -395,7 +395,7 @@ class SolutionRunner:
             self.sig_names = list(self.sig.parameters.keys())
             self.sig_types = [v.annotation for v in self.sig.parameters.values()]
 
-            self.has_custom_type = not all(_is_standard_type(t) for t in self.sig_types)
+            self.has_custom_type = not all(_is_base_type(t) for t in self.sig_types)
 
             if __DEBUG__:
                 print(f"sig.parameters: {self.sig.parameters}")

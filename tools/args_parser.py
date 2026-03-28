@@ -1,9 +1,9 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
-    from tools.args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ListNodeKitDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
 except:
-    from args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ListNodeKitDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -46,7 +46,8 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur.next = ListNode(val)
         cur = cur.next
     return head
-@ListNodeKitDecorator(prep_property="val")
+
+@ReprDecorator(prep_property="val") # 装饰器用于实现 __repr__ 默认打印
 class ListNodeKit(ListNodeKitBase):
     """链表调试增强工具，提供安全的扁平化、环检测和打印功能。
 
@@ -348,6 +349,7 @@ def parse_output_to_standard(obj: Any, depth: int = 0) -> Any:
 def _i_pname2ErrorMsg(i_pname:Union[int,str])->str:
     if isinstance(i_pname,int): return f"第 {i_pname} 个题目参数"
     else: return f"题目参数 {i_pname}"
+    
 def parse_standard_input(value:_BASE_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:
     act_type = _extract_actual_type(sig_type.annotation)
     if act_type == value.__class__:

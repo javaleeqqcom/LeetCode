@@ -28,7 +28,7 @@ def test_listnode_kit():
     kit = ListNodeKit(n1)
     
     # 2.1 基本属性
-    print(f"   str(kit): {str(kit)}")                # [1,2,3]
+    print(f"   str(kit): {str(kit)}")                # <ListNodeKit>:[1,2,3]
     print(f"   kit.val: {kit.val}")                  # 1
     print(f"   kit.next.val: {kit.next.val}")        # 2
     print(f"   kit.next.next.val: {kit.next.next.val}")  # 3
@@ -40,7 +40,7 @@ def test_listnode_kit():
     print(f"   kit[0].val: {kit[0].val}")            # 1
     print(f"   kit[1].val: {kit[1].val}")            # 2
     print(f"   kit[2].val: {kit[2].val}")            # 3
-    # 超出长度返回空链表
+    # 长度为 n 的链表，索引第 n 个节点返回空链表
     last = kit[3]
     print(f"   kit[3] 的类型: {type(last)}, bool(last): {bool(last)}")  # ListNodeKit, False
     # 索引越界会抛出 IndexError
@@ -59,48 +59,37 @@ def test_listnode_kit():
     print(f"   bool(kit.next.next): {bool(kit.next.next)}")   # True
     print(f"   bool(kit.next.next.next): {bool(kit.next.next.next)}")  # False
     
-    # ---------- 3. 带环链表 ----------
+    # ---------- 3. 带环链表（使用示例中的构造方式）----------
     print("\n3. 带环链表测试")
-    a = ListNode(1)
+    # 使用 val 参数直接构造包装类，并手动设置 next 关系
+    ring_link = ListNodeKit(val=1)   # 包装类，内部包含一个值为 1 的节点
     b = ListNode(2)
     c = ListNode(3)
     d = ListNode(4)
-    a.next = b
+    ring_link.next = b               # 包装类的 next 映射为原生类的 next
     b.next = c
     c.next = d
-    d.next = b  # 形成环，环起点是 b (val=2)
-    ring_kit = ListNodeKit(a)
+    d.next = b                       # 形成环，环起点为 b (val=2)
     
-    # 3.1 字符串表示
-    print(f"   str(ring_kit): {str(ring_kit)}")      # 预期: [1,>2,3,4^] 或类似格式
+    # 3.1 字符串表示（应包含环标记）
+    print(f"   str(ring_link): {str(ring_link)}")    # 预期: <ListNodeKit>:[1,>,2,3,4,^]
     
     # 3.2 flatten 检测环
-    nodes, cycle_idx = ring_kit.flatten()
+    nodes, cycle_idx = ring_link.flatten()
     print(f"   flatten() 节点数: {len(nodes)}, 环起始索引: {cycle_idx}")
-    assert cycle_idx == 1  # 因为 b 是第二个节点
+    assert cycle_idx == 1  # 因为 b 是第二个节点（索引从 0 开始）
     print(f"   环起始节点值: {nodes[cycle_idx].val}")  # 2
     
-    # 3.3 索引访问（注意：环会导致无限循环，这里只访问环之前的节点）
-    print(f"   ring_kit[0].val: {ring_kit[0].val}")  # 1
-    print(f"   ring_kit[1].val: {ring_kit[1].val}")  # 2
-    # ring_kit[2] 会进入环，如果环很大可能会卡住，所以测试时跳过
+    # 3.3 索引访问（只访问环之前的节点，避免无限循环）
+    print(f"   ring_link[0].val: {ring_link[0].val}")  # 1
+    print(f"   ring_link[1].val: {ring_link[1].val}")  # 2
+    # 注意：ring_link[2] 会进入环，可能导致无限循环，此处跳过
     
     # ---------- 4. 使用 val 参数构造 ----------
     print("\n4. 使用 val 参数构造")
     kit_by_val = ListNodeKit(val=5)
-    print(f"   str(kit_by_val): {str(kit_by_val)}")  # [5]
+    print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
     print(f"   kit_by_val.node.val: {kit_by_val.node.val}")  # 5
-    
-    # ---------- 5. 装饰器自定义属性 ----------
-    # 假设有另一个节点类使用 'value' 而不是 'val'
-    class MyNode:
-        def __init__(self, value):
-            self.value = value
-            self.next = None
-    
-    # 需要创建一个装饰器，但为了演示，我们直接使用默认的 'val' 属性，这里仅示意
-    # 实际测试中如果要测试装饰器，需要重新定义 ListNodeKit 并使用不同的 prep_property
-    # 由于装饰器在类定义时已经应用，这里不重复测试
     
     print("\n所有测试完成！")
 
