@@ -2,6 +2,8 @@ from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_h
 
 from collections import deque
 
+__DEBUG__ = True
+
 def _is_standard_type(sig_type) -> bool:
     """
     判断类型是否属于 _STANDARD_TYPE 范畴
@@ -130,7 +132,7 @@ T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 # 待修订，用于 ListNodeKit
 class IterNext(Generic[T_NEXT]):
     """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
-    def __init__(self, head: T_NEXT):
+    def __init__(self, head: Optional[T_NEXT]):
         """初始化迭代器，从指定节点开始"""
         self.link = head
     
@@ -157,36 +159,60 @@ class ListNodeKit(Generic[T_NEXT]):
             assert hasattr(node, prep_property), f"ListNodeKit 的 node 参数对象非空，但缺少属性 {prep_property} （其通过 prep_property 参数设置）"
             self._prep_property = prep_property
 
-    # 修复：移除 __getattr__，改用显式属性处理
-    # 避免与 next.setter 冲突，同时解决类型检查警告
-    
-    @property
-    def next(self) -> Optional['ListNodeKit[T_NEXT]']:
-        """代理 next 属性，返回 ListNodeKit 代理"""
-        if self._node is None:
-            return None
-        if self._node.next is None:
-            return None
-        return ListNodeKit(self._node.next)
+    def __getattr__(self, name: str) -> Any:
+        """代理属性访问，使next属性返回ListNodeKit"""
+        if name == 'next':
+            """代理 next 属性，返回 ListNodeKit 代理"""
+            if self._node is None:
+                raise AttributeError("None 节点不可访问 next。")
+            if self._node.next is None:
+                return None
+            return ListNodeKit(self._node.next)
+        # elif name != "_node" and name != "_prep_property":
+            # 映射到 _node
+        elif name == "_node":
+            if __DEBUG__:
+                print(f"__getattr__({name}).val = {self._node.val}")
 
-    @next.setter
-    def next(self, value: Optional[T_NEXT]):
-        """安全设置 next 属性，自动转换类型"""
-        if self._node is None:
-            raise AttributeError("Cannot set next on a None node")
-        
-        # 类型转换：将 ListNodeKit 转换为原始 ListNode
-        if isinstance(value, ListNodeKit):
-            value = value._node
-        
-        # 类型验证：确保 value 是 ListNode 或 None
-        if value is not None and not isinstance(value, self._node.__class__):
-            raise TypeError(
-                f"Expected {self._node.__class__.__name__} or None, got {type(value)}"
-            )
-        
-        # 直接修改原始节点（不破坏封装）
-        self._node.next = value
+            return self._node  # 直接返回内部属性，避免递归
+        elif name == "_prep_property":
+            return self._prep_property  # 直接返回内部属性，避免递归
+        else:
+            return getattr(self._node, name)
+    
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == 'next':
+            if self._node is None:
+                raise AttributeError("Cannot set next on a None node")
+            
+            # 类型转换：将 ListNodeKit 转换为原始 ListNode
+            if isinstance(value, ListNodeKit):
+                value = value._node # 标记5
+
+            # 类型验证：确保 value 是 ListNode 或 None
+            if value is not None and not isinstance(value, self._node.__class__):
+                raise TypeError(
+                    f"Expected {self._node.__class__.__name__} or None, got {type(value)}"
+                )
+            
+            self._node.next = value
+
+        elif name == "_node":
+            self._node = value # 标记4
+        elif name == "_prep_property":
+            # 不能修改 _prep_property
+            raise AttributeError("Cannot set _prep_property")
+        else: 
+        # elif name != "_node" and name != "_prep_property":
+            setattr(self._node, name ,value)
+    
+    def __bool__(self):
+        return self._node is not None
+    
+    # 定义这个是不是能测试 ListNodeKit is None ？
+    def __isub__(self, other):
+        if other is None:
+            return self._node is None
 
     def flatten(self:Optional[Union[ListNodeKit[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
         """
@@ -246,13 +272,13 @@ class ListNodeKit(Generic[T_NEXT]):
             cur = cur.next
         return cur
     
-class ListNodeKitDecorator(Generic[T_NEXT]):
-    要实现增加如下功能到被装饰的符合 T_NEXT 定义的类的装饰器：
-    - next 读写与基类 T_NEXT 互通；
-    - flatten
-    - to_string
-    - __repr__
-    - __getitem__
+# class ListNodeKitDecorator(Generic[T_NEXT]):
+#     要实现增加如下功能到被装饰的符合 T_NEXT 定义的类的装饰器：
+#     - next 读写与基类 T_NEXT 互通；
+#     - flatten
+#     - to_string
+#     - __repr__
+#     - __getitem__
 
 
 # 用于 TreeNodeKit（但需要保留一定的泛用性）
