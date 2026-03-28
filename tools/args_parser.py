@@ -1,9 +1,9 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
-    from tools.args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKit # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ListNodeKitDecorator # 此部分代表过于冗长故放在 args_parser_tools
 except:
-    from args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKit # 此部分代表过于冗长故放在 args_parser_tools
+    from args_parser_tools import _is_standard_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ListNodeKitDecorator # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -47,9 +47,45 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur = cur.next
     return head
 
-# @ListNodeKitDecorator(...)
-# class ListNodeKit(ListNode):
-#     ...（这里的代码要精简）
+@ListNodeKitDecorator(prep_property="val")
+class ListNodeKit(ListNodeKitBase):
+    """链表安全调试工具，提供链表结构的增强操作，支持环检测和安全扁平化。
+    
+    用法:
+    - 创建链表工具: link = ListNodeKit(head_node)  # head_node 应为 ListNode 或 None（空链表用 None）
+      注意：谨慎使用 ListNodeKit(None) 表示空链表，它会创建一个内部 head 为 None 的对象，但不能用 link is None 进行判断，应使用 bool(link) 判定空链表为 False。
+    - 索引访问: link[index] 返回链表第 index 个节点（索引从0开始，设链表长度为n）：
+        * index=0 总是有效（返回链表头，即使链表为空）
+        * index 在 [1, n-1] 时返回有效节点（n为链表长度）
+        * index = n 时返回 ListNodeKit(None)（空节点包装）
+        * index < 0 或 index > n 时抛出 IndexError
+        * 若链表有环时，索引访问不会检查环
+    - 环检测: nodes, cycle_idx = link.flatten()
+        输入: 无
+        输出: (list, int) - 节点列表和环起始索引（-1 表示无环）
+    - 安全打印: link.to_string() 返回链表字符串表示
+        输入: 无
+        输出: str - 格式如 [1,2,3,4,5] 或 [1,2,3,4,5,>^]（> 表示环起点，^ 表示结尾）
+
+    关键注意事项:
+    1. 空链表表示: 应使用 None (head = None) 而非 ListNodeKit(None)
+       - 正确: head = None
+       - 错误: link = ListNodeKit(None)  # 会创建对象，但不是空链表表示
+    2. 空链表检查: 由于重载了 __bool__，可用 `if link:` 判断是否为空链表
+       - 示例: if link: ...  # 非空链表
+    3. 索引访问安全:
+       - 链表为空时，link[0] 返回 link 本身（不是 None，但可用 bool()判断是否为空链表）
+       - 链表非空时，索引超出范围会抛出 IndexError，避免死循环
+       - 示例: 
+         link = ListNodeKit(ListNode(1, None))  # 链表 [1]
+         link[0]  # 返回 ListNodeKit(1) 有效
+         link[1]  # 抛出 IndexError
+    4. 节点访问安全: ListNodeKit(ListNode(1, None)).next 会返回 None
+       - 不影响 while node: node = node.next 的循环
+    5. 不修改原始链表: 所有操作不会修改原始链表结构
+    6. 适用于 LeetCode 链表问题测试验证
+    """
+    pass
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
