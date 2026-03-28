@@ -156,7 +156,8 @@ class ListNodeKitBase(Generic[T_NEXT]):
 
     def __getattr__(self, name: str) -> Any:
         if name == 'next':
-            if self._node is None: return None
+            if not self: 
+                raise AttributeError(f"空链表不能使用 next 属性")
             # 关键：返回当前类的实例，保持装饰器效果延续
             return self.__class__(self._node.next)
         if name == '_node':
@@ -164,14 +165,12 @@ class ListNodeKitBase(Generic[T_NEXT]):
         return getattr(self._node, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == 'next':
-            if self._node is None: raise AttributeError("Node is None")
-            if isinstance(value, ListNodeKitBase):
-                value = value._node
-            self._node.next = value
-        elif name == '_node':
+        if name == '_node':
             object.__setattr__(self, name, value)
         else:
+            if name == 'next' and isinstance(value, ListNodeKitBase):
+                value = value._node # 是包装类，则提取其原生节点
+            # 除了 _node 都视为对原生节点的属性赋值
             setattr(self._node, name, value)
 
     def __bool__(self):
@@ -183,10 +182,17 @@ class ListNodeKitBase(Generic[T_NEXT]):
             raise IndexError("Negative index not supported")
         cur = self
         for _ in range(index):
-            if cur.next is None:
+            if cur: # 非空链表
+                cur = cur.next
+            else:
                 raise IndexError("Index out of range")
-            cur = cur.next
+            
         return cur
+    
+    # 返回原生节点
+    @property
+    def node(self)->Optional['T_NEXT']:
+        return object.__getattribute__(self, "_node")
     
     def flatten(self:Optional[Union[ListNodeKitBase[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
         """
@@ -197,11 +203,8 @@ class ListNodeKitBase(Generic[T_NEXT]):
         if isinstance(self, ListNodeKitBase):
             node = self._node
         else:
-            assert isinstance(self, HasNext), f"ListNodeKit.flatten(arg) 采用了非成员函数，然而输入的参数 arg 不是 HasNext 类型，而是 {type(self).__name__}。"
-            # 否则 arg 就是传入的 head 节点
             node = self
-        if node is None: # 标记2
-            return [], -1
+
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
         Node_List, circle_index = SafeFlatten[T_NEXT, IterNext[T_NEXT]].flatten(it)
 
@@ -210,7 +213,8 @@ class ListNodeKitBase(Generic[T_NEXT]):
     @classmethod
     def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val") -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
-        nodes, circle_index = ListNodeKitBase[T_NEXT].flatten(head)
+        nodes, circle_index = ListNodeKitBase[T_NEXT].flatten(head)        
+
         str_lst = []
         
         # 环之前的节点
@@ -222,7 +226,8 @@ class ListNodeKitBase(Generic[T_NEXT]):
             str_lst.append(">")
         
         # 环之后的节点
-        for i in range(circle_index, len(nodes)):
+        for i in range(max(0,circle_index), len(nodes)):
+            assert len(nodes)>0,"len(nodes)==0"
             str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
         # 环结束标记

@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.4.13
+- 版本：0.4.14
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -41,7 +41,8 @@
 - `ListNode` / `TreeNode`：带友好 `__repr__`（打印链表/树结构，自动处理环路）
 - `input_parser_registry`：注册类型转换器（如 `(ListNode, list) → List2ListNode`）
 - 预导入常用类型：`Optional`, `List`, `Dict`
-- 在 `args_parser_tools` 模块中提供了 **`ListNodeKit`** 链表安全增强工具类
+- 提供了 **`ListNodeKit`** 链表安全增强工具类：
+  - 是用于辅助链表调试的包装类，提供安全的扁平化、环检测和打印功能。它将原生 `ListNode` 节点包装为增强对象，保持链式操作的类型一致性。
 
 #### ListNodeKit
 - **安全扁平化**：自动检测环路（返回节点列表和环起始索引，-1表示无环）

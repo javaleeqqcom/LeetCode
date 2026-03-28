@@ -46,46 +46,88 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur.next = ListNode(val)
         cur = cur.next
     return head
-
 @ListNodeKitDecorator(prep_property="val")
 class ListNodeKit(ListNodeKitBase):
-    """链表安全调试工具，提供链表结构的增强操作，支持环检测和安全扁平化。
-    
-    用法:
-    - 创建链表工具: link = ListNodeKit(head_node)  # head_node 应为 ListNode 或 None（空链表用 None）
-      注意：谨慎使用 ListNodeKit(None) 表示空链表，它会创建一个内部 head 为 None 的对象，但不能用 link is None 进行判断，应使用 bool(link) 判定空链表为 False。
-    - 索引访问: link[index] 返回链表第 index 个节点（索引从0开始，设链表长度为n）：
-        * index=0 总是有效（返回链表头，即使链表为空）
-        * index 在 [1, n-1] 时返回有效节点（n为链表长度）
-        * index = n 时返回 ListNodeKit(None)（空节点包装）
-        * index < 0 或 index > n 时抛出 IndexError
-        * 若链表有环时，索引访问不会检查环
-    - 环检测: nodes, cycle_idx = link.flatten()
-        输入: 无
-        输出: (list, int) - 节点列表和环起始索引（-1 表示无环）
-    - 安全打印: link.to_string() 返回链表字符串表示
-        输入: 无
-        输出: str - 格式如 [1,2,3,4,5] 或 [1,2,3,4,5,>^]（> 表示环起点，^ 表示结尾）
+    """链表调试增强工具，提供安全的扁平化、环检测和打印功能。
 
-    关键注意事项:
-    1. 空链表表示: 应使用 None (head = None) 而非 ListNodeKit(None)
-       - 正确: head = None
-       - 错误: link = ListNodeKit(None)  # 会创建对象，但不是空链表表示
-    2. 空链表检查: 由于重载了 __bool__，可用 `if link:` 判断是否为空链表
-       - 示例: if link: ...  # 非空链表
-    3. 索引访问安全:
-       - 链表为空时，link[0] 返回 link 本身（不是 None，但可用 bool()判断是否为空链表）
-       - 链表非空时，索引超出范围会抛出 IndexError，避免死循环
-       - 示例: 
-         link = ListNodeKit(ListNode(1, None))  # 链表 [1]
-         link[0]  # 返回 ListNodeKit(1) 有效
-         link[1]  # 抛出 IndexError
-    4. 节点访问安全: ListNodeKit(ListNode(1, None)).next 会返回 None
-       - 不影响 while node: node = node.next 的循环
-    5. 不修改原始链表: 所有操作不会修改原始链表结构
-    6. 适用于 LeetCode 链表问题测试验证
+    该类基于 ListNodeKitBase 和 ListNodeKitDecorator 实现，
+    将原生 ListNode 节点包装为增强对象，保持链式操作的类型一致性。
+
+    主要特性:
+        - 空链表判断: 通过 `if link:` 判断是否非空，不支持 `if link is not None`。
+        - 索引访问: `link[i]` 返回第 i 个节点的包装对象；长度为 n 的无环链表 link，索引范围为 [0,n]，其中 link[n] 返回空链表，索引越界时抛出 IndexError。
+        - 扁平化与环检测: `nodes, cycle_idx = link.flatten()` 返回节点列表和环起始索引
+                      (无环为 -1)。
+        - 字符串表示: `str(link)` 输出带环标记的格式，例如 `[1,2,3,4,5]` 或 `[1,2,3,>4,5^]`
+                      (> 表示环起点，^ 表示环尾)。
+        - 类型保持: `link.next` 返回的是 ListNodeKit 实例，而非原始节点或 None，
+                    便于连续访问。
+        - 提取原生节点：`link.node` 返回原生节点 ListNode 对象。
+
+    示例:
+        >>> from args_parser import ListNode, ListNodeKit
+        >>>
+        >>> # 1. 空链表
+        >>> empty = ListNodeKit(None)
+        >>> print(empty)
+        <ListNodeKit>:[] 
+        >>> bool(empty)
+        False
+        >>> # empty.next  # 抛出 AttributeError
+        >>>
+        >>> # 2. 无环链表
+        >>> n1 = ListNode(1)
+        >>> n2 = ListNode(2)
+        >>> n3 = ListNode(3)
+        >>> n1.next = n2
+        >>> n2.next = n3
+        >>> kit = ListNodeKit(n1)
+        >>> print(kit)
+        <ListNodeKit>:[1,2,3]
+        >>> kit.val
+        1
+        >>> kit.next.val
+        2
+        >>> kit.next.next.val
+        3
+        >>> kit.node is n1
+        True
+        >>> kit[1].val
+        2
+        >>> bool(kit[3]) # 长度为n的链表，索引第 n 个节点，返回空链表
+        False
+        >>> # kit[4]  # 抛出 IndexError
+        >>> nodes, idx = kit.flatten()
+        >>> len(nodes)
+        3
+        >>> idx
+        -1
+        >>>
+        >>> # 3. 带环链表
+        >>> ring_link = ListNodeKit(val=1) # 允许显式指定val参数，直接构造包装类
+        >>> b = ListNode(2)
+        >>> c = ListNode(3)
+        >>> d = ListNode(4)
+        >>> ring_link.next = b # 包装类的 next 映射为原生类的 next
+        >>> b.next = c
+        >>> c.next = d
+        >>> d.next = b  # 环起点为 b
+        >>> print(ring_link)
+        <ListNodeKit>:[1,>,2,3,4,^]
+        >>> nodes, idx = ring_link.flatten()
+        >>> idx # 首个环节点下标
+        1
+        >>> nodes[idx].val
+        2
+
+    注意:
+        - 空链表 (`ListNodeKit(None)`) 无法使用 `next` 属性，访问会抛出 AttributeError。
+        - 若链表存在环，索引 n 会迭代 n 次，请优先使用 flatten 检测环。
     """
-    pass
+    def __init__(self, node: ListNode | None = None, val:_BASE_TYPE = None):
+        if (node is None) and (val is not None):
+            node = ListNode(val)
+        super().__init__(node)
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
