@@ -120,25 +120,6 @@ class SafeFlatten(Generic[T,ITER_TYPE]):
         
         return res, -1
     
-# 待修订，用于 ListNodeKit
-class IterNext(Generic[T]):
-    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
-    def __init__(self, head: T):
-        """初始化迭代器，从指定节点开始"""
-        self.link = head
-    
-    def __next__(self) -> T:
-        """返回当前节点并移动到下一个节点"""
-        if self.link is None:
-            raise StopIteration
-        node = self.link
-        self.link = node.next  # 移动到下一个节点
-        return node
-    
-    def __iter__(self) -> 'IterNext[T]':
-        """返回自身，使对象可迭代"""
-        return self
-    
 @runtime_checkable
 class HasNext(Protocol):
     next: Optional[Any]
@@ -146,12 +127,31 @@ class HasNext(Protocol):
 # 定义支持 .next 属性的协议（泛型约束）
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 
+# 待修订，用于 ListNodeKit
+class IterNext(Generic[T_NEXT]):
+    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
+    def __init__(self, head: T_NEXT):
+        """初始化迭代器，从指定节点开始"""
+        self.link = head
+    
+    def __next__(self) -> T_NEXT:
+        """返回当前节点并移动到下一个节点"""
+        if self.link is None:
+            raise StopIteration
+        node = self.link
+        self.link = node.next  # 移动到下一个节点
+        return node
+    
+    def __iter__(self) -> 'IterNext[T_NEXT]':
+        """返回自身，使对象可迭代"""
+        return self
+    
 class ListNodeKit(Generic[T_NEXT]):
     """
     链表调试增强工具，使用代理模式（安全实现）
     用法: link = ListNodeKit(head_node)
     """
-    def __init__(self, node: T_NEXT , prep_property: str = "val"):
+    def __init__(self, node: Optional[T_NEXT] , prep_property: str = "val"):
         self._node = node  # 保留原始节点，不修改原始对象
         if node is not None:
             assert hasattr(node, prep_property), f"ListNodeKit 的 node 参数对象非空，但缺少属性 {prep_property} （其通过 prep_property 参数设置）"
@@ -160,38 +160,40 @@ class ListNodeKit(Generic[T_NEXT]):
     def __getattr__(self, name: str) -> Any:
         """代理属性访问，使next属性返回ListNodeKit"""
         if name == 'next':
+            assert self._node is not None, "next 属性只能在非空节点上调用。"
             if self._node.next is None:
                 return None
             return ListNodeKit(self._node.next)  # 返回ListNodeKit代理
         return getattr(self._node, name)
 
-    # def flatten(self) -> Tuple[List[T_NEXT], int]:
-    #     """安全扁平化链表，返回节点列表和环索引"""
-    #     if self._node is None: # "标记1"
-    #         return [], -1
-    #     # 使用迭代器遍历ListNodeKit对象
-    #     it = IterNext[ListNodeKit[T_NEXT]](self)
-    #     Node_List, circle_index =  SafeFlatten[ListNodeKit[T_NEXT], IterNext[ListNodeKit[T_NEXT]]].flatten(it)
-    #     return [node._node for node in Node_List],circle_index # 当取消注释时会报错
-    #     # return Node_List,circle_index
-
-    def flatten(self) -> Tuple[List[T_NEXT], int]:
-        assert hasattr(self,"_node") ,f"ListNodeKit.flatten(self) ,其中 self._node 未定义, 实际 type(self) = {type(self)}"
-        if self._node is None: # 标记2
+    def flatten(self:Optional[Union[ListNodeKit[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
+        """
+        1. 实例调用：kit.flatten() -> arg 为 kit 实例
+        2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
+        """
+        # 如果 arg 是 ListNodeKit 实例，取出其内部 node
+        if isinstance(self, ListNodeKit):
+            node = self._node
+        else:
+            assert isinstance(self, HasNext), f"ListNodeKit.flatten(arg) 采用了非成员函数，然而输入的参数 arg 不是 HasNext 类型，而是 {type(self).__name__}。"
+            # 否则 arg 就是传入的 head 节点
+            node = self
+        if node is None: # 标记2
             return [], -1
-        it = IterNext[T_NEXT](self._node)  # 👈 从原始节点开始
+        it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
         Node_List, circle_index = SafeFlatten[T_NEXT, IterNext[T_NEXT]].flatten(it)
 
         return Node_List, circle_index
 
-    def __repr__(self) -> str:
+    @classmethod
+    def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val") -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
-        nodes, circle_index = self.flatten()
+        nodes, circle_index = ListNodeKit[T_NEXT].flatten(head)
         str_lst = []
         
         # 环之前的节点
         for i in range(circle_index):
-            str_lst.append(_formated_string(nodes[i].val))
+            str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
         # 有环标记
         if circle_index != -1:
@@ -199,13 +201,17 @@ class ListNodeKit(Generic[T_NEXT]):
         
         # 环之后的节点
         for i in range(circle_index, len(nodes)):
-            str_lst.append(_formated_string(nodes[i].val))
+            str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
         # 环结束标记
         if circle_index != -1:
             str_lst.append("^")
         
         return f"<ListNodeKit>:[{','.join(str_lst)}]"
+
+    def __repr__(self) -> str:
+        """安全打印链表，自动标记环（> 和 ^）"""
+        return self.to_string(self._node, self.prep_property)
     
     # 使ListNodeKit可以像列表一样索引
     def __getitem__(self, index: int) -> 'ListNodeKit[T_NEXT]':
@@ -217,14 +223,6 @@ class ListNodeKit(Generic[T_NEXT]):
                 raise IndexError("Index out of range")
             cur = cur.next
         return cur
-
-    def __eq__(self, other: Any) -> bool:
-        """支持与ListNode或ListNodeKit的比较，使用ID比较确保正确性"""
-        if isinstance(other, ListNodeKit):
-            return id(self._node) == id(other._node)
-        else:
-            return id(self._node) == id(other)
-        return False
 
 # 用于 TreeNodeKit（但需要保留一定的泛用性）
 # class 层序遍历(SafeFlatten[Deque[Generic[T]]]):

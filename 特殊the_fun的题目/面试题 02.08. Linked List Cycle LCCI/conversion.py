@@ -25,8 +25,8 @@ def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
 
     # 检查学生是否改变链表结构
     after = ListNodeKit(nodes[0]).flatten()
-    # after = ListNodeKit.flatten(nodes[0]) # 错误写法会导致报错：ListNodeKit.flatten(self) ,其中 self._node 未定义, 实际 type(self) = <class 'tools.args_parser.ListNode'>
-    
+    # after = ListNodeKit.flatten(nodes[0])  # 也可以重载为类方法
+
     assert after[0] == nodes and after[1] == pos, "学生代码篡改了链表结构"
 
     # 计算环的相对位置
