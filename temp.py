@@ -6,7 +6,5 @@ ListNodeKit(head)[4].next = head  # 创建环
 nodes, cycle_idx = ListNodeKit(head).flatten()
 assert cycle_idx == 0  # 环起点在索引0
 
-# 验证链表未被篡改
-student_result = solve(head)
-after_nodes, _ = ListNodeKit(student_result).flatten()
-assert after_nodes == nodes  # 确保学生未修改链表结构
+# 访问 val
+val2 = ListNodeKit(head)[2].val

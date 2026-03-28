@@ -47,6 +47,10 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur = cur.next
     return head
 
+@ListNodeKitDecorator(...)
+class ListNodeKit(ListNode):
+    ...（这里的代码要精简）
+
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
     nodes,circle = ListNodeKit(node).flatten()
