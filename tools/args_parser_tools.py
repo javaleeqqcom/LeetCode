@@ -95,6 +95,7 @@ def _formated_string(val):
     else:
         return str(val)
 
+
 T = TypeVar("T") # 泛型变量
 ITER_TYPE = TypeVar("ITER_TYPE", bound=Iterable) # 可迭代对象类型变量
 
@@ -191,6 +192,9 @@ class ListNodeKitBase(Generic[T_NEXT]):
             return object.__getattribute__(self, name)
         return getattr(self._node, name)
 
+    # Python 会先检查类属性中是否存在名为 next 的描述符。
+    # 如果发现了 @next.setter，它会直接调用该 setter 方法。
+    # 只有在类中找不到对应的 setter 时，Python 才会去调用 __setattr__。
     def __setattr__(self, name: str, value: Any) -> None:
         if name == '_node':
             # 直接设置原生节点
@@ -215,16 +219,13 @@ class ListNodeKitBase(Generic[T_NEXT]):
             
         return cur
     
-    def flatten(self:Optional[Union[ListNodeKitBase[T_NEXT],T_NEXT]]) -> Tuple[List[T_NEXT], int]:
+    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> Tuple[List[T_NEXT], int]:
         """
         1. 实例调用：kit.flatten() -> arg 为 kit 实例
         2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
         """
         # 如果 arg 是 ListNodeKit 实例，取出其内部 node
-        if isinstance(self, ListNodeKitBase):
-            node = self._node
-        else:
-            node = self
+        node = self.node if isinstance(self, ListNodeKitBase) else self
 
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
         Node_List, circle_index = SafeFlatten[T_NEXT, IterNext].flatten(it)
@@ -298,26 +299,27 @@ T_LR = TypeVar("T_LR",bound=HasLR)
 
 # 待修订，用于 ListNodeKit
 class LayeredTraversal(Generic[T_LR]):
-    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
+    """迭代器，用于遍历二叉树，输出（完全二叉树索引，二叉树节点）"""
     def __init__(self, root: Optional[T_LR]):
         """初始化迭代器，从指定节点开始"""
         if root:
-            self._node_queue = deque([root])
+            # 内部用 索引+1 方便计算后继索引
+            self._node_queue = deque([(1,root)])
         else:
             self._node_queue = deque()
     
-    def __next__(self) -> T_LR:
+    def __next__(self) -> Tuple[int,T_LR]:
         """返回当前队首节点并将其后继节点加入队列"""
         if not self._node_queue:
             raise StopIteration
-        node = self._node_queue.popleft()
+        idx1,node = self._node_queue.popleft()
         # _node_queue push 进的节点要求全部有效，若本次 pop 出的节点居然无效，则说明数据遭到破坏，可能是其他进程篡改
         assert node, "当前节点无效，可能是数据遭到破坏或被其他进程篡改"
         if node.left:
-            self._node_queue.append(node.left)
+            self._node_queue.append((2*idx1,node.left))
         if node.right:
-            self._node_queue.append(node.right)
-        return node
+            self._node_queue.append((2*idx1+1,node.right))
+        return (idx1-1,node)
     
     def __iter__(self) -> 'LayeredTraversal[T_LR]':
         """返回自身，使对象可迭代"""
@@ -333,54 +335,10 @@ class TreeNodeKitBase(Generic[T_LR]):
         # 使用 object.__setattr__ 避免触发 __setattr__，防止无限递归
         object.__setattr__(self, '_node', root)
 
-    def __getattr__(self, name: str) -> Any:
-        """
-        代理所有属性访问。
-        如果访问的是 'left' 或 'right'，返回包装后的 TreeNodeKitBase 实例。
-        """
-        # 获取原生节点
-        node:T_LR = object.__getattribute__(self, '_node')
+    @property 和 @left.setter
+    def left()...
         
-        if name in ('left', 'right'):
-            if not node: 
-                raise AttributeError(f"空节点不能使用 {name} 属性")
-            # 关键：返回当前类的实例，保持装饰器效果延续
-            return self.__class__(getattr(node, name))
-        # 访问原生节点
-        if name == '_node':
-            return node
-        # 其余属性都视为访问原生节点下的属性值
-        return getattr(node, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """
-        代理属性设置。
-        如果设置的是 left 或 right，解包值（如果它是 TreeNodeKit）并设置到底层节点。
-        """
-        
-        if name == '_node':
-            # 直接设置原生节点
-            object.__setattr__(self, name, value)
-        else:
-            # 获取底层节点引用
-            node = object.__getattribute__(self, '_node')
-            if not node: # 如果当前是空节点，不能设置属性
-                raise AttributeError("Can't set attribute on None (empty TreeNodeKitBase)")
-            else:
-                # 处理 left/right 赋值
-                if name in ('left', 'right') and isinstance(value, TreeNodeKitBase):
-                    # 如果赋值的是包装类，提取其内部节点
-                    value = value._node
-                    
-                # 将属性设置到底层原生节点上
-                setattr(node, name, value)
-
-    def __bool__(self) -> bool:
-        """
-        布尔值判断：仅当内部节点不为 None 时为 True。
-        用于判断树是否为空：if kit: ...
-        """
-        return self._node is not None
+    def right 同理
 
     @property
     def node(self) -> Optional[T_LR]:
@@ -390,47 +348,56 @@ class TreeNodeKitBase(Generic[T_LR]):
         """
         return object.__getattribute__(self, '_node')
 
-    def flatten(self) -> Tuple[List[T_LR], int]:
-        """
-        安全扁平化二叉树（层序遍历）。
-        使用 SafeFlatten 配合 LayeredTraversal 迭代器，自动检测环路。
-        
-        Returns:
-            Tuple[List[T_LR], int]: (节点列表, 环索引)
-            - 如果无环，环索引返回 -1。
-            - 如果有环，返回检测到的第一个重复节点的索引。
-        """
-        # 如果是空节点，直接返回空列表
-        if not self._node:
-            return ([], -1)
-            
-        # 创建层序遍历迭代器
-        it = LayeredTraversal[T_LR](self._node)
-        
-        # 使用 SafeFlatten 进行安全遍历，自动处理环路
-        Node_List, circle_index = SafeFlatten[T_LR, LayeredTraversal].flatten(it)
-        
-        return Node_List, circle_index
+    @node.setter
+    def node # 等价于操作 _node
 
-    # --- 为了配合框架的比较逻辑，建议保留 __eq__ ---
-    def __eq__(self, other: Any) -> bool:
-        """
-        比较逻辑：比较包装的 T_LR 对象的内存地址 (id)。
-        支持: Kit == Kit, Kit == Node, Kit == None
-        """
-        # 如果 compare 对象也是包装类，取出其内部 node
-        if isinstance(other, TreeNodeKitBase):
-            other_node = other._node
+    def __getattr__(self, name: str) -> Any:
+        if name == "_node":
+            ...
         else:
-            # 否则视其为原始 Node 或 None
-            other_node = other
-            
-        # 如果两边都是 None，视为相等
-        if self._node is None and other_node is None:
-            return True
-        # 如果一边是 None 另一边不是，视为不等
-        if self._node is None or other_node is None:
-            return False
-            
-        # 否则比较内存地址
+            ...
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_node":
+            ...
+        else:
+            ...
+        
+    def __bool__(self) -> bool:
+        """
+        布尔值判断：仅当内部节点不为 None 时为 True。
+        用于判断树是否为空：if kit: ...
+        """
+        # 要用基类操作提高效率
+        return object ..._node is not None
+
+    def __eq__(self, other: Any) -> bool:
+        # 提取对比对象
+        other_node = other._node if isinstance(other, TreeNodeKitBase) else other
+        
+        # 直接比较内存地址，涵盖了 None == None 和对象对比的所有情况
         return id(self._node) == id(other_node)
+
+    def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
+        """将self视为完全二叉树的索引访问接口。当索引首次访问到空节点时返回None的包装，试图访问空节点的后继节点则报错（待润色）"""
+        if index <0:
+            Error
+        else:
+            shift_lst = bin(index+1)[3:]
+            cur = self.node
+            for s in shift_lst:
+                if cur is None: # 试图访问空节点的后继节点
+                    Error
+                cur = cur.left if s=='0' else cur.right # 此时 root 是允许为 None的
+            return TreeNodeKitBase(cur)
+
+    def flatten(self:'TreeNodeKitBase[T_LR]|T_LR|None') -> Tuple[List[Tuple[T_LR,int]], int]:
+        """
+        注意与 ListNodeKit 不同，返回的是元组
+        """
+        # 如果 arg 是 ListNodeKit 实例，取出其内部 node
+        node = self.node if isinstance(self, TreeNodeKitBase) else self
+
+        it = LayeredTraversal[T_LR](node)  # 👈 从原始节点开始
+        return SafeFlatten[Tuple[T_LR,int], LayeredTraversal].flatten(it)
+

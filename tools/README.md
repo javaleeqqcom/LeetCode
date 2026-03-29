@@ -265,6 +265,7 @@ results = optimized.run(cases, log_suffix="_optimized")
 
 1. args_parser.py 中的自定义类方法有死循环的风险，必须完善。如链表成环、树有环等，需增加环路检测。
    - 已通过 test_listnode_kit 测试，下一步需要实现 TreeNode 的安全展开，避免有向环的TreeNode结构层序遍历引起死循环。
+   - 发现原 SafeFlatten 定义不能满足 TreeNodeKit 的设计需求，因为 TreeNodeKit 的层序遍历需要记录下标值。因此应将 SafeFlatten 求哈希的步骤改为要求迭代输出的对象实现 __hash__ ，而不是用 id 来求。
 2. **自动向AI提问**
    - 注意：提问的范围仅限于测试学生的代码是否正确
    - 用于自动生成测试样例代码
