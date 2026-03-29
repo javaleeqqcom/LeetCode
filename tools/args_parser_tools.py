@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable ,cast
 from collections import deque
 from binarytree import build
 
@@ -146,25 +146,25 @@ class IterNext(Generic[T_NEXT]):
         """返回自身，使对象可迭代"""
         return self
 
-NodeType = TypeVar('NodeType', bound=Optional[Any]) # NodeType 必须包含 None 的情况
-class KitBase(Generic[NodeType]): # 泛型
+T_Node = TypeVar('T_Node', bound=Optional[Any]) # NodeType 必须包含 None 的情况
+class KitBase(Generic[T_Node]): # 泛型
     """调试增强基类（代理模式）"""
     
-    def __init__(self, node: Optional[NodeType]):
+    def __init__(self, node: Optional[T_Node]):
         object.__setattr__(self, '_node', node)
 
     @property
-    def node(self) -> NodeType:
+    def node(self) -> T_Node:
         return object.__getattribute__(self, '_node')
 
     @node.setter
-    def node(self, value: NodeType) -> None:
+    def node(self, value: T_Node) -> None:
         object.__setattr__(self, '_node', value)
 
     def __bool__(self) -> bool:
         return self.node is not None
 
-    def __getattr__(self, name: str) -> NodeType:
+    def __getattr__(self, name: str) -> T_Node:
         if name == '_node':
             return object.__getattribute__(self, name)
         if self.node is None:
@@ -180,14 +180,19 @@ class KitBase(Generic[NodeType]): # 泛型
             setattr(self.node, name, value)
 
     @classmethod
-    def 解包(cls,other: KitBase|NodeType) -> NodeType:
+    def unwrap(cls: type['KitBase[T_Node]'], other: 'KitBase[T_Node] | T_Node | None') -> T_Node | None:
+        """
+        提取包装类内部的原始节点。
+        - 如果 other 是 KitBase 子类实例，返回其内部 _node。
+        - 否则直接返回 other 本身（可能为 None）。
+        """
         if isinstance(other, KitBase):
-            return other.node
-        else:
-            return other
+            # other._node 的类型理论上为 T_Node，但类型检查器无法自动收窄，使用 cast
+            return cast(T_Node, other._node)
+        return other
         
     def __eq__(self, other: Any) -> bool:
-        return id(self.node) == id(self.解包(other))
+        return id(self.node) == id(self.unwrap(other))
 
 class ListNodeKitBase(KitBase[T_NEXT]):
     """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
@@ -207,7 +212,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
             raise AttributeError("Can't set attribute on None (empty ListNodeKitBase)")
         
         # 如果赋值的是包装类，提取其内部节点
-        self.node.next = self.解包(value)
+        self.node.next = self.unwrap(value)
 
     # 使ListNodeKit可以像列表一样索引
     def __getitem__(self, index: int) -> 'ListNodeKitBase[T_NEXT]':
@@ -313,101 +318,39 @@ class LayeredTraversal(Generic[T_LR]):
         """返回自身，使对象可迭代"""
         return self
     
-    
-# 在 args_parser_tools.py 中替换原有的 TreeNodeKitBase 骨架为以下代码
-
-class TreeNodeKitBase(Generic[T_LR]):
+class TreeNodeKitBase(KitBase[T_LR]):
     """
     二叉树调试增强工具基类，使用代理模式。
-    提供安全的扁平化（层序遍历）和环检测，避免因错误的树结构导致死循环。
+    提供安全的扁平化（层序遍历）和重复节点检测，避免因错误的树结构导致死循环。
     """
-
-    def __init__(self, root: Optional[T_LR]):
-        # 使用 object.__setattr__ 避免触发 __setattr__，防止无限递归
-        object.__setattr__(self, '_node', root)
-
-    @property
-    def node(self) -> Optional[T_LR]:
-        """返回原生的 TreeNode 节点（解包）"""
-        return object.__getattribute__(self, '_node')
-
-    @node.setter
-    def node(self, value: Optional[T_LR]):
-        object.__setattr__(self, '_node', value)
 
     @property
     def left(self) -> 'TreeNodeKitBase[T_LR]':
-        """返回左子树的包装对象，若当前节点为空则抛出 AttributeError"""
-        if self._node is None:
+        if self.node is None:
             raise AttributeError("空树节点不能使用 left 属性")
         return self.__class__(self._node.left)
 
     @left.setter
     def left(self, value: 'TreeNodeKitBase[T_LR] | T_LR | None'):
-        """设置左子树，支持包装类、原始节点或 None"""
         if self._node is None:
             raise AttributeError("空树节点不能设置 left 属性")
-        # 如果赋值的是包装类，提取其内部节点
-        if isinstance(value, TreeNodeKitBase):
-            self._node.left = value._node
-        else:
-            self._node.left = value
+        self.node.left = self.unwrap(value)   # 使用 unwrap 简化
 
     @property
     def right(self) -> 'TreeNodeKitBase[T_LR]':
-        """返回右子树的包装对象，若当前节点为空则抛出 AttributeError"""
         if self._node is None:
             raise AttributeError("空树节点不能使用 right 属性")
         return self.__class__(self._node.right)
 
     @right.setter
     def right(self, value: 'TreeNodeKitBase[T_LR] | T_LR | None'):
-        """设置右子树，支持包装类、原始节点或 None"""
         if self._node is None:
             raise AttributeError("空树节点不能设置 right 属性")
-        if isinstance(value, TreeNodeKitBase):
-            self._node.right = value._node
-        else:
-            self._node.right = value
-
-    def __getattr__(self, name: str) -> Any:
-        """将未定义的属性访问转发到原生节点"""
-        if name == '_node':
-            return object.__getattribute__(self, name)
-        if self._node is None:
-            raise AttributeError(f"空树节点没有属性 '{name}'")
-        return getattr(self._node, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """设置属性，_node 特殊处理，其余转发给原生节点"""
-        if name == '_node':
-            object.__setattr__(self, name, value)
-        else:
-            if self._node is None:
-                raise AttributeError(f"空树节点不能设置属性 '{name}'")
-            setattr(self._node, name, value)
-
-    def __bool__(self) -> bool:
-        """布尔值判断：仅当内部节点不为 None 时为 True"""
-        return object.__getattribute__(self, '_node') is not None
-
-    def __eq__(self, other: Any) -> bool:
-        """比较两个包装对象或与原生节点比较（基于内存地址）"""
-        if isinstance(other, TreeNodeKitBase):
-            other_node = other._node
-        else:
-            other_node = other
-        return id(self._node) == id(other_node)
+        self._node.right = self.unwrap(value)
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
-        """
-        按完全二叉树的索引访问节点（索引从0开始）。
-        若路径上某节点缺失（父节点为None）则抛出 IndexError；
-        若目标位置节点为 None，返回空包装；否则返回节点的包装。
-        """
         if index < 0:
             raise IndexError("索引不能为负数")
-        # 将索引+1转换为二进制，去掉最高位 '1'，得到路径（0=左,1=右）
         path = bin(index + 1)[3:]
         cur = self._node
         for direction in path:
@@ -416,27 +359,15 @@ class TreeNodeKitBase(Generic[T_LR]):
             cur = cur.left if direction == '0' else cur.right
         return self.__class__(cur)
 
-    def flatten(self: 'TreeNodeKitBase[T_LR] | T_LR | None') -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
-        """
-        层序遍历树，返回 (节点列表, 环起始索引)。
-        节点列表元素为 (层序索引, 节点对象)。
-        若检测到环（重复节点），返回首次出现重复节点的索引。
-        """
-        # 提取原始节点
-        if isinstance(self, TreeNodeKitBase):
-            node = self._node
-        else:
-            node = self  # 可能为 T_LR 或 None
-
-        it = LayeredTraversal[T_LR](node)   # 生成 (idx, node)
+    def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
+        """层序遍历树，返回 (节点列表, 首次出现重复节点的完全二叉树索引)。"""
+        node = self._node
+        it = LayeredTraversal[T_LR](node)
         return SafeFlatten.flatten(it)
 
-    # 可选：实现 __repr__，暂时使用简单表示，后续可通过装饰器增强
     def __repr__(self) -> str:
         if self._node is None:
             return "<TreeNodeKit: empty>"
-        # 简单打印：使用 TreeNode2List 显示层序列表
-        idx_node,repeat_idx = self.flatten()
-        idx_node_str_list = [f'{idx}:{node.val}' for idx,node in idx_node]
-        return f"<TreeNodeKit: {f'repeat_idx={repeat_idx}, 'if repeat_idx else ''}{idx_node_str_list}>"
-
+        idx_node, repeat_idx = self.flatten()
+        idx_node_str_list = [f'{idx}:{node.val}' for idx, node in idx_node]
+        return f"<TreeNodeKit: {f'repeat_idx={repeat_idx}, ' if repeat_idx else ''}{idx_node_str_list}>"
