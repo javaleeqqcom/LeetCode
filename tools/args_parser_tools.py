@@ -97,34 +97,29 @@ def _formated_string(val):
 KT = TypeVar('KT')   # 键类型（例如索引）
 NT = TypeVar('NT')   # 节点类型
 class SafeIter(Generic[KT, NT]):
-    """安全迭代器包装类：检测重复节点（基于 id），遇到重复时停止并记录重复键。"""
     def __init__(self, iterable: Iterator[Tuple[KT, NT]]):
         self._iter = iterable
-        self._seen = {}  # id(node) -> 首次出现的键
-        self._stopped = False
-        self._repeat_key = None
+        self._seen = {}
+        self._repeat_key = None   # 记录首次重复的键，若无重复则为 None
 
     def __iter__(self):
         return self
 
     def __next__(self) -> Tuple[KT, NT]:
-        if self._stopped:
-            raise StopIteration
         try:
             key, node = next(self._iter)
         except StopIteration:
             raise
         node_id = id(node)
         if node_id in self._seen:
-            self._stopped = True
-            self._repeat_key = self._seen[node_id]
-            raise StopIteration  # 发现环，停止迭代
+            self._repeat_key = self._seen[node_id]   # 记录重复键
+            raise StopIteration   # 立即停止迭代
         self._seen[node_id] = key
         return key, node
 
-    def get_repeat_key(self) -> Optional[KT]:
+    @property
+    def repeat_key(self) -> Optional[KT]:
         """返回首次出现重复节点的键，若无重复返回 None。"""
-        # 注意：必须迭代完成（或提前停止）后才能获取
         return self._repeat_key
 
     @classmethod
@@ -132,7 +127,7 @@ class SafeIter(Generic[KT, NT]):
         """辅助方法：将安全迭代器的结果收集为列表，同时返回重复键。"""
         safe_iter = cls(iterable)
         items = list(safe_iter)
-        return items, safe_iter.get_repeat_key()
+        return items, safe_iter.repeat_key
     
 @runtime_checkable
 class HasNext(Protocol):
@@ -368,11 +363,22 @@ class TreeNodeKitBase(KitBase[T_LR]):
         if index < 0:
             raise IndexError("索引不能为负数")
         safe_iter = SafeIter(LayeredTraversal[T_LR](self._node))
+        node_count = 0
         for i, (_, node) in enumerate(safe_iter):
+            node_count += 1
             if i == index:
                 return self.__class__(node)
-        # 如果迭代提前结束（环或结束），且 index 超出范围
-        raise IndexError("超出索引范围或遇到环")
+        # 迭代提前终止，可能因为环或正常结束
+        if safe_iter.repeat_key is not None:
+            raise IndexError(
+                f"索引 {index} 访问时遇到环或重复节点，首次重复键为 {safe_iter.repeat_key}。"
+                f"已遍历 {node_count} 个节点后检测到重复。"
+            )
+        else:
+            # 正常结束，节点总数 = node_count
+            raise IndexError(
+                f"索引 {index} 超出节点总数（共 {node_count} 个节点）。"
+            )
     
     def layer_iter(self) -> SafeIter:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""

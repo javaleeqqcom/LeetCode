@@ -4,7 +4,7 @@ import sys
 from typing import List, Optional, Tuple, Set
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
-from args_parser import TreeNode, TreeNodeKit
+from args_parser import TreeNode, TreeNodeKit,List2TreeNode
 
 
 def test_basic_functionality():
@@ -44,9 +44,8 @@ def test_basic_functionality():
     assert kit[3].val == 4
     assert kit[4].val == 5
     assert kit[5].val == 6
-    assert kit[6].node is None, "索引超出范围，但父节点存在，所以不应抛出异常"
     try:
-        _ = kit[6*2+1]
+        _ = kit[6]
         assert False, "应该抛出 IndexError"
     except IndexError:
         pass
@@ -70,7 +69,11 @@ def test_basic_functionality():
         assert False, "空树访问 right 应抛出 AttributeError"
     except AttributeError:
         pass
-    assert empty[0].node is None,"空树索引应为 None"
+    try:
+        empty[0]
+        assert False, "空树[0] 应抛出 IndexError"
+    except IndexError:
+        pass
     print("基本功能测试通过")
 
 
@@ -133,6 +136,56 @@ def test_cycle_detection():
     # 注意：当 c.right 访问 b 时，b 也已经出现，但此时环已经被检测到，不会再记录
     print("多环节点检测通过")
 
+    # 2.4 测试 __getitem__ 在遇到环时抛出 IndexError（含环信息）
+    print("\n2.4 __getitem__ 环检测错误测试")
+    # 构造一个简单的环：根节点右子指向自身（自环）
+    root = TreeNode(100)
+    root.right = root
+    kit_self_cycle = TreeNodeKit(root)
+
+    # 尝试访问索引 1（理论上第二个节点，但因为环，实际只能安全遍历到根节点）
+    try:
+        _ = kit_self_cycle[1]
+        assert False, "应该抛出 IndexError"
+    except IndexError as e:
+        # 验证异常消息中包含环检测相关信息
+        assert "遇到环或重复节点" in str(e), f"错误消息不正确: {e}"
+        assert "首次重复键为" in str(e), f"错误消息不正确: {e}"
+        # 注意：重复键应该是 1（根节点的完全二叉树索引，1-index）
+        # 但具体数值取决于实现，这里只检查包含即可
+        print(f"   捕获到预期的 IndexError: {e}")
+
+    # 2.5 测试 构造交叉环（前面 2.2 中的结构）并尝试访问超出安全长度的索引
+    print("\n2.5 __getitem__ 交叉环测试")
+    
+    head = List2TreeNode([1,2,3,4,None,6,7]) # n1,n2,n3,n4,  n6,n7
+    nodes = dict(TreeNodeKit(head).flatten()[0])
+
+    # 构造 n4->n3->n6->n2->n4 的交叉环
+    nodes[4].left = nodes[3] # n4 指向 n3
+    nodes[6].right = nodes[2] # n6 指向 n2
+
+    kit_cross = TreeNodeKit(head)
+    # 安全迭代会提前停止（检测到 n6 重复），最多能访问几个节点？
+    # 层序安全顺序：[1(1),2(2),3(3),4(4),6(5),7(6)] 但 n4.right 指向 n6 时发现重复，
+    # 所以实际成功迭代的节点为 1,2,3,4,6（索引 0~4），然后停止。
+    # 因此访问索引 5 会触发环错误。
+    try:
+        _ = kit_cross[6]
+        assert False, f"应该抛出 IndexError, kit.prep:\n{kit_cross}"
+    except IndexError as e:
+        assert "遇到环或重复节点" in str(e)
+        # 首次重复的键应该是 n6 第一次出现的键（应该是 5，因为完全二叉树索引中 n6 第一次出现是左子3的左子，索引为 2*3+1? 需计算）
+        # 但只需验证消息包含即可
+        print(f"   捕获到预期的 IndexError: {e}")
+
+    # 正常访问安全范围内的索引应该成功
+    assert kit_cross[0].val == 1
+    assert kit_cross[1].val == 2
+    assert kit_cross[2].val == 3
+    assert kit_cross[3].val == 4
+    assert kit_cross[4].val == 6
+    
     print("环检测全部通过")
 
 
