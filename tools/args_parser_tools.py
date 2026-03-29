@@ -94,7 +94,8 @@ def _formated_string(val):
     else:
         return str(val)
 
-class SafeIter ...
+class SafeIter:
+    ...
     # SafeIter 可以用于 SafeFlatten 和 其他 iter 对象的场景
 # 将 SafeFlatten 修改为继承 SafeIter 或调用其接口
 IDX_T = TypeVar("IDX_T", bound=Tuple[int,Any]) # 表达 Tuple[迭代index，被哈希对象] 的泛型变量
@@ -364,9 +365,9 @@ class TreeNodeKitBase(KitBase[T_LR]):
         else:
             raise IndexError("超出索引范围")
     
-    def layer_iter(self) -> SafeIter？:
+    def layer_iter(self) -> SafeIter:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
-        ... 
+        pass 
 
     def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
