@@ -1,9 +1,9 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
-    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator,TreeNodeKitBase # 此部分代表过于冗长故放在 args_parser_tools
 except:
-    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,SafeFlatten,ListNodeKitBase,ReprDecorator,TreeNodeKitBase # 此部分代表过于冗长故放在 args_parser_tools
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -57,12 +57,9 @@ class ListNodeKit(ListNodeKitBase):
     主要特性:
         - 空链表判断: 通过 `if link:` 判断是否非空，不支持 `if link is not None`。
         - 索引访问: `link[i]` 返回第 i 个节点的包装对象；长度为 n 的无环链表 link，索引范围为 [0,n]，其中 link[n] 返回空链表，索引越界时抛出 IndexError。
-        - 扁平化与环检测: `nodes, cycle_idx = link.flatten()` 返回节点列表和环起始索引
-                      (无环为 -1)。
-        - 字符串表示: `str(link)` 输出带环标记的格式，例如 `[1,2,3,4,5]` 或 `[1,2,3,>4,5^]`
-                      (> 表示环起点，^ 表示环尾)。
-        - 类型保持: `link.next` 返回的是 ListNodeKit 实例，而非原始节点或 None，
-                    便于连续访问。
+        - 扁平化与环检测: `nodes, cycle_idx = link.flatten()` 返回节点列表和环起始索引(无环为 None)。
+        - 字符串表示: `str(link)` 输出带环标记的格式，例如 `[1,2,3,4,5]` 或 `[1,2,3,>4,5^]`(> 表示环起点，^ 表示环尾)。
+        - 类型保持: `link.next` 返回的是 ListNodeKit 实例，而非原始节点或 None，便于连续访问。
         - 提取原生节点：`link.node` 返回原生节点 ListNode 对象。
 
     示例:
@@ -102,7 +99,7 @@ class ListNodeKit(ListNodeKitBase):
         >>> len(nodes)
         3
         >>> idx
-        -1
+        None
         >>>
         >>> # 3. 带环链表
         >>> ring_link = ListNodeKit(val=1) # 允许显式指定val参数，直接构造包装类
@@ -233,6 +230,29 @@ class TreeNode:
         # 反转回从根到叶的顺序
         return '\n'.join(reversed(lines))
     
+
+# 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
+class TreeNodeKit(TreeNodeKitBase):
+    """
+    二叉树调试增强工具，提供安全的层序遍历、环检测和索引访问。
+    用法与 ListNodeKit 类似，支持从原始节点或从层序列表构造。
+    """
+    def __init__(self, root: Optional[TreeNode] = None, val: _BASE_TYPE = None, level_order: List[_BASE_TYPE] = None):
+        """
+        多种构造方式：
+        - TreeNodeKit(node)            : 包装已有 TreeNode
+        - TreeNodeKit(val=1)           : 创建单节点树
+        - TreeNodeKit(level_order=[1,2,3]) : 从层序列表构建树
+        """
+        if level_order is not None:
+            from .args_parser import List2TreeNode  # 延迟导入避免循环
+            node = List2TreeNode(level_order)
+        elif val is not None:
+            node = TreeNode(val)
+        else:
+            node = root
+        super().__init__(node)
+
 def TreeNode2List(root: Optional[TreeNode]) -> List[_BASE_TYPE]:
     """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）"""
     if not root:

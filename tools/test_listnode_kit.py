@@ -52,7 +52,7 @@ def test_listnode_kit():
     # 2.4 flatten
     nodes, cycle_idx = kit.flatten()
     print(f"   flatten() 返回节点数: {len(nodes)}, 环索引: {cycle_idx}")
-    assert cycle_idx == -1
+    assert cycle_idx is None
     
     # 2.5 通过 __bool__ 判断非空
     print(f"   bool(kit): {bool(kit)}")              # True
