@@ -1,5 +1,4 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable
-
 from collections import deque
 from binarytree import build
 
@@ -146,67 +145,52 @@ class IterNext(Generic[T_NEXT]):
     def __iter__(self) -> 'IterNext':
         """返回自身，使对象可迭代"""
         return self
-    
-class KitBase:
+
+NodeType = TypeVar('NodeType', bound=Optional[Any]) # NodeType 必须包含 None 的情况
+class KitBase(Generic[NodeType]): # 泛型
     """调试增强基类（代理模式）"""
     
-    def __init__(self, node: Optional[Any]):
+    def __init__(self, node: Optional[NodeType]):
         object.__setattr__(self, '_node', node)
 
     @property
-    def node(self) -> Optional[Any]:
+    def node(self) -> NodeType:
         return object.__getattribute__(self, '_node')
 
     @node.setter
-    def node(self, value: Optional[Any]) -> None:
+    def node(self, value: NodeType) -> None:
         object.__setattr__(self, '_node', value)
 
     def __bool__(self) -> bool:
-        return self._node is not None
+        return self.node is not None
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> NodeType:
         if name == '_node':
             return object.__getattribute__(self, name)
-        if self._node is None:
+        if self.node is None:
             raise AttributeError(f"Empty node has no attribute '{name}'")
-        return getattr(self._node, name)
+        return getattr(self.node, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == '_node':
             object.__setattr__(self, name, value)
         else:
-            if self._node is None:
+            if self.node is None:
                 raise AttributeError(f"Can't set attribute '{name}' on empty node")
-            setattr(self._node, name, value)
+            setattr(self.node, name, value)
 
-    def __eq__(self, other: Any) -> bool:
+    @classmethod
+    def 解包(cls,other: KitBase|NodeType) -> NodeType:
         if isinstance(other, KitBase):
-            other_node = other._node
+            return other.node
         else:
-            other_node = other
-        return id(self._node) == id(other_node)
+            return other
+        
+    def __eq__(self, other: Any) -> bool:
+        return id(self.node) == id(self.解包(other))
 
-class ListNodeKitBase(Generic[T_NEXT]):
+class ListNodeKitBase(KitBase[T_NEXT]):
     """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
-    def __init__(self, node: Optional[T_NEXT]):
-        # 使用 object.__setattr__ 避免触发 __setattr__，防止无限递归
-        object.__setattr__(self, '_node', node)
-
-    def __bool__(self):
-        return object.__getattribute__(self, '_node') is not None
-    
-    # 返回原生节点
-    @property
-    def node(self)->Optional['T_NEXT']:
-        return object.__getattribute__(self, "_node")
-    
-    @node.setter
-    def node(self, value: 'ListNodeKitBase[T_NEXT]|T_NEXT') -> None:
-        # 如果赋值的是包装类，提取其内部节点
-        object.__setattr__(self, "_node", 
-            value.node if isinstance(value, ListNodeKitBase) else value
-        )
-
     @property
     def next(self)->'ListNodeKitBase[T_NEXT]':
         if self.node is None:
@@ -223,26 +207,7 @@ class ListNodeKitBase(Generic[T_NEXT]):
             raise AttributeError("Can't set attribute on None (empty ListNodeKitBase)")
         
         # 如果赋值的是包装类，提取其内部节点
-        self.node.next = value.node if isinstance(value, ListNodeKitBase) else value
-
-    def __getattr__(self, name: str) -> Any:
-        if name == '_node':
-            return object.__getattribute__(self, name)
-        return getattr(self._node, name)
-
-    # Python 会先检查类属性中是否存在名为 next 的描述符。
-    # 如果发现了 @next.setter，它会直接调用该 setter 方法。
-    # 只有在类中找不到对应的 setter 时，Python 才会去调用 __setattr__。
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == '_node':
-            # 直接设置原生节点
-            object.__setattr__(self, name, value)
-        else:
-            if self.node is None: # 如果当前是空节点，不能设置属性
-                raise AttributeError("Can't set attribute on None (empty ListNodeKitBase)")
-            else:
-                # 除了 _node 都视为对原生节点的属性赋值
-                setattr(self.node, name, value)
+        self.node.next = self.解包(value)
 
     # 使ListNodeKit可以像列表一样索引
     def __getitem__(self, index: int) -> 'ListNodeKitBase[T_NEXT]':
@@ -295,20 +260,6 @@ class ListNodeKitBase(Generic[T_NEXT]):
         
         return f"<ListNodeKit>:[{','.join(str_lst)}]"
     
-    def __eq__(self, other: Any) -> bool:
-        """
-        核心逻辑：比较包装的 T_NEXT 对象的内存地址 (id)
-        支持: Kit == Kit, Kit == Node, Kit == None
-        """
-        # 如果 compare 对象也是包装类，取出其内部 node
-        if isinstance(other, ListNodeKitBase):
-            other_node = other._node
-        else:
-            # 否则视其为原始 Node 或 None
-            other_node = other
-            
-        return id(self._node) == id(other_node)
-
 def ReprDecorator(prep_property: str = "val"):
     """
     类装饰器：为 ToStringClass 注入指定的打印属性，调用 to_string(self,prep_property) 实现默认打印行为。
