@@ -1,6 +1,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable
 
 from collections import deque
+from binarytree import build
 
 def _is_base_type(sig_type) -> bool:
     """
@@ -123,6 +124,8 @@ class SafeFlatten(Generic[T,ITER_TYPE]):
 @runtime_checkable
 class HasNext(Protocol):
     next: Optional[Any]
+    __bool__: Callable[[], bool]
+    __eq__: Callable[[HasNext,Any], bool]
 
 # 定义支持 .next 属性的协议（泛型约束）
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
@@ -136,7 +139,7 @@ class IterNext(Generic[T_NEXT]):
     
     def __next__(self) -> T_NEXT:
         """返回当前节点并移动到下一个节点"""
-        if self.link is None:
+        if not self.link:
             raise StopIteration
         node = self.link
         self.link = node.next  # 移动到下一个节点
@@ -204,7 +207,7 @@ class ListNodeKitBase(Generic[T_NEXT]):
             node = self
 
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
-        Node_List, circle_index = SafeFlatten[T_NEXT, IterNext[T_NEXT]].flatten(it)
+        Node_List, circle_index = SafeFlatten[T_NEXT, IterNext].flatten(it)
 
         return Node_List, circle_index
 
@@ -265,22 +268,106 @@ def ReprDecorator(prep_property: str = "val"):
         return cls
     return wrapper
 
-# 用于 TreeNodeKit（但需要保留一定的泛用性）
-# class 层序遍历(SafeFlatten[Deque[Generic[T]]]):
-#     def __init__(self, root: T) -> None:
-#         super().__init__()
-#         self.node_queue = deque([root])
+@runtime_checkable
+class HasLR(Protocol):
+    left: Optional[Any]
+    right: Optional[Any]
+    __bool__: Callable[[], bool]
+    __eq__: Callable[[HasLR,Any], bool]
 
-#     def __next__(self):
-#         """子类可以修改：将 node 的子节点加入队"""
-#         if self.node_queue:
-#             node = self.node_queue.popleft()
-#             if node:
-#                 yield node
-#                 if node.left:
-#                     self.node_queue.append(node.left)
-#                 if node.right:
-#                     ...
+# 定义支持 .next 属性的协议（泛型约束）
+T_LR = TypeVar("T_LR",bound=HasLR)
+
+# 待修订，用于 ListNodeKit
+class LayeredTraversal(Generic[T_LR]):
+    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
+    def __init__(self, root: Optional[T_LR]):
+        """初始化迭代器，从指定节点开始"""
+        if root:
+            self._node_queue = deque([root])
+        else:
+            self._node_queue = deque()
     
-#     def __iter__(self):
-#         ...
+    def __next__(self) -> T_LR:
+        """返回当前队首节点并将其后继节点加入队列"""
+        if not self._node_queue:
+            raise StopIteration
+        node = self._node_queue.popleft()
+        # _node_queue push 进的节点要求全部有效，若本次 pop 出的节点居然无效，则说明数据遭到破坏，可能是其他进程篡改
+        assert node, "当前节点无效，可能是数据遭到破坏或被其他进程篡改"
+        if node.left:
+            self._node_queue.append(node.left)
+        if node.right:
+            self._node_queue.append(node.right)
+        return node
+    
+    def __iter__(self) -> 'LayeredTraversal[T_LR]':
+        """返回自身，使对象可迭代"""
+        return self
+    
+# 用于 TreeNodeKit（但需要保留一定的泛用性）
+class TreeNodeKitBase(Generic[T_LR]):
+    def __init__(self, root: Optional[T_NEXT]):
+        # 使用 object.__setattr__ 避免触发 __setattr__，防止无限递归
+        object.__setattr__(self, '_node', root)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == 'left':
+            ...
+        ...
+        if name == '_node':
+            return object.__getattribute__(self, name)
+        return getattr(self._node, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == '_node':
+            object.__setattr__(self, name, value)
+        else:
+            ...
+            # 除了 _node 都视为对原生节点的属性赋值
+            setattr(self._node, name, value)
+
+    def __bool__(self):
+        return self._node is not None
+    
+    # 使ListNodeKit可以像列表一样索引
+    def __getitem__(self, index: int) -> Optional[TreeNodeKitBase]:
+        """将树视为完全二叉树（填充空节点），返回对应索引的节点。若索引的是有效节点的空子节点，则返回None包装；若索引的空节点的父节点不存在，则报错"""
+        # 提示像访问堆排序那样迭代，若迭代到空节点，而 index 还没到位，则报错
+        ...
+        
+    
+    # 返回原生节点
+    @property
+    def node(self):
+        ...
+    
+    def flatten(self:Optional[...]]) -> Tuple[List[T_LR], int]:
+        """
+        1. 实例调用：kit.flatten() -> arg 为 kit 实例
+        2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
+        """
+        # 如果 arg 是 ListNodeKit 实例，取出其内部 node
+        if isinstance(self, ListNodeKitBase):
+            node = self._node
+        else:
+            node = self
+
+        it = IterNext[T_LR](node)  # 👈 从原始节点开始
+        Node_List, circle_index = SafeFlatten[T_LR, IterNext].flatten(it)
+
+        return Node_List, circle_index
+    
+    def __eq__(self, other: Any) -> bool:
+        """
+        核心逻辑：比较包装的 T_LR 对象的内存地址 (id)
+        支持: Kit == Kit, Kit == Node, Kit == None
+        """
+        # 如果 compare 对象也是包装类，取出其内部 node
+        if isinstance(other, ListNodeKitBase):
+            other_node = other._node
+        else:
+            # 否则视其为原始 Node 或 None
+            other_node = other
+            
+        return id(self._node) == id(other_node)
