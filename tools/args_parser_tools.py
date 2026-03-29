@@ -94,34 +94,45 @@ def _formated_string(val):
     else:
         return str(val)
 
-class SafeIter:
-    ...
-    # SafeIter 可以用于 SafeFlatten 和 其他 iter 对象的场景
-# 将 SafeFlatten 修改为继承 SafeIter 或调用其接口
-IDX_T = TypeVar("IDX_T", bound=Tuple[int,Any]) # 表达 Tuple[迭代index，被哈希对象] 的泛型变量
-ITER_TYPE = TypeVar("ITER_TYPE", bound=Iterable) # 可迭代对象类型变量
-class SafeFlatten(Generic[IDX_T,ITER_TYPE]):
-    """安全地扁平化一个可迭代对象 Tuple[迭代index，被哈希对象]，自动环检测，避免成环死循环。
-    返回格式: (节点列表, 首次出现重复的迭代index)
-    """
+KT = TypeVar('KT')   # 键类型（例如索引）
+NT = TypeVar('NT')   # 节点类型
+class SafeIter(Generic[KT, NT]):
+    """安全迭代器包装类：检测重复节点（基于 id），遇到重复时停止并记录重复键。"""
+    def __init__(self, iterable: Iterator[Tuple[KT, NT]]):
+        self._iter = iterable
+        self._seen = {}  # id(node) -> 首次出现的键
+        self._stopped = False
+        self._repeat_key = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Tuple[KT, NT]:
+        if self._stopped:
+            raise StopIteration
+        try:
+            key, node = next(self._iter)
+        except StopIteration:
+            raise
+        node_id = id(node)
+        if node_id in self._seen:
+            self._stopped = True
+            self._repeat_key = self._seen[node_id]
+            raise StopIteration  # 发现环，停止迭代
+        self._seen[node_id] = key
+        return key, node
+
+    def get_repeat_key(self) -> Optional[KT]:
+        """返回首次出现重复节点的键，若无重复返回 None。"""
+        # 注意：必须迭代完成（或提前停止）后才能获取
+        return self._repeat_key
+
     @classmethod
-    def flatten(cls, iter_obj:ITER_TYPE) -> Tuple[List[IDX_T], Optional[int]]:
-        """
-        扁平化节点结构，返回节点列表和环索引（-1表示无环）
-        节点需要通过 iter 构造成可迭代对象
-        """
-        res = []
-        seen = {}
-        
-        for idx,node in iter_obj:
-            node_hash = id(node)
-            if node_hash in seen:
-                return res, seen[node_hash]  # 返回当前列表和环开始索引
-            
-            seen[node_hash] = idx
-            res.append((idx,node))
-        
-        return res, None
+    def flatten(cls, iterable: Iterator[Tuple[KT, NT]]) -> Tuple[List[Tuple[KT, NT]], Optional[KT]]:
+        """辅助方法：将安全迭代器的结果收集为列表，同时返回重复键。"""
+        safe_iter = cls(iterable)
+        items = list(safe_iter)
+        return items, safe_iter.get_repeat_key()
     
 @runtime_checkable
 class HasNext(Protocol):
@@ -240,7 +251,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
         node = self.node if isinstance(self, ListNodeKitBase) else self
 
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
-        Node_List, circle_index = SafeFlatten[Tuple[int,T_NEXT], IterNext].flatten(it)
+        Node_List, circle_index = SafeIter.flatten(it)
 
         return [node for idx,node in Node_List], circle_index
 
@@ -353,17 +364,15 @@ class TreeNodeKitBase(KitBase[T_LR]):
         self._node.right = self.unwrap(value)
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
-        """按层序遍历顺序索引...若树非法...节点可能出现重复 如 link[i1]==link[i2],i1!=i2 ，不会进行无限环路检测，因为复杂度 O(index) 调用者自己把握"""
+        """按层序遍历顺序索引...若树非法...节点可能出现重复，停止迭代并报错"""
         if index < 0:
             raise IndexError("索引不能为负数")
-        for _,node in LayeredTraversal[T_LR](self.node):
-            if 0==index:
+        safe_iter = SafeIter(LayeredTraversal[T_LR](self._node))
+        for i, (_, node) in enumerate(safe_iter):
+            if i == index:
                 return self.__class__(node)
-            index -= 1
-        if 0==index:
-            return self.__class__(None) 
-        else:
-            raise IndexError("超出索引范围")
+        # 如果迭代提前结束（环或结束），且 index 超出范围
+        raise IndexError("超出索引范围或遇到环")
     
     def layer_iter(self) -> SafeIter:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
@@ -371,9 +380,8 @@ class TreeNodeKitBase(KitBase[T_LR]):
 
     def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
-        node = self._node
-        it = LayeredTraversal[T_LR](node)
-        return SafeFlatten.flatten(it)
+        it = LayeredTraversal[T_LR](self._node)
+        return SafeIter.flatten(it)   # 直接使用 SafeIter.flatten
 
     def __repr__(self) -> str:
         if self._node is None:
