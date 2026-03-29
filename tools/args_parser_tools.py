@@ -95,37 +95,34 @@ def _formated_string(val):
     else:
         return str(val)
 
-
-T = TypeVar("T") # 泛型变量
+IDX_T = TypeVar("IDX_T", bound=Tuple[int,Any]) # 表达 Tuple[迭代index，被哈希对象] 的泛型变量
 ITER_TYPE = TypeVar("ITER_TYPE", bound=Iterable) # 可迭代对象类型变量
-
-class SafeFlatten(Generic[T,ITER_TYPE]):
-    """安全地扁平化一个可迭代对象，自动环检测，避免成环死循环。
-    返回格式: (节点列表, 环节点索引)
+class SafeFlatten(Generic[IDX_T,ITER_TYPE]):
+    """安全地扁平化一个可迭代对象 Tuple[迭代index，被哈希对象]，自动环检测，避免成环死循环。
+    返回格式: (节点列表, 首次出现重复的迭代index)
     """
     @classmethod
-    def flatten(cls, iter:ITER_TYPE) -> Tuple[List[T], int]:
+    def flatten(cls, iter_obj:ITER_TYPE) -> Tuple[List[IDX_T], Optional[int]]:
         """
         扁平化节点结构，返回节点列表和环索引（-1表示无环）
         节点需要通过 iter 构造成可迭代对象
         """
-        seen = {}  # 存储节点id -> 索引
         res = []
+        seen = {}
         
-        for cur in iter:
-            node_id = id(cur)
-            if node_id in seen:
-                return res, seen[node_id]  # 返回当前列表和环开始索引
+        for idx,node in iter_obj:
+            node_hash = id(node)
+            if node_hash in seen:
+                return res, seen[node_hash]  # 返回当前列表和环开始索引
             
-            seen[node_id] = len(res)
-            res.append(cur)
+            seen[node_hash] = idx
+            res.append(node)
         
-        return res, -1
+        return res, None
     
 @runtime_checkable
 class HasNext(Protocol):
     next: Optional[Any]
-
 # 定义支持 .next 属性的协议（泛型约束）
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 
@@ -135,16 +132,18 @@ class IterNext(Generic[T_NEXT]):
     def __init__(self, head: Optional[T_NEXT]):
         """初始化迭代器，从指定节点开始"""
         self.link = head
+        self.idx = 0
     
-    def __next__(self) -> T_NEXT:
+    def __next__(self) -> Tuple[int,T_NEXT]:
         """返回当前节点并移动到下一个节点"""
         if not self.link:
             raise StopIteration
         node = self.link
         self.link = node.next  # 移动到下一个节点
-        return node
+        self.idx += 1
+        return (self.idx - 1,node)
     
-    def __iter__(self) -> 'IterNext[T_NEXT]':
+    def __iter__(self) -> 'IterNext':
         """返回自身，使对象可迭代"""
         return self
     
@@ -219,7 +218,7 @@ class ListNodeKitBase(Generic[T_NEXT]):
             
         return cur
     
-    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> Tuple[List[T_NEXT], int]:
+    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> Tuple[List[T_NEXT], int|None]:
         """
         1. 实例调用：kit.flatten() -> arg 为 kit 实例
         2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
@@ -228,9 +227,9 @@ class ListNodeKitBase(Generic[T_NEXT]):
         node = self.node if isinstance(self, ListNodeKitBase) else self
 
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
-        Node_List, circle_index = SafeFlatten[T_NEXT, IterNext].flatten(it)
+        Node_List, circle_index = SafeFlatten[Tuple[int,T_NEXT], IterNext].flatten(it)
 
-        return Node_List, circle_index
+        return [node for idx,node in Node_List], circle_index
 
     @classmethod
     def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val") -> str:
@@ -239,21 +238,20 @@ class ListNodeKitBase(Generic[T_NEXT]):
 
         str_lst = []
         
-        # 环之前的节点
-        for i in range(circle_index):
+        # 环之前的节点（若无环则全部节点）
+        for i in range(circle_index if circle_index else len(nodes)):
             str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
         # 有环标记
-        if circle_index != -1:
+        if circle_index is not None:
             str_lst.append(">")
         
-        # 环之后的节点
-        for i in range(max(0,circle_index), len(nodes)):
-            assert len(nodes)>0,"len(nodes)==0"
-            str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
+            # 环之后的节点
+            for i in range(circle_index, len(nodes)):
+                assert len(nodes)>0,"len(nodes)==0"
+                str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
-        # 环结束标记
-        if circle_index != -1:
+            # 环结束标记
             str_lst.append("^")
         
         return f"<ListNodeKit>:[{','.join(str_lst)}]"
@@ -391,7 +389,7 @@ class TreeNodeKitBase(Generic[T_LR]):
                 cur = cur.left if s=='0' else cur.right # 此时 root 是允许为 None的
             return TreeNodeKitBase(cur)
 
-    def flatten(self:'TreeNodeKitBase[T_LR]|T_LR|None') -> Tuple[List[Tuple[T_LR,int]], int]:
+    def flatten(self:'TreeNodeKitBase[T_LR]|T_LR|None') -> Tuple[List[Tuple[int,T_LR]], int|None]:
         """
         注意与 ListNodeKit 不同，返回的是元组
         """
@@ -399,5 +397,5 @@ class TreeNodeKitBase(Generic[T_LR]):
         node = self.node if isinstance(self, TreeNodeKitBase) else self
 
         it = LayeredTraversal[T_LR](node)  # 👈 从原始节点开始
-        return SafeFlatten[Tuple[T_LR,int], LayeredTraversal].flatten(it)
+        return SafeFlatten.flatten(it)
 
