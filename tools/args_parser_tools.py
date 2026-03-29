@@ -94,6 +94,9 @@ def _formated_string(val):
     else:
         return str(val)
 
+class SafeIter ...
+    # SafeIter 可以用于 SafeFlatten 和 其他 iter 对象的场景
+# 将 SafeFlatten 修改为继承 SafeIter 或调用其接口
 IDX_T = TypeVar("IDX_T", bound=Tuple[int,Any]) # 表达 Tuple[迭代index，被哈希对象] 的泛型变量
 ITER_TYPE = TypeVar("ITER_TYPE", bound=Iterable) # 可迭代对象类型变量
 class SafeFlatten(Generic[IDX_T,ITER_TYPE]):
@@ -296,7 +299,7 @@ class LayeredTraversal(Generic[T_LR]):
     def __init__(self, root: Optional[T_LR]):
         """初始化迭代器，从指定节点开始"""
         if root:
-            # 内部用 索引+1 方便计算后继索引
+            # 完全二叉树索引+1 作为键，方便计算后继索引
             self._node_queue = deque([(1,root)])
         else:
             self._node_queue = deque()
@@ -312,7 +315,7 @@ class LayeredTraversal(Generic[T_LR]):
             self._node_queue.append((2*idx1,node.left))
         if node.right:
             self._node_queue.append((2*idx1+1,node.right))
-        return (idx1-1,node)
+        return (idx1,node)
     
     def __iter__(self) -> 'LayeredTraversal[T_LR]':
         """返回自身，使对象可迭代"""
@@ -349,18 +352,24 @@ class TreeNodeKitBase(KitBase[T_LR]):
         self._node.right = self.unwrap(value)
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
+        """按层序遍历顺序索引...若树非法...节点可能出现重复 如 link[i1]==link[i2],i1!=i2 ，不会进行无限环路检测，因为复杂度 O(index) 调用者自己把握"""
         if index < 0:
             raise IndexError("索引不能为负数")
-        path = bin(index + 1)[3:]
-        cur = self._node
-        for direction in path:
-            if cur is None:
-                raise IndexError(f"索引 {index} 对应的节点不存在（父节点缺失）")
-            cur = cur.left if direction == '0' else cur.right
-        return self.__class__(cur)
+        for _,node in LayeredTraversal[T_LR](self.node):
+            if 0==index:
+                return self.__class__(node)
+            index -= 1
+        if 0==index:
+            return self.__class__(None) 
+        else:
+            raise IndexError("超出索引范围")
+    
+    def layer_iter(self) -> SafeIter？:
+        """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
+        ... 
 
     def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
-        """层序遍历树，返回 (节点列表, 首次出现重复节点的完全二叉树索引)。"""
+        """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
         node = self._node
         it = LayeredTraversal[T_LR](node)
         return SafeFlatten.flatten(it)
@@ -368,6 +377,9 @@ class TreeNodeKitBase(KitBase[T_LR]):
     def __repr__(self) -> str:
         if self._node is None:
             return "<TreeNodeKit: empty>"
-        idx_node, repeat_idx = self.flatten()
+        idx_node, repeat_key = self.flatten()
         idx_node_str_list = [f'{idx}:{node.val}' for idx, node in idx_node]
-        return f"<TreeNodeKit: {f'repeat_idx={repeat_idx}, ' if repeat_idx else ''}{idx_node_str_list}>"
+        return "<TreeNodeKit: {}{}>".format(
+            idx_node_str_list,
+            f", repeat_key:{repeat_key}"if repeat_key else ""
+        )

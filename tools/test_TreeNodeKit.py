@@ -27,7 +27,7 @@ def test_basic_functionality():
 
     # __repr__
     print(f"repr(kit) = {repr(kit)}")
-    assert "'0:1', '1:2', '2:3', '3:4', '4:5', '5:6'" in repr(kit)
+    assert "'1:1', '2:2', '3:3', '4:4', '5:5', '6:6'" in repr(kit)
 
     # 属性访问
     assert kit.val == 1
@@ -84,7 +84,7 @@ def test_cycle_detection():
     kit = TreeNodeKit(root)
     nodes, cycle_idx = kit.flatten()
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
-    assert cycle_idx == 0, f"自环起始索引应为0，实际{cycle_idx}"
+    assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
     assert len(nodes) == 1
     assert nodes[0][1] is root
@@ -115,7 +115,7 @@ def test_cycle_detection():
     # 层序顺序: [1,2,3,4,5,6] 当遍历到 n4 时，n4.right 指向 n5，而 n5 已经出现过（在索引4）
     # 所以环起始索引应该是 n5 首次出现的索引，即 4（0-based）
     print(kit)
-    assert cycle_idx == 5, f"交叉环起始索引应为5，实际{cycle_idx}"
+    assert cycle_idx == 6, f"交叉环起始索引应为6，实际{cycle_idx}"
     print("交叉环检测通过")
 
     # 2.3 多个环（复杂情况）：一个节点同时被多个节点指向
@@ -129,7 +129,7 @@ def test_cycle_detection():
     kit = TreeNodeKit(a)
     nodes, cycle_idx = kit.flatten()
     # 层序：a(0), b(1), c(2) 当 b.left 访问 a 时，a 已经出现（索引0），环起始索引0
-    assert cycle_idx == 0
+    assert cycle_idx == 1
     # 注意：当 c.right 访问 b 时，b 也已经出现，但此时环已经被检测到，不会再记录
     print("多环节点检测通过")
 
@@ -139,44 +139,80 @@ def test_cycle_detection():
 def random_tree_node_count(max_nodes: int = 100) -> int:
     """随机生成节点数，至少1个节点"""
     return random.randint(1, max_nodes)
-
 import random
 from typing import List, Optional, Tuple, Set, Dict
 from args_parser import TreeNode, TreeNodeKit
 
 
-def generate_random_tree(node_count: int, create_cycle: bool = False) -> Tuple[TreeNode, Optional[Set[int]] ,str]:
+def generate_random_tree(node_count: int, create_cycle: bool = False) -> Tuple[TreeNode, Optional[Set[int]], str]:
     """
-    生成随机二叉树（不一定完全），节点值随机整数 0-999。
+    生成随机二叉树（保证连通），节点值随机整数 0-999。
     如果 create_cycle=True，则随机选取一个非根节点，将其左或右指针指向该节点的某个祖先（包括自身），形成环。
-    返回 (根节点, 环起始节点id集合) 用于验证，若无环则返回 (根节点, None) 或 (根节点, 空集) 表示无环。
+    返回 (根节点, 环起始节点id集合, 调试日志)
     """
-    log_lines = [] # 保存调试信息
-
+    log_lines = []
     if node_count <= 0:
         raise ValueError("node_count must be > 0")
 
     nodes = [TreeNode(random.randint(0, 999)) for _ in range(node_count)]
     root = nodes[0]
+    log_lines.append(f"生成 {node_count} 个节点，根节点 id={id(root)}")
 
-    # 构建树（连通，无环）
-    idx = 1
-    queue = [root]
-    while queue and idx < node_count:
-        cur = queue.pop(0)
-        if idx < node_count and random.random() < 0.7:
-            cur.left = nodes[idx]
-            queue.append(nodes[idx])
-            idx += 1
-        if idx < node_count and random.random() < 0.7:
-            cur.right = nodes[idx]
-            queue.append(nodes[idx])
-            idx += 1
+    # ---- 构建连通树（无环） ----
+    # 使用随机顺序连接，保证所有节点最终都被连接到根
+    # 方法：维护一个“可用父节点”列表（初始为[root]），每次从中随机选取一个父节点，
+    # 将下一个未连接的节点作为其左或右孩子（随机选择左右，若该位置已被占则尝试另一侧，若均占则重新选父节点）
+    remaining = nodes[1:]  # 待连接的节点
+    random.shuffle(remaining)
+    parent_pool = [root]  # 可用的父节点（可能重复，因为每个节点可以有两个孩子）
+    idx = 0
+    while remaining and parent_pool:
+        cur_parent = random.choice(parent_pool)
+        child = remaining.pop(0)
+        # 随机决定左或右，如果位置已被占则尝试另一侧，若均被占则跳过该父节点
+        placed = False
+        for _ in range(2):  # 最多尝试两次（左/右）
+            side = random.choice(['left', 'right'])
+            if side == 'left' and cur_parent.left is None:
+                cur_parent.left = child
+                placed = True
+                break
+            elif side == 'right' and cur_parent.right is None:
+                cur_parent.right = child
+                placed = True
+                break
+        if placed:
+            parent_pool.append(child)  # 新节点成为潜在父节点
+            log_lines.append(f"连接节点 {id(child)} 作为 {id(cur_parent)} 的 {side} 孩子")
+        else:
+            # 如果 cur_parent 两个孩子都已满，将其从池中移除（可选，但保留也无害）
+            # 将孩子放回队首，换一个父节点重试
+            remaining.insert(0, child)
+            # 可选：从父池中移除 cur_parent 以避免无限循环（但先不移除，因为可能还有其他孩子）
+            # 这里简单记录一下
+            log_lines.append(f"节点 {id(cur_parent)} 已满，无法放置 {id(child)}，重新选择父节点")
+    if remaining:
+        # 理论上不应该有剩余，因为父池足够大（每个节点最多两个孩子），但保险处理
+        log_lines.append(f"警告：仍有 {len(remaining)} 个节点未连接，强制附加到根")
+        for orphan in remaining:
+            # 随机附加到任意已有节点（尝试左右）
+            for parent in parent_pool:
+                if parent.left is None:
+                    parent.left = orphan
+                    log_lines.append(f"强制将 {id(orphan)} 作为 {id(parent)} 的左孩子")
+                    break
+                elif parent.right is None:
+                    parent.right = orphan
+                    log_lines.append(f"强制将 {id(orphan)} 作为 {id(parent)} 的右孩子")
+                    break
+            else:
+                log_lines.append(f"无法连接孤立节点 {id(orphan)}，树不连通")
+    # ---------------------------
 
     if not create_cycle:
-        return root, None
+        return root, None, "\n".join(log_lines)
 
-    # 构建父节点映射（用于查找祖先）
+    # ---- 构建父节点映射（用于查找祖先） ----
     parent: Dict[TreeNode, Optional[TreeNode]] = {root: None}
     queue = [root]
     while queue:
@@ -201,31 +237,58 @@ def generate_random_tree(node_count: int, create_cycle: bool = False) -> Tuple[T
     # 选择非根节点作为环起点
     candidates = [n for n in nodes if n is not root]
     if not candidates:
-        return root, set()  # 只有根，无法创建环，返回空集表示无环
+        log_lines.append("只有根节点，无法创建环")
+        return root, set(), "\n".join(log_lines)
     cycle_source = random.choice(candidates)
     # 从该节点的祖先中随机选择一个目标（确保环能被立即检测）
     target = random.choice(list(ancestors[cycle_source]))
-    if random.choice([True, False]):
+    side = 'left' if random.choice([True, False]) else 'right'
+    if side == 'left':
         cycle_source.left = target
     else:
         cycle_source.right = target
+    log_lines.append(f"创建环：节点 {id(cycle_source)} 的 {side} 指向祖先 {id(target)}（值 {target.val}）")
+    # 验证环是否确实可达（检查 cycle_source 是否在根的可达集合中）
+    # 通过重新 BFS 检查从根是否能访问到 cycle_source
+    reachable = set()
+    q = [root]
+    while q:
+        cur = q.pop(0)
+        if cur in reachable:
+            continue
+        reachable.add(cur)
+        if cur.left:
+            q.append(cur.left)
+        if cur.right:
+            q.append(cur.right)
+    if cycle_source not in reachable:
+        log_lines.append(f"警告：环起点 {id(cycle_source)} 不在根可达集合中，环无效")
+    return root, {id(target)}, "\n".join(log_lines)
 
-    # log_lines 需要在中间适当的加入内容
-    return root, {id(target)} , "\n".join(log_lines)
 
-
-def validate_flatten(kit: TreeNodeKit, expected_cycle_ids: Optional[Set[int]] = None):
-    """验证 flatten 结果：无环时 cycle_idx 应为 None；有环时 cycle_idx 不为 None，且起始节点 id 在 expected_cycle_ids 中"""
+def validate_flatten(kit: TreeNodeKit, expected_cycle_ids: Optional[Set[int]], log: str = ""):
+    """验证 flatten 结果"""
     nodes, cycle_idx = kit.flatten()
     if not expected_cycle_ids:  # None 或空集都表示无环
-        assert cycle_idx is None, f"期望无环，但检测到环起始索引 {cycle_idx}"
+        if cycle_idx is not None:
+            raise AssertionError(f"期望无环，但检测到环起始索引 {cycle_idx}\n生成日志：\n{log}")
     else:
-        assert cycle_idx is not None, f"期望有环，但 flatten 返回 None。TreeNode如下：\n{kit}" # 后续需要补充 \n生成函数log如下：{log}
-        assert 0 <= cycle_idx < len(nodes), f"环起始索引 {cycle_idx} 无效"
-        start_node = nodes[cycle_idx][1]
-        assert id(start_node) in expected_cycle_ids, \
-            f"环起始节点 id {id(start_node)} 不在预期集合 {expected_cycle_ids} 中"
-
+        if cycle_idx is None:
+            # 输出详细的调试信息
+            raise AssertionError(
+                f"期望有环，但 flatten 返回 None\n"
+                f"期望环起始节点 id 集合: {expected_cycle_ids}\n"
+                f"生成日志：\n{log}\n"
+                f"树结构简图：{kit}"
+            )
+        nodes_dict = dict(nodes)
+        start_node = nodes_dict[cycle_idx]
+        if id(start_node) not in expected_cycle_ids:
+            raise AssertionError(
+                f"环起始节点 id {id(start_node)} 不在预期集合 {expected_cycle_ids} 中\n"
+                f"生成日志：\n{log}"
+            )
+        
 def test_random_trees():
     """随机生成大量二叉树（包括有环和无环），验证 flatten 的正确性和稳定性"""
     print("\n=== 3. 随机树压力测试（最多100节点，多轮随机）===")
@@ -238,18 +301,11 @@ def test_random_trees():
         node_count = random_tree_node_count(max_nodes)
         # 70% 概率生成无环树，30% 概率生成有环树
         create_cycle = random.random() < 0.3
-        root, expected_cycle_ids = generate_random_tree(node_count, create_cycle)
+        root, expected_cycle_ids,log = generate_random_tree(node_count, create_cycle)
         kit = TreeNodeKit(root)
 
         # 验证 flatten
-        try:
-            validate_flatten(kit, expected_cycle_ids)
-        except AssertionError as e:
-            print(f"第 {round_i+1} 轮失败: node_count={node_count}, create_cycle={create_cycle}")
-            print(f"错误详情: {e}")
-            # 可选：打印树结构以便调试
-            # print(repr(kit))
-            raise
+        validate_flatten(kit, expected_cycle_ids,log)
 
         # 额外验证：如果无环，层序遍历节点数应该等于 node_count（因为树中所有节点都是原始节点，没有重复）
         if not create_cycle:
