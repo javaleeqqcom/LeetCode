@@ -248,22 +248,37 @@ class ListNodeKitBase(KitBase[T_NEXT]):
                 cur = cur.next
             else:
                 raise IndexError("Index out of range")
-            
         return cur
     
-    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None',max_len:Optional[int] = None) -> Tuple[List[T_NEXT], int|None]:
+    def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: Optional[int] = None) -> Tuple[List[T_NEXT], int | None]:
         """
-        1. 实例调用：kit.flatten() -> arg 为 kit 实例
-        2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
+        安全展开链表，返回节点列表和停止索引。
+
+        支持两种调用方式：
+        - 实例调用：`kit.flatten()` 或 `kit.flatten(max_len)`
+        - 类/静态风格：`ListNodeKitBase.flatten(head [,max_len])`
+
+        Args:
+            max_len: 最大收集节点数，超出则提前终止。
+
+        Returns:
+            (nodes, stop_index)
+            - nodes: 节点列表（原始节点对象）。
+            - stop_index:
+                - 检测到环 → 环起始索引
+                - 达到 max_len → max_len
+                - 正常结束 → None
         """
-        # 如果 arg 是 ListNodeKit 实例，取出其内部 node
         node = self.node if isinstance(self, ListNodeKitBase) else self
+        it = IterNext[T_NEXT](node)
+        Node_List, stop_index = SafeIter.flatten(it, max_idx=max_len)
+        return [node for idx, node in Node_List], stop_index
 
-        it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
-        Node_List, circle_index = SafeIter.flatten(it, max_idx= max_len)
-
-        return [node for idx,node in Node_List], circle_index
-
+    def __iter__(self):
+        """调用 SafeIter 安全地遍历，遍历完毕或在链表环节点前停止"""
+        it = IterNext[T_NEXT](self.node)  # 👈 从原始节点开始
+        return SafeIter(it)
+    
     @classmethod
     def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = 10**5) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
@@ -398,15 +413,20 @@ class TreeNodeKitBase(KitBase[T_LR]):
                 f"索引 {index} 超出节点总数（共 {node_count} 个节点）。"
             )
     
-    def layer_iter(self) -> SafeIter:
-        """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
-        pass 
-
     def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
         it = LayeredTraversal[T_LR](self._node)
         return SafeIter.flatten(it)   # 直接使用 SafeIter.flatten
 
+    def layer_iter(self) -> SafeIter[T_LR]:
+        """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
+        it = LayeredTraversal[T_LR](self._node)
+        return SafeIter(it)
+    
+    def __iter__(self):
+        """默认返回层序遍历迭代器"""
+        return self.layer_iter()
+    
     @classmethod
     def to_string(cls, root: TreeNodeKitBase[T_LR]|T_LR|None, prep_property = "val", max_depth=10) -> str:
         """

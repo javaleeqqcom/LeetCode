@@ -209,8 +209,155 @@ def test_duplicate_values_no_cycle():
     assert nodes[2] is c
     print("   重复值测试通过")
 
+def test_iter():
+    """测试 ListNodeKit 的 __iter__ 方法（安全迭代）"""
+    from args_parser import List2ListNode
+
+    # 1. 空链表迭代
+    empty = ListNodeKit(None)
+    items = list(empty)
+    assert items == [], "空链表迭代应返回空列表"
+    print("   空链表迭代测试通过")
+
+    # 2. 无环链表迭代
+    head = List2ListNode([10, 20, 30])
+    kit = ListNodeKit(head)
+    collected = [(idx, node.val) for idx, node in kit]
+    expected = [(0, 10), (1, 20), (2, 30)]
+    assert collected == expected, f"无环链表迭代结果错误: {collected} != {expected}"
+    print("   无环链表迭代测试通过")
+
+    # 3. 有环链表迭代（检测重复节点并提前停止）
+    # 构造环: 1 -> 2 -> 3 -> 2 (环)
+    a = ListNode(1)
+    b = ListNode(2)
+    c = ListNode(3)
+    a.next = b
+    b.next = c
+    c.next = b  # 环起点为 b (val=2)
+    kit_ring = ListNodeKit(a)
+
+    it = iter(kit_ring)          # 获取 SafeIter 实例
+    collected = []
+    for idx, node in it:
+        collected.append((idx, node.val))
+    # 迭代应在遇到重复节点 b 时停止，不会输出索引3
+    assert collected == [(0, 1), (1, 2), (2, 3)], f"有环链表迭代结果错误: {collected}"
+    # 检查 repeat_idx 属性
+    assert it.repeat_idx == 1, f"repeat_idx 应为 1，实际为 {it.repeat_idx}"
+    print("   有环链表迭代（环检测）测试通过")
+
+    # 4. 重复值但无环链表（不应触发环检测）
+    d = ListNode(100)
+    e = ListNode(100)
+    f = ListNode(100)
+    d.next = e
+    e.next = f
+    kit_dup = ListNodeKit(d)
+    collected_dup = [(idx, node.val) for idx, node in kit_dup]
+    assert collected_dup == [(0, 100), (1, 100), (2, 100)], "重复值无环链表被错误检测为环"
+    print("   重复值无环链表迭代测试通过")
+
+def test_flatten_methods():
+    """专门测试 flatten 方法的调用方式和 stop_index 的所有可能值"""
+    print("\n========== 测试 flatten 方法 ==========")
+
+    # ---------- 准备无环链表 ----------
+    # 1 -> 2 -> 3 -> 4 -> 5
+    n1 = ListNode(1)
+    n2 = ListNode(2)
+    n3 = ListNode(3)
+    n4 = ListNode(4)
+    n5 = ListNode(5)
+    n1.next = n2
+    n2.next = n3
+    n3.next = n4
+    n4.next = n5
+    head = n1
+    kit = ListNodeKit(head)
+
+    # 1.1 实例调用 flatten()，无环正常结束
+    nodes, stop = kit.flatten()
+    assert stop is None, f"无环链表正常结束应为 None，实际 {stop}"
+    assert len(nodes) == 5
+    print("✓ 实例调用 flatten() 正常结束，stop=None")
+
+    # 1.2 实例调用 flatten(max_len=3)，提前达到 max_len
+    nodes, stop = kit.flatten(max_len=3)
+    assert stop == 3, f"max_len=3 应返回 stop=3，实际 {stop}"
+    assert len(nodes) == 3
+    print("✓ 实例调用 flatten(max_len=3) 提前终止，stop=3")
+
+    # 1.3 实例调用 flatten(max_len=10)，max_len 大于实际长度，正常结束
+    nodes, stop = kit.flatten(max_len=10)
+    assert stop is None, f"max_len 大于链表长度应正常结束，实际 {stop}"
+    assert len(nodes) == 5
+    print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=None")
+
+    # ---------- 类调用方式（将 head 作为第一个参数）----------
+    # 2.1 类调用 flatten(head)
+    nodes2, stop2 = ListNodeKit.flatten(head)
+    assert stop2 is None
+    assert len(nodes2) == 5
+    # 节点对象应与原始相同
+    assert nodes2[0] is n1 and nodes2[-1] is n5
+    print("✓ 类调用 ListNodeKit.flatten(head) 正常结束")
+
+    # 2.2 类调用 flatten(head, max_len=3)
+    nodes2, stop2 = ListNodeKit.flatten(head, max_len=3)
+    assert stop2 == 3
+    assert len(nodes2) == 3
+    print("✓ 类调用 ListNodeKit.flatten(head, max_len=3) 提前终止")
+
+    # ---------- 有环链表 ----------
+    # 构造环：1 -> 2 -> 3 -> 4 -> 5 -> 3  (环起始节点为 3，索引为 2)
+    # 注意：环起始索引基于 flatten 返回的列表顺序，从 0 开始计数
+    n1 = ListNode(1)
+    n2 = ListNode(2)
+    n3 = ListNode(3)
+    n4 = ListNode(4)
+    n5 = ListNode(5)
+    n1.next = n2
+    n2.next = n3
+    n3.next = n4
+    n4.next = n5
+    n5.next = n3   # 形成环，环起点是 n3 (val=3)
+    cycle_head = n1
+    cycle_kit = ListNodeKit(cycle_head)
+
+    # 3.1 实例调用 flatten()，检测到环
+    nodes, stop = cycle_kit.flatten()
+    assert stop == 2, f"环起始索引应为 2，实际 {stop}"
+    assert len(nodes) > 2
+    assert nodes[stop] is n3
+    print("✓ 有环链表 flatten() 正确返回环起始索引")
+
+    # 3.2 实例调用 flatten(max_len=1)，max_len 小于环起始索引，提前终止
+    nodes, stop = cycle_kit.flatten(max_len=1)
+    assert stop == 1, f"max_len=1 应返回 stop=1，实际 {stop}"
+    assert len(nodes) == 1
+    print("✓ 有环链表 flatten(max_len=1) 提前终止，未触发环检测")
+
+    # 3.3 实例调用 flatten(max_len=5)，max_len 大于环起始索引，触发环检测
+    nodes, stop = cycle_kit.flatten(max_len=5)
+    assert stop == 2, f"max_len=5 仍应检测到环起始索引 2，实际 {stop}"
+    # 收集的节点数可能超过 max_len? 注意 SafeIter.flatten 在 max_len 边界处理：
+    # 当 idx >= max_len 时立即返回已收集的 items，stop = max_len；但如果有环且环起始索引 < max_len，
+    # 则会在迭代过程中因重复而停止，此时 stop = 重复索引，且可能收集的节点数 > max_len？不会，
+    # 因为一旦检测到重复就停止，且重复索引一定小于 max_len（因为环起始索引 < max_len 才会触发），
+    # 收集的节点数 = 环起始索引 + 环内节点数，可能超过 max_len？实际上不会超过，因为环起始索引 < max_len，
+    # 但环内节点可能很多，但收集时会包括环内所有节点直到重复节点被再次遇到，数量可能超过 max_len。
+    # 我们这里不严格断言长度，只断言 stop 正确即可。
+    print("✓ 有环链表 flatten(max_len=5) 仍正确检测环")
+
+    print("========== flatten 方法测试全部通过 ==========\n")
+
 if __name__ == "__main__":
     # 先运行原有基础测试
     test_listnode_kit()
     # 额外运行重复值测试（避免被随机测试掩盖）
     test_duplicate_values_no_cycle()
+    # 新增迭代器测试
+    test_iter()
+    # 新增 flatten 专项测试
+    test_flatten_methods()

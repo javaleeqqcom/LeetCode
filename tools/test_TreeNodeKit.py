@@ -314,7 +314,6 @@ def generate_random_tree(node_count: int, create_cycle: bool = False) -> Tuple[T
         log_lines.append(f"警告：环起点 {id(cycle_source)} 不在根可达集合中，环无效")
     return root, {id(target)}, "\n".join(log_lines)
 
-
 def validate_flatten(kit: TreeNodeKit, expected_cycle_ids: Optional[Set[int]], log: str = ""):
     """验证 flatten 结果"""
     nodes, cycle_idx = kit.flatten()
@@ -431,11 +430,125 @@ def test_setters_and_unwrap():
 
     print("Setter 和 unwrap 测试通过")
 
+def test_iteration():
+    """测试 TreeNodeKitBase.__iter__ 迭代器行为（无环树、重复节点、自环、交叉环）"""
+    print("\n=== 6. 迭代器测试 ===")
 
+    # ---------- 6.1 无环树 ----------
+    root = List2TreeNode([1,2,3,4,5,6])
+    kit = TreeNodeKit(root)
+    flat_nodes, _ = kit.flatten()
+    
+    # 直接迭代
+    nodes_via_iter = list(kit)
+    assert len(nodes_via_iter) == len(flat_nodes)
+    for (idx1, node1), (idx2, node2) in zip(nodes_via_iter, flat_nodes):
+        assert idx1 == idx2
+        assert node1 is node2
+
+    # 手动迭代器 & repeat_idx
+    it = iter(kit)
+    manual = list(it)
+    assert len(manual) == len(flat_nodes)
+    assert it.repeat_idx is None
+
+    # ---------- 6.2 自环树 ----------
+    root_cycle = TreeNode(100)
+    root_cycle.right = root_cycle
+    kit_cycle = TreeNodeKit(root_cycle)
+    it_cycle = iter(kit_cycle)
+    collected = list(it_cycle)
+    # 自环：只有根节点产生一次，第二次遇到根时检测到重复并停止
+    assert len(collected) == 1
+    assert collected[0][0] == 1
+    assert collected[0][1] is root_cycle
+    assert it_cycle.repeat_idx == 1   # 根节点首次出现的索引
+
+    # ---------- 6.3 重复节点（多父）早停测试 ----------
+    # 构建树:     1
+    #           / \
+    #          2   3
+    #         /   / \
+    #        4   6   7
+    # 让 4.right 指向 6 → 6 有两个父节点（3.left 和 4.right）
+    n1 = TreeNode(1)
+    n2 = TreeNode(2)
+    n3 = TreeNode(3)
+    n4 = TreeNode(4)
+    n6 = TreeNode(6)
+    n7 = TreeNode(7)
+    n1.left = n2
+    n1.right = n3
+    n2.left = n4
+    n3.left = n6
+    n3.right = n7
+    n4.right = n6   # 重复节点（多父）
+
+    kit_cross = TreeNodeKit(n1)
+    it_cross = iter(kit_cross)
+    cross_nodes = list(it_cross)
+    # 层序顺序（完全二叉树索引）：
+    # 1:1, 2:2, 3:3, 4:4, 6:6, 7:7
+    # 当处理到 n4（索引4）时，其右孩子 n6 已经访问过（索引6），检测到重复，停止入队。
+    # 但 n7 已经在处理 n3 时入队，因此 n7 仍然会被输出。
+    expected_indices = [1,2,3,4,6,7]
+    actual_indices = [idx for idx,_ in cross_nodes]
+    assert actual_indices == expected_indices, f"实际索引: {actual_indices}"
+    # 重复检测索引应为 n6 首次出现的索引
+    assert it_cross.repeat_idx == 6
+    print("重复节点（多父）早停测试通过")
+
+    # ---------- 6.4 真正的交叉环（n4.left -> n3）----------
+    # 构建树:     1
+    #           / \
+    #          2   3
+    #         /   / \
+    #        4   6   7
+    # 添加环: 4.left = 3 （构成有向环 3->6->... 不直接成环，但 4 指向 3，3 可达 4）
+    # 更直接的环: 4.left = n3 即可
+    n1 = TreeNode(1)
+    n2 = TreeNode(2)
+    n3 = TreeNode(3)
+    n4 = TreeNode(4)
+    n6 = TreeNode(6)
+    n7 = TreeNode(7)
+    n1.left = n2
+    n1.right = n3
+    n2.left = n4
+    n3.left = n6
+    n3.right = n7
+    n4.left = n3   # 形成环: 3 -> ... -> 4 -> 3
+    kit_cycle2 = TreeNodeKit(n1)
+    it_cycle2 = iter(kit_cycle2)
+    cycle_nodes = list(it_cycle2)
+    # 层序：1,2,3,4,6,7 ... 当处理到 n4 时，其左孩子 n3 已经访问过（索引3），检测到重复，停止。
+    # 此时 n6 和 n7 已经在处理 n3 时入队，所以仍然会输出。
+    expected_cycle_indices = [1,2,3,4,6,7]
+    actual_cycle_indices = [idx for idx,_ in cycle_nodes]
+    assert actual_cycle_indices == expected_cycle_indices
+    assert it_cycle2.repeat_idx == 3   # n3 首次出现的索引
+    print("交叉环早停测试通过")
+
+    # ---------- 6.5 重复值但不同节点（无环）----------
+    n1 = TreeNode(10)
+    n2 = TreeNode(10)
+    n3 = TreeNode(10)
+    n1.left = n2
+    n2.left = n3
+    kit_valdup = TreeNodeKit(n1)
+    it_valdup = iter(kit_valdup)
+    dup_nodes = list(it_valdup)
+    assert len(dup_nodes) == 3
+    assert it_valdup.repeat_idx is None
+    print("重复值（不同节点）测试通过")
+
+    print("迭代器测试全部通过")
+    
 if __name__ == "__main__":
     test_basic_functionality()
     test_cycle_detection()
     test_duplicate_values()
     test_setters_and_unwrap()
     test_random_trees()
+    test_iteration()
     print("\n🎉 所有测试通过！")
