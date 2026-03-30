@@ -10,7 +10,7 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题目录 = Path(r"特殊the_fun的题目\面试题 02.08. Linked List Cycle LCCI")
+问题目录 = Path(r"2840. Check if Strings Can be Made Equal With Operations II")
 sys.path.insert(1, str(问题目录))
 from bt0 import Solution
 
@@ -19,7 +19,7 @@ from bt0 import Solution
 暴力算法 = SolutionRunner(问题目录 / "bt0.py")
 
 attached_attentions = [
-    "此题适合答案驱动，无需暴力算法求解expected，注意答案为成环节点下标，而非节点value。"
+    "此题适合答案驱动，当为Ture时用模拟方法构造s2，当为False时除了替换字符，还需要用暴力算法验证，也可以不验证，但是不写 expected。"
 ]
 
 测试样例提问_file = 暴力算法.relPath/"测试样例提问.txt"

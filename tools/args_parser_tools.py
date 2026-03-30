@@ -1,6 +1,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable ,cast
 from collections import deque
 from binarytree import build
+import json
 
 def _is_base_type(sig_type) -> bool:
     """
@@ -94,10 +95,9 @@ def _formated_string(val):
     else:
         return str(val)
 
-KT = TypeVar('KT')   # 键类型（例如索引）
 NT = TypeVar('NT')   # 节点类型
-class SafeIter(Generic[KT, NT]):
-    def __init__(self, iterable: Iterator[Tuple[KT, NT]]):
+class SafeIter(Generic[ NT]):
+    def __init__(self, iterable: Iterator[Tuple[int, NT]]):
         self._iter = iterable
         self._seen = {}
         self._repeat_key = None   # 记录首次重复的键，若无重复则为 None
@@ -105,7 +105,7 @@ class SafeIter(Generic[KT, NT]):
     def __iter__(self):
         return self
 
-    def __next__(self) -> Tuple[KT, NT]:
+    def __next__(self) -> Tuple[int, NT]:
         try:
             key, node = next(self._iter)
         except StopIteration:
@@ -118,15 +118,15 @@ class SafeIter(Generic[KT, NT]):
         return key, node
 
     @property
-    def repeat_key(self) -> Optional[KT]:
+    def repeat_key(self) -> Optional[int]:
         """返回首次出现重复节点的键，若无重复返回 None。"""
         return self._repeat_key
 
     @classmethod
-    def flatten(cls, iterable: Iterator[Tuple[KT, NT]]) -> Tuple[List[Tuple[KT, NT]], Optional[KT]]:
+    def flatten(cls, iterable: Iterator[Tuple[int, NT]], max_idx:int = (1<<31)-1) -> Tuple[List[Tuple[int, NT]], Optional[int]]:
         """辅助方法：将安全迭代器的结果收集为列表，同时返回重复键。"""
         safe_iter = cls(iterable)
-        items = list(safe_iter)
+        items = list(safe_iter) # 增加 max_idx 的限制（输出的 idx <= max_idx），注意要原生实现早停，而不是事后 filter
         return items, safe_iter.repeat_key
     
 @runtime_checkable
@@ -389,12 +389,45 @@ class TreeNodeKitBase(KitBase[T_LR]):
         it = LayeredTraversal[T_LR](self._node)
         return SafeIter.flatten(it)   # 直接使用 SafeIter.flatten
 
-    def __repr__(self) -> str:
-        if self._node is None:
+    @classmethod
+    def to_string(cls, root: TreeNodeKitBase[T_LR]|T_LR|None, prep_property = "val", max_depth=10) -> str:
+        """
+        生成树的字符串表示，包含：
+        - 树形结构（使用 binarytree 库）
+        - 完全二叉树索引与节点值的映射
+        - 重复节点键（若存在环）
+        """
+        node:Optional[T_LR] = TreeNodeKitBase.unwrap(root) # 兼容包装类成员函数和静态函数输入原生类两种方式
+        if node is None:
             return "<TreeNodeKit: empty>"
-        idx_node, repeat_key = self.flatten()
-        idx_node_str_list = [f'{idx}:{node.val}' for idx, node in idx_node]
-        return "<TreeNodeKit: {}{}>".format(
-            idx_node_str_list,
-            f", repeat_key:{repeat_key}"if repeat_key else ""
-        )
+        it = LayeredTraversal[T_LR](node)
+        idx_node, repeat_key = SafeIter.flatten(it)
+
+        # 构建索引到节点值的映射
+        idx_val = {idx: getattr(n, prep_property) for idx, n in idx_node}
+
+        # 构建用于 binarytree.build 的层序列表
+        if idx_val:
+            max_idx = max(idx_val.keys())
+            level_list = [None] * max_idx          # 索引从 1 开始，列表长度 = 最大索引
+            for idx, val in idx_val.items():
+                level_list[idx - 1] = str(val)     # 转换为字符串供 build 使用
+            try:
+                bt = build(level_list)
+                tree_str = str(bt) if bt else "null"
+            except Exception:
+                tree_str = "Error: binarytree build failed"
+        else:
+            tree_str = "null"
+
+        # 构建各部分字符串
+        parts = [
+            f'  "tree_by_idx": """{tree_str}"""',
+            f'  "idx:val": {json.dumps(idx_val)}'
+        ]
+        if repeat_key is not None:
+            parts.append(f'  "repeat_key": {repeat_key}')
+
+        # 组合最终输出
+        body = ",\n".join(parts)
+        return f"<TreeNodeKit: {{\n{body}\n}}>"

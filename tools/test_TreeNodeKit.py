@@ -27,7 +27,7 @@ def test_basic_functionality():
 
     # __repr__
     print(f"repr(kit) = {repr(kit)}")
-    assert "'1:1', '2:2', '3:3', '4:4', '5:5', '6:6'" in repr(kit)
+    assert '"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6' in repr(kit), kit.to_string()
 
     # 属性访问
     assert kit.val == 1
