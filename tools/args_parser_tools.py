@@ -95,9 +95,9 @@ def _formated_string(val):
     else:
         return str(val)
 
-NT = TypeVar('NT')   # 节点类型
-class SafeIter(Generic[ NT]):
-    def __init__(self, iterable: Iterator[Tuple[int, NT]]):
+T = TypeVar('T')   # 通用泛型
+class SafeIter(Generic[T]):
+    def __init__(self, iterable: Iterator[Tuple[int, T]]):
         self._iter = iterable
         self._seen = {}
         self._repeat_key = None   # 记录首次重复的键，若无重复则为 None
@@ -105,7 +105,7 @@ class SafeIter(Generic[ NT]):
     def __iter__(self):
         return self
 
-    def __next__(self) -> Tuple[int, NT]:
+    def __next__(self) -> Tuple[int, T]:
         try:
             key, node = next(self._iter)
         except StopIteration:
@@ -123,10 +123,14 @@ class SafeIter(Generic[ NT]):
         return self._repeat_key
 
     @classmethod
-    def flatten(cls, iterable: Iterator[Tuple[int, NT]], max_idx:int = (1<<31)-1) -> Tuple[List[Tuple[int, NT]], Optional[int]]:
+    def flatten(cls, iterable: Iterator[Tuple[int, T]], max_idx:int = (1<<31)-1) -> Tuple[List[Tuple[int, T]], Optional[int]]:
         """辅助方法：将安全迭代器的结果收集为列表，同时返回重复键。"""
         safe_iter = cls(iterable)
-        items = list(safe_iter) # 增加 max_idx 的限制（输出的 idx <= max_idx），注意要原生实现早停，而不是事后 filter
+        items = []
+        for key, node in safe_iter:
+            if max_idx is not None and key > max_idx:
+                break
+            items.append((key, node))
         return items, safe_iter.repeat_key
     
 @runtime_checkable
@@ -296,8 +300,7 @@ def ReprDecorator(prep_property: str = "val"):
 class HasLR(Protocol):
     left: Optional[Any]
     right: Optional[Any]
-
-# 定义支持 .next 属性的协议（泛型约束）
+# 定义支持 .left , .right 属性的协议（泛型约束）
 T_LR = TypeVar("T_LR",bound=HasLR)
 
 # 待修订，用于 ListNodeKit
