@@ -1,6 +1,6 @@
 # test_listnode_kit.py
 import random
-from args_parser import ListNode, ListNodeKit
+from args_parser import ListNode, ListNodeKit , List2ListNode
 
 def test_listnode_kit():
     """测试 ListNodeKit 的所有功能（基础 + 随机压力）"""
@@ -58,6 +58,10 @@ def test_listnode_kit():
     print(f"   bool(kit.next.next): {bool(kit.next.next)}")   # True
     print(f"   bool(kit.next.next.next): {bool(kit.next.next.next)}")  # False
     
+    # 2.6 长链表截断打印测试
+    long_link = ListNodeKit(List2ListNode(list(range(1,101))))
+    print(long_link.to_str(max_len=99))
+
     # ---------- 3. 带环链表（使用示例中的构造方式）----------
     print("\n3. 带环链表测试")
     ring_link = ListNodeKit(val=1)

@@ -100,38 +100,48 @@ class SafeIter(Generic[T]):
     def __init__(self, iterable: Iterator[Tuple[int, T]]):
         self._iter = iterable
         self._seen = {}
-        self._repeat_key = None   # 记录首次重复的键，若无重复则为 None
+        self._repeat_idx = None   # 记录首次重复的索引，若无重复则为 None
 
     def __iter__(self):
         return self
 
     def __next__(self) -> Tuple[int, T]:
         try:
-            key, node = next(self._iter)
+            idx, node = next(self._iter)
         except StopIteration:
             raise
         node_id = id(node)
         if node_id in self._seen:
-            self._repeat_key = self._seen[node_id]   # 记录重复键
+            self._repeat_idx = self._seen[node_id]   # 记录重复键
             raise StopIteration   # 立即停止迭代
-        self._seen[node_id] = key
-        return key, node
+        self._seen[node_id] = idx
+        return idx, node
 
     @property
-    def repeat_key(self) -> Optional[int]:
+    def repeat_idx(self) -> Optional[int]:
         """返回首次出现重复节点的键，若无重复返回 None。"""
-        return self._repeat_key
+        return self._repeat_idx
 
     @classmethod
-    def flatten(cls, iterable: Iterator[Tuple[int, T]], max_idx:int = (1<<31)-1) -> Tuple[List[Tuple[int, T]], Optional[int]]:
-        """辅助方法：将安全迭代器的结果收集为列表，同时返回重复键。"""
+    def flatten(cls, iterable: Iterator[Tuple[int, T]], max_idx:int|None = None) -> Tuple[List[Tuple[int, T]], Optional[int]]:
+        """
+        安全收集迭代结果，可选限制最大索引。
+
+        :param iterable: 产生 (索引, 节点) 对的迭代器
+        :param max_idx:   最大索引（包含），若提供则仅收集 idx < max_idx 的元素，并提前停止迭代
+        :return 终止索引: 当正常结束时为 None；超出 max_idx 而提前终止时为 max_idx；出现重复节点时为该节点的索引
+        :return: ([(索引, 节点),...], 终止索引)
+        """
         safe_iter = cls(iterable)
-        items = []
-        for key, node in safe_iter:
-            if max_idx is not None and key > max_idx:
-                break
-            items.append((key, node))
-        return items, safe_iter.repeat_key
+        if max_idx is None:
+            items = list(safe_iter)
+        else:
+            items = []
+            for idx, node in safe_iter:
+                if idx >= max_idx:
+                    return items, max_idx
+                items.append((idx, node))
+        return items, safe_iter.repeat_idx
     
 @runtime_checkable
 class HasNext(Protocol):
@@ -241,7 +251,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
             
         return cur
     
-    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> Tuple[List[T_NEXT], int|None]:
+    def flatten(self:'ListNodeKitBase[T_NEXT]|T_NEXT|None',max_len:Optional[int] = None) -> Tuple[List[T_NEXT], int|None]:
         """
         1. 实例调用：kit.flatten() -> arg 为 kit 实例
         2. 类调用：ListNodeKit.flatten(head) -> arg 为 head 节点
@@ -250,34 +260,38 @@ class ListNodeKitBase(KitBase[T_NEXT]):
         node = self.node if isinstance(self, ListNodeKitBase) else self
 
         it = IterNext[T_NEXT](node)  # 👈 从原始节点开始
-        Node_List, circle_index = SafeIter.flatten(it)
+        Node_List, circle_index = SafeIter.flatten(it, max_idx= max_len)
 
         return [node for idx,node in Node_List], circle_index
 
     @classmethod
-    def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val") -> str:
+    def to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = 10**5) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
-        nodes, circle_index = ListNodeKitBase[T_NEXT].flatten(head)        
+        nodes, stop_index = ListNodeKitBase[T_NEXT].flatten(head,max_len = max_len)        
 
         str_lst = []
         
         # 环之前的节点（若无环则全部节点）
-        for i in range(circle_index if circle_index else len(nodes)):
+        for i in range(stop_index if stop_index else len(nodes)):
             str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
         
-        # 有环标记
-        if circle_index is not None:
-            str_lst.append(">")
-        
-            # 环之后的节点
-            for i in range(circle_index, len(nodes)):
-                assert len(nodes)>0,"len(nodes)==0"
-                str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
-        
-            # 环结束标记
-            str_lst.append("^")
-        
-        return f"<ListNodeKit>:[{','.join(str_lst)}]"
+        # 有异常终止索引
+        if stop_index is not None:
+            if stop_index == len(nodes):
+                str_lst.append("...") # 说明链表长度超过最大限制，截断打印
+
+            else: # 说明检测到链表环
+                str_lst.append(">")
+            
+                # 环之后的节点
+                for i in range(stop_index, len(nodes)):
+                    assert len(nodes)>0,"len(nodes)==0"
+                    str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
+            
+                # 环结束标记
+                str_lst.append("^")
+
+        return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
     
 def ReprDecorator(prep_property: str = "val"):
     """
@@ -293,6 +307,7 @@ def ReprDecorator(prep_property: str = "val"):
             return self.to_string(self._node, prep_property)
         
         cls.__repr__ = __repr__
+
         return cls
     return wrapper
 
@@ -372,9 +387,9 @@ class TreeNodeKitBase(KitBase[T_LR]):
             if i == index:
                 return self.__class__(node)
         # 迭代提前终止，可能因为环或正常结束
-        if safe_iter.repeat_key is not None:
+        if safe_iter.repeat_idx is not None:
             raise IndexError(
-                f"索引 {index} 访问时遇到环或重复节点，首次重复键为 {safe_iter.repeat_key}。"
+                f"索引 {index} 访问时遇到环或重复节点，首次重复键为 {safe_iter.repeat_idx}。"
                 f"已遍历 {node_count} 个节点后检测到重复。"
             )
         else:
@@ -402,9 +417,12 @@ class TreeNodeKitBase(KitBase[T_LR]):
         """
         node:Optional[T_LR] = TreeNodeKitBase.unwrap(root) # 兼容包装类成员函数和静态函数输入原生类两种方式
         if node is None:
-            return "<TreeNodeKit: empty>"
+            return "<class 'TreeNodeKit'>: empty"
+        
+        # 遍历展开并获取节点与索引的映射
         it = LayeredTraversal[T_LR](node)
-        idx_node, repeat_key = SafeIter.flatten(it)
+        max_index = 2**max_depth
+        idx_node, stop_idx = SafeIter.flatten(it,max_idx=max_index)
 
         # 构建索引到节点值的映射
         idx_val = {idx: getattr(n, prep_property) for idx, n in idx_node}
@@ -412,9 +430,10 @@ class TreeNodeKitBase(KitBase[T_LR]):
         # 构建用于 binarytree.build 的层序列表
         if idx_val:
             max_idx = max(idx_val.keys())
-            level_list = [None] * max_idx          # 索引从 1 开始，列表长度 = 最大索引
+            level_list = [""] * max_idx          # 索引从 1 开始，列表长度 = 最大索引
             for idx, val in idx_val.items():
-                level_list[idx - 1] = str(val)     # 转换为字符串供 build 使用
+                # 转换为字符串供 build 使用
+                level_list[idx - 1] = f"{'*'if idx == stop_idx else ''}{_formated_string(val)}"     
             try:
                 bt = build(level_list)
                 tree_str = str(bt) if bt else "null"
@@ -422,15 +441,17 @@ class TreeNodeKitBase(KitBase[T_LR]):
                 tree_str = "Error: binarytree build failed"
         else:
             tree_str = "null"
-
+        
         # 构建各部分字符串
         parts = [
-            f'  "tree_by_idx": """{tree_str}"""',
-            f'  "idx:val": {json.dumps(idx_val)}'
+            f'  "stop_by_duplicate_idx": {stop_idx}'if stop_idx is not None and stop_idx<max_index else None,
+            '  "tree_by_idx": """{}{}"""'.format(
+                tree_str, 
+                '...\n' if stop_idx == max_index else ''
+            ),
+            f'  "idx:val": {idx_val}'
         ]
-        if repeat_key is not None:
-            parts.append(f'  "repeat_key": {repeat_key}')
 
         # 组合最终输出
-        body = ",\n".join(parts)
-        return f"<TreeNodeKit: {{\n{body}\n}}>"
+        body = ",\n".join(filter(bool,parts))
+        return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"

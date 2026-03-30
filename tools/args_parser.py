@@ -126,6 +126,10 @@ class ListNodeKit(ListNodeKitBase):
         if (node is None) and (val is not None):
             node = ListNode(val)
         super().__init__(node)
+        
+    def to_str(self,max_len=10**5):
+        return self.to_string(self._node, "val", max_len)
+    
 
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
@@ -162,6 +166,10 @@ class TreeNodeKit(TreeNodeKitBase):
         else:
             node = root
         super().__init__(node)
+    
+    def to_str(self,max_depth=10):
+        return self.to_string(self._node, "val", max_depth)
+    
 
 def TreeNode2List(root: Optional[TreeNode]) -> List[_BASE_TYPE]:
     """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）"""

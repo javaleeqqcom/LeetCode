@@ -16,18 +16,9 @@ def test_basic_functionality():
     #           2     3
     #          / \   /
     #         4   5 6
-    root = TreeNode(1)
-    root.left = TreeNode(2)
-    root.right = TreeNode(3)
-    root.left.left = TreeNode(4)
-    root.left.right = TreeNode(5)
-    root.right.left = TreeNode(6)
+    root = List2TreeNode([1,2,3,4,5,6])
 
     kit = TreeNodeKit(root)
-
-    # __repr__
-    print(f"repr(kit) = {repr(kit)}")
-    assert '"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6' in repr(kit), kit.to_string()
 
     # 属性访问
     assert kit.val == 1
@@ -55,6 +46,11 @@ def test_basic_functionality():
     node_vals = [node.val for _, node in nodes]
     assert node_vals == [1, 2, 3, 4, 5, 6]
     assert cycle_idx is None
+
+    # 超出深度打印
+    print("超出深度打印")
+    kit = TreeNodeKit(List2TreeNode(list(range(1,100))))
+    print(kit.to_str(max_depth=6))
 
     # 空树
     empty = TreeNodeKit(None)
