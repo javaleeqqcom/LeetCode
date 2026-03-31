@@ -508,9 +508,9 @@ def test_random_tree(seed = 42):
     print("随机树 + 非法链接测试全部通过")
 
 if __name__ == "__main__":
-    # test_basic_functionality()
+    test_basic_functionality()
     test_cycle_detection()
-    # test_duplicate_values()
-    # test_setters_and_unwrap()
-    # test_random_tree()
+    test_duplicate_values()
+    test_setters_and_unwrap()
+    test_random_tree()
     print("\n🎉 所有测试通过！")

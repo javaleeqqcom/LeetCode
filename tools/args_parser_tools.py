@@ -469,7 +469,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
         """按层序遍历顺序索引...若树非法...节点可能出现重复，停止迭代并报错"""
         if index < 0:
             raise IndexError("索引不能为负数")
-        safe_iter = SafeIter(LayeredTraversal[T_LR](self._node))
+        safe_iter = LayeredTraversal(self._node)
         node_count = 0
         for i, (_, node) in enumerate(safe_iter):
             node_count += 1
