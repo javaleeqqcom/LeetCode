@@ -96,48 +96,46 @@ def _formated_string(val):
         return str(val)
 
 T = TypeVar('T')
-class SafeIterBase(Generic[T]):
-    """
-    安全迭代基类：提供节点查重和索引管理
-    T 不可用于包装类
-    """
+class SafeIterBase(Iterator[Tuple[int,T]]):
     def __init__(self, init_node: Optional[T] = None, init_idx: int = 0):
         self._seen: Dict[int, int] = {}  # id(node) -> index
-        self._repeat_idx: Optional[int] = None
-        
-        # 当前准备产出的节点和索引
+        self._repeat_idx: Optional[int] = None  # 记录重复节点的索引
         self._current_node = init_node
         self._current_idx = init_idx
 
-    def __iter__(self):
-        return self
+    def _check_safe(self, node: Optional[T]) -> bool:
+        """
+        子类在压栈/入队前调用此方法。
+        仅当节点有效且未访问过，返回 True。
+        如果发现重复，记录索引并返回 False。
+        """
+        if node is None:
+            return False
+        nid = id(node)
+        if nid in self._seen:
+            self._repeat_idx = self._seen[nid]
+            return False
+        return True
+
+    # def __iter__(self): 已继承 Iterator 实现
 
     def __next__(self) -> Tuple[int, T]:
-        # 1. 终止检查
-        if self._current_node is None:
+        # 1. 检查是否有环或结束
+        if self._current_node is None or self._repeat_idx is not None:
             raise StopIteration
             
-        # 2. 查重校验 (使用对象 ID 避免 __eq__ 陷阱)
+        # 2. 产出前正式登记 (此时才分配索引)
         node_id = id(self._current_node)
-        if node_id in self._seen:
-            self._repeat_idx = self._seen[node_id]
-            raise StopIteration
-            # raise Exception(f"{node_id} in seen, repeat idx: {self._repeat_idx}")
-            
-        # 3. 记录已访问
         self._seen[node_id] = self._current_idx
         
-        # 4. 保存当前值用于返回
         res = (self._current_idx, self._current_node)
         
-        # 5. 调用子类逻辑更新到“状态机”的下一个位置
-        # 子类负责更新 self._current_idx 和 self._current_node
+        # 3. 准备下一个
         self._prepare_next()
-        
         return res
 
     def _prepare_next(self):
-        """抽象方法：由子类实现，更新 _current_idx 和 _current_node"""
+        """抽象方法：由子类实现，更新 _current_node"""
         raise NotImplementedError
 
     @property
@@ -355,32 +353,33 @@ T_LR = TypeVar("T_LR",bound=HasLR)
 
 class LayeredTraversal(SafeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
-        # 初始化基类，第一个产出的是 root，索引为 1
+        # 初始化基类，当前节点设为 root
+        # 注意：我们不立即把 root 放入队列，而是由基类管理 current_node
         super().__init__(init_node=root, init_idx=1)
-        self._queue = deque()
-        # 注意：基类已经处理了 root，所以这里不需要重复把 root 放进队列
+        self._queue:Deque[Tuple[int,T_LR]] = deque() # 存储 (index, node) 元组
 
-    def _prepare_next(self):
-        """
-        当基类消费完当前的 self._current_node 后，
-        子类负责把它的子节点入队，并从队首取出下一个给基类。
-        """
-        curr = self._current_node
-        assert curr is not None, "底层错误！SafeIterBase 非法在 _current_node = None 时调用 _prepare_next"
+        # 如果根节点存在且安全，将其放入队列作为后续候选
+        # current_node 将在第一次 __next__ 时被产出
+        if self._check_safe(root):
+            self._push()
 
-        idx = self._current_idx
+    def _push(self):
+        left_child = getattr(self._current_node, 'left')
+        right_child = getattr(self._current_node, 'right')
+        # 根节点索引通常为 1 (完全二叉树标准)
+        if self._check_safe(left_child):
+            self._queue.append((self._current_idx * 2, left_child))
+        if self._check_safe(right_child):
+            self._queue.append((self._current_idx * 2 + 1, right_child))
         
-        # 1. 将子节点入队
-        if curr.left:
-            self._queue.append((2 * idx, curr.left))
-        if curr.right:
-            self._queue.append((2 * idx + 1, curr.right))
-            
-        # 2. 提取下一个要产出的节点
-        if self._queue:
-            self._current_idx, self._current_node = self._queue.popleft()
-        else:
-            self._current_node = None # 标记结束
+    def _prepare_next(self):
+        if not self._queue:
+            self._current_node = None
+            return
+
+        # 取出下一个节点
+        self._current_idx, self._current_node = self._queue.popleft()
+        self._push()
 
     def flatten(self, max_idx: Optional[int] = None):
         return super()._flatten(self, max_idx)
@@ -516,88 +515,105 @@ class TreeNodeKitBase(KitBase[T_LR]):
     
     # ===================== 新增三个遍历迭代器 =====================
 
-class PreorderTraversal(SafeIterBase[T_LR]):
-    """前序遍历迭代器 (NLR)"""
-    def __init__(self, root: Optional[T_LR]):
-        super().__init__(None, 0)            # 必须调用父类初始化
+class PreorderTraversal(SafeIterBase[T]):
+    def __init__(self, root: Optional[T]):
+        super().__init__(None, 0) # 初始 current_node 为 None，由 prepare_next 填充
         self._stack = []
-        if root is not None:
-            self._current_node = root
-            self._current_idx = 0
+        
+        # 关键：在压栈前检查
+        if root and self._check_safe(root):
+            self._stack.append(root)
+            self._prepare_next() # 初始化第一个节点
 
     def _prepare_next(self):
-        self._current_idx += 1
-        # 先右后左压栈，保证左子先出
-        if self._current_node.right:
-            self._stack.append(self._current_node.right)
-        if self._current_node.left:
-            self._stack.append(self._current_node.left)
-        if self._stack:
-            self._current_node = self._stack.pop()
-        else:
+        """
+        前序逻辑：弹出栈顶作为当前节点，并立即压入其右、左子节点（顺序保证左先被访问）
+        """
+        if not self._stack:
             self._current_node = None
+            return
 
+        # 弹出栈顶作为下一个产出的节点
+        node = self._stack.pop()
+        self._current_node = node
+        self._current_idx += 1 # 简单递增索引
+
+        # 反向压栈：先右后左，保证左子在栈顶先被处理
+        # 压栈前必须检查安全
+        # 注意：这里我们只检查是否入栈，实际产出在 __next__ 中登记
+        right_child = getattr(node, 'right', None)
+        left_child = getattr(node, 'left', None)
+
+        # 压栈顺序决定了访问顺序
+        if right_child and self._check_safe(right_child):
+            self._stack.append(right_child)
+        if left_child and self._check_safe(left_child):
+            self._stack.append(left_child)
 
 class InorderTraversal(SafeIterBase[T_LR]):
-    """中序遍历迭代器 (LNR)"""
     def __init__(self, root: Optional[T_LR]):
         super().__init__(None, 0)
         self._stack = []
-        if root is not None:
-            node = root
-            while node:
-                self._stack.append(node)
-                node = node.left
+        if root and self._check_safe(root):
+            self._push_left(root)
             if self._stack:
                 self._current_node = self._stack[-1]
-                self._current_idx = 0
+
+    def _push_left(self, node: T_LR):
+        """下探左子树，带查重"""
+        curr = node
+        while curr.left:
+            if not self._check_safe(curr.left): # 关键：下探即查重
+                break
+            self._stack.append(curr.left)
+            curr = curr.left
 
     def _prepare_next(self):
         self._current_idx += 1
-        # 弹出当前节点
-        if self._stack:
-            self._stack.pop()
-        # 处理右子树
-        if self._current_node.right:
-            node = self._current_node.right
-            while node:
-                self._stack.append(node)
-                node = node.left
-        # 取下一个节点
-        if self._stack:
-            self._current_node = self._stack[-1]
-        else:
-            self._current_node = None
+        # 1. 弹出已产出的当前节点
+        old_node = self._stack.pop() if self._stack else None
+        
+        # 2. 尝试转向右子树
+        if old_node and old_node.right:
+            if self._check_safe(old_node.right):
+                # 如果右子树安全，压入右子及其所有左子
+                self._stack.append(old_node.right)
+                self._push_left(old_node.right)
+            else:
+                # 发现环，终止
+                self._current_node = None
+                return
 
+        self._current_node = self._stack[-1] if self._stack else None
 
 class PostorderTraversal(SafeIterBase[T_LR]):
-    """后序遍历迭代器 (LRN)"""
     def __init__(self, root: Optional[T_LR]):
         super().__init__(None, 0)
         self._stack = []
-        if root is not None:
+        if root and self._check_safe(root):
             self._stack.append((root, False))
             self._current_node = self._find_next_post_node()
-            self._current_idx = 0
 
     def _find_next_post_node(self) -> Optional[T_LR]:
-        """查找下一个后序节点，同时检测环，避免死循环"""
         while self._stack:
             node, visited = self._stack[-1]
-            # 重复检测：如果节点已经访问过，设置重复索引并停止
-            node_id = id(node)
-            if node_id in self._seen:
-                self._repeat_idx = self._seen[node_id]
-                return None
             if visited:
-                self._stack.pop()
-                return node
+                return self._stack.pop()[0] # 真正返回节点
             else:
+                # 标记为已访问，并尝试压入子节点
                 self._stack[-1] = (node, True)
-                if node.right:
-                    self._stack.append((node.right, False))
-                if node.left:
-                    self._stack.append((node.left, False))
+                # 后序压栈顺序：右、左（保证弹出顺序为左、右）
+                for child in [node.right, node.left]:
+                    if child:
+                        if self._check_safe(child):
+                            self._stack.append((child, False))
+                        else:
+                            # 发现环！停止下探并直接触发终止状态
+                            # 这里返回 None 会让 _current_node 为 None，
+                            # 随后基类 __next__ 会发现 repeat_idx 已被 _is_safe 设置
+                            return None 
+                # 压入子节点后，需要继续下探直到找到叶子
+                # 逻辑会回到 while 循环顶部处理刚压入的 (left, False)
         return None
 
     def _prepare_next(self):
