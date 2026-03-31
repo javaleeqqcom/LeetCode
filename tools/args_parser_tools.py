@@ -447,14 +447,18 @@ class TreeNodeKitBase(KitBase[T_LR]):
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
         return LayeredTraversal[T_LR](self._node)
     
-    def LNR_iter(self) -> SafeIterBase[T_LR]:
-        return StackTraversal[T_LR](self._node,"in")
-    
+
     def NLR_iter(self) -> SafeIterBase[T_LR]:
-        return StackTraversal[T_LR](self._node,"pre")
-    
+        """前序遍历迭代器 (NLR)"""
+        return PreorderTraversal[T_LR](self._node)
+
+    def LNR_iter(self) -> SafeIterBase[T_LR]:
+        """中序遍历迭代器 (LNR)"""
+        return InorderTraversal[T_LR](self._node)
+
     def LRN_iter(self) -> SafeIterBase[T_LR]:
-        return StackTraversal[T_LR](self._node,"post")
+        """后序遍历迭代器 (LRN)"""
+        return PostorderTraversal[T_LR](self._node)
     
     def __iter__(self):
         """默认返回层序遍历迭代器"""
@@ -509,116 +513,93 @@ class TreeNodeKitBase(KitBase[T_LR]):
         body = ",\n".join(filter(bool,parts))
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
     
-class StackTraversal(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], mode: str = 'in'):
-        # 1. 初始化基类基础设施
-        super().__init__(init_node=None, init_idx=0)
-        self.mode = mode
-        self.stack: List[T_LR] = []
+    
+    # ===================== 新增三个遍历迭代器 =====================
 
-        if root:
-            if mode == 'pre':
-                # 先序：第一个就是 root，但不急着压子节点，留给 _prepare_next 处理
-                self._current_node = root
-            elif mode == 'in':
-                self._current_node = self._init_push_left(root)
-            else: # post
-                self.stack.append((root, False))
-                self._current_node = self._find_next_post_node()
+class PreorderTraversal(SafeIterBase[T_LR]):
+    """前序遍历迭代器 (NLR)"""
+    def __init__(self, root: Optional[T_LR]):
+        super().__init__(None, 0)            # 必须调用父类初始化
+        self._stack = []
+        if root is not None:
+            self._current_node = root
+            self._current_idx = 0
 
     def _prepare_next(self):
-        curr = self._current_node
         self._current_idx += 1
-        
-        if self.mode == 'pre':
-            # 1. 既然当前节点 curr (例如 1) 已经产出了，现在把它未见过的子节点压栈
-            # 右先入，左后入，保证左先出
-            if curr.right:
-                if id(curr.right) not in self._seen:
-                    self.stack.append(curr.right)
-                else:
-                    self._repeat_idx = self._seen[id(curr.right)]
-            if curr.left:
-                if id(curr.left) not in self._seen:
-                    self.stack.append(curr.left)
-                else:
-                    self._repeat_idx = self._seen[id(curr.left)]
-            
-            # 2. 弹出栈顶作为下一个产出对象
-            if self.stack and self._repeat_idx is None:
-                self._current_node = self.stack.pop()
-            else:
-                self._current_node = None
+        # 先右后左压栈，保证左子先出
+        if self._current_node.right:
+            self._stack.append(self._current_node.right)
+        if self._current_node.left:
+            self._stack.append(self._current_node.left)
+        if self._stack:
+            self._current_node = self._stack.pop()
+        else:
+            self._current_node = None
 
-        elif self.mode == 'in':
-            # 中序逻辑：如果当前节点有右子，去右子树的最左端
-            if curr.right:
-                if id(curr.right) not in self._seen:
-                    self._current_node = self._init_push_left(curr.right)
-                else:
-                    self._repeat_idx = self._seen[id(curr.right)]
-                    self._current_node = None
-            # 否则从栈中取回父节点
-            elif self.stack:
-                self._current_node = self.stack.pop()
-            else:
-                self._current_node = None
-        
-        elif self.mode == 'post':
-            # 检查是否有环已经触发
-            if self._repeat_idx is not None:
-                self._current_node = None
-            else:
-                self._current_node = self._find_next_post_node()
 
-    def _init_push_left(self, node: T_LR) -> T_LR:
-        """中序初始化：压入左路径并返回最左节点"""
-        curr = node
-        while curr.left:
-            # 查重预防：如果左子节点已经见过（环），则停止压栈
-            if id(curr.left) in self._seen: break 
-            self.stack.append(curr)
-            curr = curr.left
-        return curr
-    
+class InorderTraversal(SafeIterBase[T_LR]):
+    """中序遍历迭代器 (LNR)"""
+    def __init__(self, root: Optional[T_LR]):
+        super().__init__(None, 0)
+        self._stack = []
+        if root is not None:
+            node = root
+            while node:
+                self._stack.append(node)
+                node = node.left
+            if self._stack:
+                self._current_node = self._stack[-1]
+                self._current_idx = 0
+
+    def _prepare_next(self):
+        self._current_idx += 1
+        # 弹出当前节点
+        if self._stack:
+            self._stack.pop()
+        # 处理右子树
+        if self._current_node.right:
+            node = self._current_node.right
+            while node:
+                self._stack.append(node)
+                node = node.left
+        # 取下一个节点
+        if self._stack:
+            self._current_node = self._stack[-1]
+        else:
+            self._current_node = None
+
+
+class PostorderTraversal(SafeIterBase[T_LR]):
+    """后序遍历迭代器 (LRN)"""
+    def __init__(self, root: Optional[T_LR]):
+        super().__init__(None, 0)
+        self._stack = []
+        if root is not None:
+            self._stack.append((root, False))
+            self._current_node = self._find_next_post_node()
+            self._current_idx = 0
+
     def _find_next_post_node(self) -> Optional[T_LR]:
-        """后序辅助：寻找下一个待输出节点"""
-        while self.stack:
-            # 弹出栈顶
-            item = self.stack.pop()
-            node, visited = item
-            
+        """查找下一个后序节点，同时检测环，避免死循环"""
+        while self._stack:
+            node, visited = self._stack[-1]
+            # 重复检测：如果节点已经访问过，设置重复索引并停止
+            node_id = id(node)
+            if node_id in self._seen:
+                self._repeat_idx = self._seen[node_id]
+                return None
             if visited:
-                # 真正要返回该节点了，返回给基类去 check_seen
+                self._stack.pop()
                 return node
             else:
-                # 第一次遇到该节点，标记为 True 压回（它是 LRN 的最后一步）
-                self.stack.append((node, True))
-                
-                # 检查子节点。注意：这里不能直接用 self._seen 拦截，
-                # 因为父节点虽然在栈里，但还没被产出，id 不在 self._seen 里。
-                # 只有当子节点 id 已经在 self._seen 中，才说明回到了已完成的节点（环）
-                
-                # 压入右子
+                self._stack[-1] = (node, True)
                 if node.right:
-                    rid = id(node.right)
-                    if rid in self._seen:
-                        self._repeat_idx = self._seen[rid]
-                        # 发现环，不再下探
-                    else:
-                        self.stack.append((node.right, False))
-                
-                # 压入左子
+                    self._stack.append((node.right, False))
                 if node.left:
-                    lid = id(node.left)
-                    if lid in self._seen:
-                        self._repeat_idx = self._seen[lid]
-                    else:
-                        self.stack.append((node.left, False))
-                
-                # 如果刚才压入了子节点，我们需要继续往下探，直到找到最左下的叶子
-                # 逻辑会回到 while 循环开始，pop 出刚才压入的 (left, False)
+                    self._stack.append((node.left, False))
         return None
-    
-    def flatten(self, max_idx: Optional[int] = None):
-        return self._flatten(self, max_idx)
+
+    def _prepare_next(self):
+        self._current_idx += 1
+        self._current_node = self._find_next_post_node()
