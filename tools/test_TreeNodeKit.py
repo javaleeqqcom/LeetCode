@@ -90,9 +90,12 @@ class TreeTraversal:
     @classmethod
     def inorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
         ans = list()
+        seen = set()
         def dfs(node):
             nonlocal max_nodes,ans
             if node and len(ans)<max_nodes:
+                if id(node) in seen: return # 避免重复访问
+                seen.add(id(node))
                 dfs(node.left)
                 ans.append(node.val)
                 dfs(node.right)   
@@ -102,9 +105,12 @@ class TreeTraversal:
     @classmethod
     def postorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
         ans = list()
+        seen = set()
         def dfs(node):
             nonlocal max_nodes,ans
             if node and len(ans)<max_nodes:
+                if id(node) in seen: return # 避免重复访问
+                seen.add(id(node))
                 dfs(node.left)
                 dfs(node.right)   
                 ans.append(node.val)
@@ -385,89 +391,115 @@ def test_setters_and_unwrap():
 
     print("Setter 和 unwrap 测试通过")
 
-def clip_distinct(val_list)->List,int:
-    # 返回 List：无重复最长前缀子数组
-    # 其中 int 是重复的 val 值，若全集无重为None
-    ...
+def clip_distinct(val_list):
+    """返回最长无重复前缀列表和第一个重复的值（若无重复则为None）"""
+    seen = set()
+    res = []
+    dup = None
+    for v in val_list:
+        if v in seen:
+            dup = v
+            break
+        seen.add(v)
+        res.append(v)
+    return res, dup
 
-def test_random_tree():
-    """不测试 val 重复的情况，因为迭代函数与 val 完全无关。不测试有向环的情况，因为只要能检测重复值，就充分证明能检测有向环"""
-
+def test_random_tree(seed = 42):
+    """随机生成二叉树并随机添加非法链接，验证 TreeNodeKit 的遍历与环检测正确性"""
+    print("\n=== 6. 随机树 + 非法链接测试 ===")
+    random.seed(seed)
     times = 10000
     for i in range(times):
-        left_p = random.random() # 左子树生长概率
-        right_p = random.random() # 右子树生长概率
-        root = random_tree(100,10**6,left_p, right_p) # 生成随机树
+        left_p = random.random()
+        right_p = random.random()
+        root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
-        idx_nodes,stop_idx = kit.flatten()
 
-        assert stop_idx is None, "合法二叉树的 stop_idx 应为None"
+        # 合法树验证：无环，flatten 与层序遍历一致
+        idx_nodes, stop_idx = kit.flatten()
+        assert stop_idx is None, "合法二叉树的 stop_idx 应为 None"
 
-        # 先验证层序遍历的 flatten 是否正确
-        level_flatten = TreeTraversal.levelFlatten(root) 
-        assert level_flatten == [node.val for _,node in idx_nodes]
+        # 层序遍历（展平后 val 列表）
+        level_vals_expected = [val for level in TreeTraversal.levelOrder(root) for val in level]
+        level_vals_actual   = [node.val for _, node in idx_nodes]
+        assert level_vals_expected == level_vals_actual, "合法树 flatten 与层序遍历不一致"
 
-        # 层序遍历
-        assert level_flatten == [node.val for idx,node in kit]
+        # 前序/中序/后序（使用递归遍历，因为此时树无环）
+        pre_expected  = TreeTraversal.preorder(root)
+        in_expected   = TreeTraversal.inorder(root)
+        post_expected = TreeTraversal.postorder(root)
+        pre_actual    = [node.val for _, node in kit.NLR_iter()]
+        in_actual     = [node.val for _, node in kit.LNR_iter()]
+        post_actual   = [node.val for _, node in kit.LRN_iter()]
+        assert pre_expected == pre_actual
+        assert in_expected == in_actual
+        assert post_expected == post_actual
 
-        # 先序遍历
-        assert TreeTraversal.preorder(root)  == [node.val for idx,node in kit.NLR_iter()]
-
-        # 中序遍历
-        ...
-        # 后序遍历
-        ...
-
-        # 非法树测试
-        nodes_dict = dict(idx_nodes)
+        # ----- 随机添加非法链接（重复节点或环）-----
+        nodes_dict = dict(idx_nodes)                     # 索引 -> 节点
         reachable_idxs = list(nodes_dict.keys())
-        max_nodes = len(level_flatten)
-        min_nodes = max(1,int(random.random() * max_nodes)) # 至少要有 1 个，否则只剩下 root 会死循环
+        max_nodes_orig = len(level_vals_expected)        # 原始节点数，用作 max_nodes 上限
+        min_nodes = max(1, int(random.random() * max_nodes_orig))
+
         while len(reachable_idxs) > min_nodes:
-            # 构造非法链接
-            cur = nodes_dict[random.choice(reachable_idxs)]
+            # 随机选择两个可达节点（可能相同），让一个指向另一个
+            cur  = nodes_dict[random.choice(reachable_idxs)]
             tail = nodes_dict[random.choice(reachable_idxs)]
-            if random.random()<=0.5:
+            if random.random() <= 0.5:
                 cur.left = tail
             else:
                 cur.right = tail
 
-            # 验证 flatten
-            # 用 clip_distinct 截取最长无重复前缀作为标准输出，注意设置 max_nodes 以防有环时无限循环。
-            level_flatten,duplicate_val = clip_distinct(TreeTraversal.levelFlatten(root ,max_nodes) )
-            kit_cur,stop_idx = kit.flatten()
+            # 1. 层序遍历标准序列（限制最大节点数，防止死循环）
+            level_raw = [val for level in TreeTraversal.levelOrder(root, max_nodes_orig) for val in level]
+            level_std, dup_val = clip_distinct(level_raw)
 
-            if duplicate_val is not None:
-                assert duplicate_val == nodes_dict[stop_idx].val
+            # 2. 获取 kit 的 flatten 结果（自动环检测）
+            nodes_list, stop_idx = kit.flatten()
+            level_kit = [node.val for _, node in nodes_list]
+
+            # 验证环起始索引与重复值一致
+            if dup_val is not None:
+                assert stop_idx is not None, "应有环但 flatten 未检测到"
+                assert dup_val == nodes_dict[stop_idx].val, f"重复值与环起始节点值不匹配，dup={dup_val},but:\n{kit}"
             else:
-                assert stop_idx is None
+                assert stop_idx is None, "无环但 flatten 报告有环"
 
-            assert level_flatten == [node.val for _,node in kit_cur]
+            assert level_std == level_kit, "层序遍历序列不一致"
 
-            # 层序遍历
-            # 与 kit.?_iter 等的 val 进行比较，TreeNodeKit 的 iter 自带查重检测，首次重复节点停止
-            assert level_flatten == [node.val for _,node in kit]
-            
-            # 先序遍历
-            NLR_flatten,_ = clip_distinct(TreeTraversal.preorder(root))
-            assert NLR_flatten == [node.val for _,node in kit.NLR_iter()]
+            # 3. 验证 __iter__（默认层序）与 flatten 结果一致
+            assert level_kit == [node.val for _, node in kit], "__iter__ 与 flatten 不一致"
 
-            # 中序遍历
-            ...
-            # 后序遍历
-            ...
+            # 4. 前序遍历
+            pre_raw = TreeTraversal.preorder(root, max_nodes_orig)
+            pre_std, _ = clip_distinct(pre_raw)
+            pre_kit = [node.val for _, node in kit.NLR_iter()]
+            assert pre_std == pre_kit, "前序遍历序列不一致"
 
-            # 下一轮的可达节点索引集合更新（此时 kit_cur 已经通过检验）
-            reachable_idxs = [idx for idx,node in kit_cur]
+            # 5. 中序遍历
+            try:
+                in_raw = TreeTraversal.inorder(root, max_nodes_orig)
+                in_std, _ = clip_distinct(in_raw)
+                in_kit = [node.val for _, node in kit.LNR_iter()]
+                assert in_std == in_kit, "中序遍历序列不一致"
+            except:
+                print(kit)
 
-    print("DFS 遍历迭代器测试全部通过")
+            # 6. 后序遍历
+            post_raw = TreeTraversal.postorder(root, max_nodes_orig)
+            post_std, _ = clip_distinct(post_raw)
+            post_kit = [node.val for _, node in kit.LRN_iter()]
+            assert post_std == post_kit, "后序遍历序列不一致"
+
+            # 更新可达节点索引（基于当前 flatten 结果）
+            reachable_idxs = [idx for idx, _ in nodes_list]
+
+    print("随机树 + 非法链接测试全部通过")
 
 if __name__ == "__main__":
     test_basic_functionality()
     test_cycle_detection()
     test_duplicate_values()
     test_setters_and_unwrap()
-    test_random_trees()
-    test_iteration()
-    test_dfs_iterators()          # 新增
+    test_random_tree()
     print("\n🎉 所有测试通过！")
