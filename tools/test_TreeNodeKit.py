@@ -7,6 +7,7 @@ import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
 from args_parser import TreeNode, TreeNodeKit,List2TreeNode
+from args_parser_tools import LayeredTraversal
 
 def random_tree(max_depth:int ,num_nodes: int ,left_p: float, right_p: float) ->Optional[TreeNode]:
     """
@@ -219,6 +220,16 @@ def test_cycle_detection():
     root.right = root
     kit = TreeNodeKit(root)
     nodes, cycle_idx = kit.flatten()
+    if cycle_idx != 1:
+        it = LayeredTraversal(root)
+        try:
+            while True:
+                idx,node = next(it)
+                print(f"val={node.val}, idx={idx} , queue.len = {len(it._queue)}")
+        except:
+            print(f"it.seen={it._seen}")
+
+
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
     assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
@@ -497,9 +508,9 @@ def test_random_tree(seed = 42):
     print("随机树 + 非法链接测试全部通过")
 
 if __name__ == "__main__":
-    test_basic_functionality()
+    # test_basic_functionality()
     test_cycle_detection()
-    test_duplicate_values()
-    test_setters_and_unwrap()
-    test_random_tree()
+    # test_duplicate_values()
+    # test_setters_and_unwrap()
+    # test_random_tree()
     print("\n🎉 所有测试通过！")

@@ -141,8 +141,78 @@ class SafeIter(Generic[T]):
                 if idx >= max_idx:
                     return items, max_idx
                 items.append((idx, node))
-        return items, safe_iter.repeat_idx
+        return items, safe_iter._repeat_idx
     
+from typing import TypeVar, Generic, Iterable, Tuple, Optional, List, Any, Dict
+
+T = TypeVar('T')
+class SafeIterBase(Generic[T]):
+    """
+    安全迭代基类：提供节点查重和索引管理
+    T 不可用于包装类
+    """
+    def __init__(self, init_node: Optional[T] = None, init_idx: int = 0):
+        self._seen: Dict[int, int] = {}  # id(node) -> index
+        self._repeat_idx: Optional[int] = None
+        
+        # 当前准备产出的节点和索引
+        self._current_node = init_node
+        self._current_idx = init_idx
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Tuple[int, T]:
+        # 1. 终止检查
+        if self._current_node is None:
+            raise StopIteration
+            
+        # 2. 查重校验 (使用对象 ID 避免 __eq__ 陷阱)
+        node_id = id(self._current_node)
+        if node_id in self._seen:
+            self._repeat_idx = self._seen[node_id]
+            raise StopIteration
+            # raise Exception(f"{node_id} in seen, repeat idx: {self._repeat_idx}")
+            
+        # 3. 记录已访问
+        self._seen[node_id] = self._current_idx
+        
+        # 4. 保存当前值用于返回
+        res = (self._current_idx, self._current_node)
+        
+        # 5. 调用子类逻辑更新到“状态机”的下一个位置
+        # 子类负责更新 self._current_idx 和 self._current_node
+        self._prepare_next()
+        
+        return res
+
+    def _prepare_next(self):
+        """抽象方法：由子类实现，更新 _current_idx 和 _current_node"""
+        raise NotImplementedError
+
+    @property
+    def repeat_idx(self) -> Optional[int]:
+        """当迭代器检测到重复节点时，会赋值该属性为重复节点的索引，否则为 None"""
+        return self._repeat_idx
+
+    @classmethod
+    def _flatten(cls, it: SafeIterBase, max_idx: Optional[int] = None):
+        """
+        安全收集迭代结果，可选限制最大索引。
+
+        :param iterable: 产生 (索引, 节点) 对的迭代器
+        :param max_idx:   最大索引（包含），若提供则仅收集 idx < max_idx 的元素，并提前停止迭代
+        :return 终止索引: 当正常结束时为 None；超出 max_idx 而提前终止时为 max_idx；出现重复节点时为该节点的索引
+        :return: ([(索引, 节点),...], 终止索引)
+        """
+        # 注意：这里 items = list(it) 会自动触发 __next__
+        items = []
+        for idx, node in it:
+            if max_idx is not None and idx > max_idx:
+                return items, max_idx
+            items.append((idx, node))
+        return items, it.repeat_idx
+
 @runtime_checkable
 class HasNext(Protocol):
     next: Optional[Any]
@@ -333,34 +403,38 @@ class HasLR(Protocol):
 # 定义支持 .left , .right 属性的协议（泛型约束）
 T_LR = TypeVar("T_LR",bound=HasLR)
 
-# 待修订，用于 ListNodeKit
-class LayeredTraversal(Generic[T_LR]):
-    """迭代器，用于遍历二叉树，输出（完全二叉树索引，二叉树节点）"""
+class LayeredTraversal(SafeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
-        """初始化迭代器，从指定节点开始"""
-        if root:
-            # 完全二叉树索引+1 作为键，方便计算后继索引
-            self._node_queue = deque([(1,root)])
+        # 初始化基类，第一个产出的是 root，索引为 1
+        super().__init__(init_node=root, init_idx=1)
+        self._queue = deque()
+        # 注意：基类已经处理了 root，所以这里不需要重复把 root 放进队列
+
+    def _prepare_next(self):
+        """
+        当基类消费完当前的 self._current_node 后，
+        子类负责把它的子节点入队，并从队首取出下一个给基类。
+        """
+        curr = self._current_node
+        assert curr is not None, "底层错误！SafeIterBase 非法在 _current_node = None 时调用 _prepare_next"
+
+        idx = self._current_idx
+        
+        # 1. 将子节点入队
+        if curr.left:
+            self._queue.append((2 * idx, curr.left))
+        if curr.right:
+            self._queue.append((2 * idx + 1, curr.right))
+            
+        # 2. 提取下一个要产出的节点
+        if self._queue:
+            self._current_idx, self._current_node = self._queue.popleft()
         else:
-            self._node_queue = deque()
-    
-    def __next__(self) -> Tuple[int,T_LR]:
-        """返回当前队首节点并将其后继节点加入队列"""
-        if not self._node_queue:
-            raise StopIteration
-        idx1,node = self._node_queue.popleft()
-        # _node_queue push 进的节点要求全部有效，若本次 pop 出的节点居然无效，则说明数据遭到破坏，可能是其他进程篡改
-        assert node, "当前节点无效，可能是数据遭到破坏或被其他进程篡改"
-        if node.left:
-            self._node_queue.append((2*idx1,node.left))
-        if node.right:
-            self._node_queue.append((2*idx1+1,node.right))
-        return (idx1,node)
-    
-    def __iter__(self) -> 'LayeredTraversal[T_LR]':
-        """返回自身，使对象可迭代"""
-        return self
-    
+            self._current_node = None # 标记结束
+
+    def flatten(self, max_idx: Optional[int] = None):
+        return super()._flatten(self, max_idx)
+
 class TreeNodeKitBase(KitBase[T_LR]):
     """
     二叉树调试增强工具基类，使用代理模式。
@@ -413,10 +487,11 @@ class TreeNodeKitBase(KitBase[T_LR]):
                 f"索引 {index} 超出节点总数（共 {node_count} 个节点）。"
             )
     
-    def flatten(self) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
+    def flatten(self,max_depth:int|None = None) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
-        it = LayeredTraversal[T_LR](self._node)
-        return SafeIter.flatten(it)   # 直接使用 SafeIter.flatten
+        limit = None if max_depth is None else (2 ** (max_depth + 1))
+        it = LayeredTraversal(self._node) 
+        return it.flatten(limit)
 
     def layer_iter(self) -> SafeIter[T_LR]:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
