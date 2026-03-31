@@ -443,7 +443,7 @@ def test_random_tree(seed = 42):
         pre_actual    = [node.val for _, node in kit.NLR_iter()]
         in_actual     = [node.val for _, node in kit.LNR_iter()]
         post_actual   = [node.val for _, node in kit.LRN_iter()]
-        assert pre_expected == pre_actual
+        assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit}"
         assert in_expected == in_actual
         assert post_expected == post_actual
 

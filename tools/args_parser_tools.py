@@ -544,52 +544,67 @@ class StackTraversal(SafeIterBase[T_LR]):
             self.stack.append(curr)
             curr = curr.left
         return curr
-
+    
     def _find_next_post_node(self) -> Optional[T_LR]:
-        """后序辅助：从栈中寻找下一个待输出的节点"""
+        """后序辅助：寻找下一个待输出节点"""
         while self.stack:
-            item = self.stack.pop()
-            if isinstance(item, tuple): # (node, visited)
-                node, visited = item
-                if visited:
-                    return node
-                else:
-                    # 重新压入当前节点（标记已访问），再压入右、左
-                    self.stack.append((node, True))
-                    # 查重预防：避免环导致的无限压栈
-                    if node.right and id(node.right) not in self._seen:
+            node, visited = self.stack.pop()
+            if visited:
+                # 只有标记为 True 的节点才是真正要输出的
+                return node
+            else:
+                # 第一次遇到该节点，标记为 True 压回
+                self.stack.append((node, True))
+                
+                # 按照 后序 LRN 的逆序压栈：先右后左
+                # 增加严格查重：如果子节点已经存在于 _seen，绝对不入栈
+                if node.right:
+                    rid = id(node.right)
+                    # 只有从未见过的节点才允许入栈下探
+                    if rid not in self._seen:
                         self.stack.append((node.right, False))
-                    if node.left and id(node.left) not in self._seen:
+                
+                if node.left:
+                    lid = id(node.left)
+                    if lid not in self._seen:
                         self.stack.append((node.left, False))
-            else: # 兼容逻辑
-                return item
+                    else:
+                        # 如果左子节点已见过，说明构成环
+                        # 我们不能在这里 raise，但可以记录 repeat_idx 并停止下探
+                        self._repeat_idx = self._seen[lid]
         return None
 
     def _prepare_next(self):
-        """
-        当基类消费完 self._current_node 后，更新 self._current_node 和 self._current_idx
-        """
-        curr = self._current_node
-        assert curr is not None, "底层错误！SafeIterBase 非法在 _current_node = None 时调用 _prepare_next"
-        self._current_idx += 1 # DFS 索引递增
+        self._current_idx += 1
         
         if self.mode == 'pre':
-            # NLR: 当前 node 刚出，压入右、左
+            # NLR: 逻辑相对简单，pop 即可
+            if not self.stack:
+                self._current_node = None
+                return
+            self._current_node = self.stack.pop()
+            # 压入逻辑在 __next__ 之后通过 _prepare_next 运行
+            # 注意：pre 的子节点压入应该在 curr 刚被确定时，所以逻辑应如下：
+            curr = self._current_node
             if curr.right and id(curr.right) not in self._seen:
                 self.stack.append(curr.right)
             if curr.left and id(curr.left) not in self._seen:
                 self.stack.append(curr.left)
-            
-            self._current_node = self.stack.pop() if self.stack else None
 
         elif self.mode == 'in':
-            # LNR: 当前 node 刚出，如果有右子，去右子的最左边
-            if curr.right and id(curr.right) not in self._seen:
-                self._current_node = self._init_push_left(curr.right)
+            # LNR: 弹出当前，处理右子
+            if self.stack:
+                self._current_node = self.stack.pop()
+                if self._current_node.right:
+                    rid = id(self._current_node.right)
+                    if rid not in self._seen:
+                        self._current_node = self._init_push_left(self._current_node.right)
+                    else:
+                        self._repeat_idx = self._seen[rid]
             else:
-                self._current_node = self.stack.pop() if self.stack else None
+                self._current_node = None
 
-        else: # post (LRN)
+        else: # post
             self._current_node = self._find_next_post_node()
 
     def flatten(self, max_idx: Optional[int] = None):
