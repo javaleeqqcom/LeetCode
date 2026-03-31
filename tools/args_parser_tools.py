@@ -508,31 +508,67 @@ class TreeNodeKitBase(KitBase[T_LR]):
         # 组合最终输出
         body = ",\n".join(filter(bool,parts))
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
-
+    
 class StackTraversal(SafeIterBase[T_LR]):
-    """
-    深度优先遍历迭代器（继承 SafeIterBase），支持 pre, in, post 模式。
-    """
     def __init__(self, root: Optional[T_LR], mode: str = 'in'):
-        if mode not in ('pre', 'in', 'post'):
-            raise ValueError(f"Unsupported mode: {mode}")
-        
-        # 1. 先初始化基类，让 self._seen, self._current_node 等属性就绪
-        # 这里先传 None，因为我们要通过逻辑找真正的 first_node
+        # 1. 初始化基类基础设施
         super().__init__(init_node=None, init_idx=0)
-
         self.mode = mode
-        self.stack: List[Any] = []
-        
-        # 2. 现在属性已就绪，可以安全调用内部方法了
+        self.stack: List[T_LR] = []
+
         if root:
             if mode == 'pre':
+                # 先序：第一个就是 root，但不急着压子节点，留给 _prepare_next 处理
                 self._current_node = root
             elif mode == 'in':
-                # self._seen 已经存在，不会报错了
                 self._current_node = self._init_push_left(root)
             else: # post
                 self.stack.append((root, False))
+                self._current_node = self._find_next_post_node()
+
+    def _prepare_next(self):
+        curr = self._current_node
+        self._current_idx += 1
+        
+        if self.mode == 'pre':
+            # 1. 既然当前节点 curr (例如 1) 已经产出了，现在把它未见过的子节点压栈
+            # 右先入，左后入，保证左先出
+            if curr.right:
+                if id(curr.right) not in self._seen:
+                    self.stack.append(curr.right)
+                else:
+                    self._repeat_idx = self._seen[id(curr.right)]
+            if curr.left:
+                if id(curr.left) not in self._seen:
+                    self.stack.append(curr.left)
+                else:
+                    self._repeat_idx = self._seen[id(curr.left)]
+            
+            # 2. 弹出栈顶作为下一个产出对象
+            if self.stack and self._repeat_idx is None:
+                self._current_node = self.stack.pop()
+            else:
+                self._current_node = None
+
+        elif self.mode == 'in':
+            # 中序逻辑：如果当前节点有右子，去右子树的最左端
+            if curr.right:
+                if id(curr.right) not in self._seen:
+                    self._current_node = self._init_push_left(curr.right)
+                else:
+                    self._repeat_idx = self._seen[id(curr.right)]
+                    self._current_node = None
+            # 否则从栈中取回父节点
+            elif self.stack:
+                self._current_node = self.stack.pop()
+            else:
+                self._current_node = None
+        
+        elif self.mode == 'post':
+            # 检查是否有环已经触发
+            if self._repeat_idx is not None:
+                self._current_node = None
+            else:
                 self._current_node = self._find_next_post_node()
 
     def _init_push_left(self, node: T_LR) -> T_LR:
@@ -548,64 +584,41 @@ class StackTraversal(SafeIterBase[T_LR]):
     def _find_next_post_node(self) -> Optional[T_LR]:
         """后序辅助：寻找下一个待输出节点"""
         while self.stack:
-            node, visited = self.stack.pop()
+            # 弹出栈顶
+            item = self.stack.pop()
+            node, visited = item
+            
             if visited:
-                # 只有标记为 True 的节点才是真正要输出的
+                # 真正要返回该节点了，返回给基类去 check_seen
                 return node
             else:
-                # 第一次遇到该节点，标记为 True 压回
+                # 第一次遇到该节点，标记为 True 压回（它是 LRN 的最后一步）
                 self.stack.append((node, True))
                 
-                # 按照 后序 LRN 的逆序压栈：先右后左
-                # 增加严格查重：如果子节点已经存在于 _seen，绝对不入栈
+                # 检查子节点。注意：这里不能直接用 self._seen 拦截，
+                # 因为父节点虽然在栈里，但还没被产出，id 不在 self._seen 里。
+                # 只有当子节点 id 已经在 self._seen 中，才说明回到了已完成的节点（环）
+                
+                # 压入右子
                 if node.right:
                     rid = id(node.right)
-                    # 只有从未见过的节点才允许入栈下探
-                    if rid not in self._seen:
+                    if rid in self._seen:
+                        self._repeat_idx = self._seen[rid]
+                        # 发现环，不再下探
+                    else:
                         self.stack.append((node.right, False))
                 
+                # 压入左子
                 if node.left:
                     lid = id(node.left)
-                    if lid not in self._seen:
-                        self.stack.append((node.left, False))
-                    else:
-                        # 如果左子节点已见过，说明构成环
-                        # 我们不能在这里 raise，但可以记录 repeat_idx 并停止下探
+                    if lid in self._seen:
                         self._repeat_idx = self._seen[lid]
-        return None
-
-    def _prepare_next(self):
-        self._current_idx += 1
-        
-        if self.mode == 'pre':
-            # NLR: 逻辑相对简单，pop 即可
-            if not self.stack:
-                self._current_node = None
-                return
-            self._current_node = self.stack.pop()
-            # 压入逻辑在 __next__ 之后通过 _prepare_next 运行
-            # 注意：pre 的子节点压入应该在 curr 刚被确定时，所以逻辑应如下：
-            curr = self._current_node
-            if curr.right and id(curr.right) not in self._seen:
-                self.stack.append(curr.right)
-            if curr.left and id(curr.left) not in self._seen:
-                self.stack.append(curr.left)
-
-        elif self.mode == 'in':
-            # LNR: 弹出当前，处理右子
-            if self.stack:
-                self._current_node = self.stack.pop()
-                if self._current_node.right:
-                    rid = id(self._current_node.right)
-                    if rid not in self._seen:
-                        self._current_node = self._init_push_left(self._current_node.right)
                     else:
-                        self._repeat_idx = self._seen[rid]
-            else:
-                self._current_node = None
-
-        else: # post
-            self._current_node = self._find_next_post_node()
-
+                        self.stack.append((node.left, False))
+                
+                # 如果刚才压入了子节点，我们需要继续往下探，直到找到最左下的叶子
+                # 逻辑会回到 while 循环开始，pop 出刚才压入的 (left, False)
+        return None
+    
     def flatten(self, max_idx: Optional[int] = None):
         return self._flatten(self, max_idx)

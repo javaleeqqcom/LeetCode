@@ -445,7 +445,7 @@ def test_random_tree(seed = 42):
         post_actual   = [node.val for _, node in kit.LRN_iter()]
         assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit}"
         assert in_expected == in_actual
-        assert post_expected == post_actual
+        assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit}"
 
         # ----- 随机添加非法链接（重复节点或环）-----
         nodes_dict = dict(idx_nodes)                     # 索引 -> 节点
