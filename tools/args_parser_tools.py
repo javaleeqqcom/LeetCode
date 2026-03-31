@@ -423,6 +423,18 @@ class TreeNodeKitBase(KitBase[T_LR]):
         it = LayeredTraversal[T_LR](self._node)
         return SafeIter(it)
     
+    def LNR_iter(self) -> SafeIter[T_LR]:
+        it = StackTraversal[T_LR](self._node,"in")
+        return SafeIter(it)
+    
+    def NLR_iter(self) -> SafeIter[T_LR]:
+        it = StackTraversal[T_LR](self._node,"pre")
+        return SafeIter(it)
+    
+    def LRN_iter(self) -> SafeIter[T_LR]:
+        it = StackTraversal[T_LR](self._node,"post")
+        return SafeIter(it)
+    
     def __iter__(self):
         """默认返回层序遍历迭代器"""
         return self.layer_iter()
@@ -453,7 +465,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
             level_list = [""] * max_idx          # 索引从 1 开始，列表长度 = 最大索引
             for idx, val in idx_val.items():
                 # 转换为字符串供 build 使用
-                level_list[idx - 1] = f"{'*'if idx == stop_idx else ''}{_formated_string(val)}"     
+                level_list[idx - 1] = f"{'*'if idx == stop_idx else ''}{idx}"     
             try:
                 bt = build(level_list)
                 tree_str = str(bt) if bt else "null"
@@ -475,3 +487,78 @@ class TreeNodeKitBase(KitBase[T_LR]):
         # 组合最终输出
         body = ",\n".join(filter(bool,parts))
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
+
+class StackTraversal(Generic[T_LR]):
+    """
+    深度优先遍历迭代器（栈实现），支持三种顺序：
+    - 'pre' : 前序遍历 (NLR)
+    - 'in'  : 中序遍历 (LNR)
+    - 'post': 后序遍历 (LRN)
+
+    每次迭代返回 (索引, 节点)，索引从 0 开始计数。
+    """
+    def __init__(self, root: Optional[T_LR], mode: str = 'in'):
+        if mode not in ('pre', 'in', 'post'):
+            raise ValueError(f"Unsupported mode: {mode}")
+        self.mode = mode
+        self.stack: List[Any] = []
+        self.idx = 0
+
+        if root is None:
+            return
+
+        if mode == 'pre':
+            self.stack.append(root)
+        elif mode == 'in':
+            self._push_left(root)
+        else:  # post
+            self.stack.append((root, False))
+
+    def _push_left(self, node: T_LR) -> None:
+        """中序辅助：将节点及其所有左子压栈"""
+        while node:
+            self.stack.append(node)
+            node = node.left
+
+    def __iter__(self) -> 'StackTraversal[T_LR]':
+        return self
+
+    def __next__(self) -> Tuple[int, T_LR]:
+        if self.mode == 'pre':
+            if not self.stack:
+                raise StopIteration
+            node = self.stack.pop()
+            # 先右后左，保证左子先弹出
+            if node.right:
+                self.stack.append(node.right)
+            if node.left:
+                self.stack.append(node.left)
+            res = (self.idx, node)
+            self.idx += 1
+            return res
+
+        elif self.mode == 'in':
+            if not self.stack:
+                raise StopIteration
+            node = self.stack.pop()
+            if node.right:
+                self._push_left(node.right)
+            res = (self.idx, node)
+            self.idx += 1
+            return res
+
+        else:  # post
+            while self.stack:
+                node, visited = self.stack.pop()
+                if visited:
+                    res = (self.idx, node)
+                    self.idx += 1
+                    return res
+                else:
+                    # 压入当前节点（标记已访问），然后右子、左子
+                    self.stack.append((node, True))
+                    if node.right:
+                        self.stack.append((node.right, False))
+                    if node.left:
+                        self.stack.append((node.left, False))
+            raise StopIteration

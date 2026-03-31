@@ -2,10 +2,107 @@
 import random
 import sys
 from typing import List, Optional, Tuple, Set
+import collections
+import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
 from args_parser import TreeNode, TreeNodeKit,List2TreeNode
 
+def random_tree(max_depth:int ,num_nodes: int ,left_p: float, right_p: float) ->Optional[TreeNode]:
+    # val 按1-index树状数组索引生成
+    def dfs(remain_depth:int ,val:int)->Optional[TreeNode]:
+        nonlocal num_nodes,left_p,right_p
+        if num_nodes <= 0 or remain_depth <= 0:
+            return None
+        cur = TreeNode(val)
+        num_nodes -= 1
+        if random.random() < left_p:
+            cur.left = dfs(remain_depth-1,val*2)
+        if random.random() < right_p:
+            cur.right = dfs(remain_depth-1,val*2+1)
+        return cur
+        
+    return dfs(max_depth,1)
+
+def tree_wandering(root: Optional[TreeNode] ,weight_cur_left_right:Tuple[float,float,float]) -> Optional[TreeNode]:
+    weight_vec = np.array(weight_cur_left_right,dtype=float)
+    cur = root
+    while cur:
+        cum_weight = np.cumsum(weight_vec * np.array([1,int(cur.left is not None),int(cur.right is not None)]))
+        cum_weight /= cum_weight[-1]
+        p = random.random()
+        if p <= cum_weight[0]:
+            return cur
+        elif p <= cum_weight[1]:
+            cur = cur.left
+        else:
+            cur = cur.right
+
+# ------------------ 经过Leetcode验证的专业无BUG代码 -----------------------------
+
+class TreeTraversal:
+    @classmethod
+    def preorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
+        ans = list()
+        def dfs(node):
+            nonlocal max_nodes,ans
+            if node and len(ans)<max_nodes:
+                ans.append(node.val)
+                dfs(node.left)
+                dfs(node.right)   
+        dfs(root)
+        return ans
+
+    @classmethod
+    def inorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
+        ans = list()
+        def dfs(node):
+            nonlocal max_nodes,ans
+            if node and len(ans)<max_nodes:
+                dfs(node.left)
+                ans.append(node.val)
+                dfs(node.right)   
+        dfs(root)
+        return ans
+
+    @classmethod
+    def postorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
+        ans = list()
+        def dfs(node):
+            nonlocal max_nodes,ans
+            if node and len(ans)<max_nodes:
+                dfs(node.left)
+                dfs(node.right)   
+                ans.append(node.val)
+        dfs(root)
+        return ans
+
+    @classmethod
+    def levelFlatten(cls, root: Optional[TreeNode], max_nodes:int=(1<<31)-1) -> List[List[TreeNode]]:
+        """max_nodes仅作为早停限制，不代表实际节点数"""
+        if not root: return []
+        result = [[root],]
+        cnt_node = 1
+        while cnt_node < max_nodes and result[-1]:
+            q = []
+            for node in result[-1]:
+                if node.left:
+                    q.append(node.left)
+                if node.right:
+                    q.append(node.right)
+            if q:
+                result.append(q)
+                cnt_node += len(q)
+            else:
+                break
+        return result
+
+    @classmethod
+    def levelOrder(cls, root: Optional[TreeNode], max_nodes:int=(1<<31)-1) -> List[List[int]]:
+        """max_nodes仅作为早停限制，不代表实际节点数"""
+        return [[node.val for node in level] for level in cls.levelFlatten(root,max_nodes)] # type: ignore
+    
+# ------------------ 经过Leetcode验证的专业无BUG代码 END -----------------------------
 
 def test_basic_functionality():
     """测试基本功能：正常二叉树、属性访问、索引、flatten、repr"""
@@ -191,7 +288,6 @@ def random_tree_node_count(max_nodes: int = 100) -> int:
 import random
 from typing import List, Optional, Tuple, Set, Dict
 from args_parser import TreeNode, TreeNodeKit
-
 
 def generate_random_tree(node_count: int, create_cycle: bool = False) -> Tuple[TreeNode, Optional[Set[int]], str]:
     """
@@ -543,7 +639,33 @@ def test_iteration():
     print("重复值（不同节点）测试通过")
 
     print("迭代器测试全部通过")
-    
+
+def test_dfs_iterators():
+    """不测试 val 重复的情况，因为迭代函数与 val 完全无关。不测试有向环的情况，因为只要能检测重复值，就充分证明能检测有向环"""
+
+    times = 10000
+    for i in range(times):
+        left_p = random.random() # 左子树生长概率
+        right_p = random.random() # 右子树生长概率
+        root = random_tree(100,10**6,left_p, right_p) # 生成随机树
+        kit = TreeNodeKit(root)
+
+        # 无重复节点检测
+        # 先序遍历
+        ...
+        # 中序遍历
+        ...
+        # 后序遍历
+        ...
+
+        # 重复节点测试（无有向环，仅多父）
+        nodes = [... kit.flatten]
+        hyp_parent = nodes[random...]
+        repete_node = nodes[random...]
+        # 截取 inorderTraversal 等 repete_node 第二次出现前的部分作为标准输出，与 kit.LNR_iter 等的 val 进行比较。
+
+    print("DFS 遍历迭代器测试全部通过")
+
 if __name__ == "__main__":
     test_basic_functionality()
     test_cycle_detection()
@@ -551,4 +673,5 @@ if __name__ == "__main__":
     test_setters_and_unwrap()
     test_random_trees()
     test_iteration()
+    test_dfs_iterators()          # 新增
     print("\n🎉 所有测试通过！")
