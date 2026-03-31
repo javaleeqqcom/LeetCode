@@ -48,7 +48,7 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
     return head
 
 @ReprDecorator(prep_property="val") # 装饰器用于实现 __repr__ 默认打印
-class ListNodeKit(ListNodeKitBase):
+class ListNodeKit(ListNodeKitBase[ListNode]):
     """链表调试增强工具，提供安全的扁平化、环检测和打印功能。
 
     该类基于 ListNodeKitBase 和 ListNodeKitDecorator 实现，
@@ -139,14 +139,14 @@ def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
 
 # Definition for a binary tree node.
 class TreeNode:
-    def __init__(self, val:_BASE_TYPE=0, left=None, right=None):
+    def __init__(self, val:_BASE_TYPE=0, left:Optional[TreeNode]=None, right:Optional[TreeNode]=None):
         self.val = val
         self.left = left
         self.right = right
 
 # 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
 @ReprDecorator(prep_property="val")
-class TreeNodeKit(TreeNodeKitBase):
+class TreeNodeKit(TreeNodeKitBase[TreeNode]):
     """
     二叉树调试增强工具，提供安全的层序遍历、环检测和索引访问。
     用法与 ListNodeKit 类似，支持从原始节点或从层序列表构造。
