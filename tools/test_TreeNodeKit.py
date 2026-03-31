@@ -421,6 +421,7 @@ def test_random_tree(seed = 42):
     random.seed(seed)
     times = 10000
     for i in range(times):
+        print(f"random test {i}",end="\r")
         left_p = random.random()
         right_p = random.random()
         root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树

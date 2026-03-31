@@ -95,56 +95,6 @@ def _formated_string(val):
     else:
         return str(val)
 
-T = TypeVar('T')   # 通用泛型
-class SafeIter(Generic[T]):
-    def __init__(self, iterable: Iterator[Tuple[int, T]]):
-        self._iter = iterable
-        self._seen = {}
-        self._repeat_idx = None   # 记录首次重复的索引，若无重复则为 None
-
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> Tuple[int, T]:
-        try:
-            idx, node = next(self._iter)
-        except StopIteration:
-            raise
-        node_id = id(node)
-        if node_id in self._seen:
-            self._repeat_idx = self._seen[node_id]   # 记录重复键
-            raise StopIteration   # 立即停止迭代
-        self._seen[node_id] = idx
-        return idx, node
-
-    @property
-    def repeat_idx(self) -> Optional[int]:
-        """返回首次出现重复节点的键，若无重复返回 None。"""
-        return self._repeat_idx
-
-    @classmethod
-    def flatten(cls, iterable: Iterator[Tuple[int, T]], max_idx:int|None = None) -> Tuple[List[Tuple[int, T]], Optional[int]]:
-        """
-        安全收集迭代结果，可选限制最大索引。
-
-        :param iterable: 产生 (索引, 节点) 对的迭代器
-        :param max_idx:   最大索引（包含），若提供则仅收集 idx < max_idx 的元素，并提前停止迭代
-        :return 终止索引: 当正常结束时为 None；超出 max_idx 而提前终止时为 max_idx；出现重复节点时为该节点的索引
-        :return: ([(索引, 节点),...], 终止索引)
-        """
-        safe_iter = cls(iterable)
-        if max_idx is None:
-            items = list(safe_iter)
-        else:
-            items = []
-            for idx, node in safe_iter:
-                if idx >= max_idx:
-                    return items, max_idx
-                items.append((idx, node))
-        return items, safe_iter._repeat_idx
-    
-from typing import TypeVar, Generic, Iterable, Tuple, Optional, List, Any, Dict
-
 T = TypeVar('T')
 class SafeIterBase(Generic[T]):
     """
@@ -493,22 +443,18 @@ class TreeNodeKitBase(KitBase[T_LR]):
         it = LayeredTraversal(self._node) 
         return it.flatten(limit)
 
-    def layer_iter(self) -> SafeIter[T_LR]:
+    def layer_iter(self) -> SafeIterBase[T_LR]:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
-        it = LayeredTraversal[T_LR](self._node)
-        return SafeIter(it)
+        return LayeredTraversal[T_LR](self._node)
     
-    def LNR_iter(self) -> SafeIter[T_LR]:
-        it = StackTraversal[T_LR](self._node,"in")
-        return SafeIter(it)
+    def LNR_iter(self) -> SafeIterBase[T_LR]:
+        return StackTraversal[T_LR](self._node,"in")
     
-    def NLR_iter(self) -> SafeIter[T_LR]:
-        it = StackTraversal[T_LR](self._node,"pre")
-        return SafeIter(it)
+    def NLR_iter(self) -> SafeIterBase[T_LR]:
+        return StackTraversal[T_LR](self._node,"pre")
     
-    def LRN_iter(self) -> SafeIter[T_LR]:
-        it = StackTraversal[T_LR](self._node,"post")
-        return SafeIter(it)
+    def LRN_iter(self) -> SafeIterBase[T_LR]:
+        return StackTraversal[T_LR](self._node,"post")
     
     def __iter__(self):
         """默认返回层序遍历迭代器"""
@@ -529,7 +475,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
         # 遍历展开并获取节点与索引的映射
         it = LayeredTraversal[T_LR](node)
         max_index = 2**max_depth
-        idx_node, stop_idx = SafeIter.flatten(it,max_idx=max_index)
+        idx_node, stop_idx = it.flatten(max_idx=max_index)
 
         # 构建索引到节点值的映射
         idx_val = {idx: getattr(n, prep_property) for idx, n in idx_node}
@@ -563,77 +509,88 @@ class TreeNodeKitBase(KitBase[T_LR]):
         body = ",\n".join(filter(bool,parts))
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
 
-class StackTraversal(Generic[T_LR]):
+class StackTraversal(SafeIterBase[T_LR]):
     """
-    深度优先遍历迭代器（栈实现），支持三种顺序：
-    - 'pre' : 前序遍历 (NLR)
-    - 'in'  : 中序遍历 (LNR)
-    - 'post': 后序遍历 (LRN)
-
-    每次迭代返回 (索引, 节点)，索引从 0 开始计数。
+    深度优先遍历迭代器（继承 SafeIterBase），支持 pre, in, post 模式。
     """
     def __init__(self, root: Optional[T_LR], mode: str = 'in'):
         if mode not in ('pre', 'in', 'post'):
             raise ValueError(f"Unsupported mode: {mode}")
+        
+        # 1. 先初始化基类，让 self._seen, self._current_node 等属性就绪
+        # 这里先传 None，因为我们要通过逻辑找真正的 first_node
+        super().__init__(init_node=None, init_idx=0)
+
         self.mode = mode
         self.stack: List[Any] = []
-        self.idx = 0
+        
+        # 2. 现在属性已就绪，可以安全调用内部方法了
+        if root:
+            if mode == 'pre':
+                self._current_node = root
+            elif mode == 'in':
+                # self._seen 已经存在，不会报错了
+                self._current_node = self._init_push_left(root)
+            else: # post
+                self.stack.append((root, False))
+                self._current_node = self._find_next_post_node()
 
-        if root is None:
-            return
+    def _init_push_left(self, node: T_LR) -> T_LR:
+        """中序初始化：压入左路径并返回最左节点"""
+        curr = node
+        while curr.left:
+            # 查重预防：如果左子节点已经见过（环），则停止压栈
+            if id(curr.left) in self._seen: break 
+            self.stack.append(curr)
+            curr = curr.left
+        return curr
 
-        if mode == 'pre':
-            self.stack.append(root)
-        elif mode == 'in':
-            self._push_left(root)
-        else:  # post
-            self.stack.append((root, False))
+    def _find_next_post_node(self) -> Optional[T_LR]:
+        """后序辅助：从栈中寻找下一个待输出的节点"""
+        while self.stack:
+            item = self.stack.pop()
+            if isinstance(item, tuple): # (node, visited)
+                node, visited = item
+                if visited:
+                    return node
+                else:
+                    # 重新压入当前节点（标记已访问），再压入右、左
+                    self.stack.append((node, True))
+                    # 查重预防：避免环导致的无限压栈
+                    if node.right and id(node.right) not in self._seen:
+                        self.stack.append((node.right, False))
+                    if node.left and id(node.left) not in self._seen:
+                        self.stack.append((node.left, False))
+            else: # 兼容逻辑
+                return item
+        return None
 
-    def _push_left(self, node: T_LR) -> None:
-        """中序辅助：将节点及其所有左子压栈"""
-        while node:
-            self.stack.append(node)
-            node = node.left
-
-    def __iter__(self) -> 'StackTraversal[T_LR]':
-        return self
-
-    def __next__(self) -> Tuple[int, T_LR]:
+    def _prepare_next(self):
+        """
+        当基类消费完 self._current_node 后，更新 self._current_node 和 self._current_idx
+        """
+        curr = self._current_node
+        assert curr is not None, "底层错误！SafeIterBase 非法在 _current_node = None 时调用 _prepare_next"
+        self._current_idx += 1 # DFS 索引递增
+        
         if self.mode == 'pre':
-            if not self.stack:
-                raise StopIteration
-            node = self.stack.pop()
-            # 先右后左，保证左子先弹出
-            if node.right:
-                self.stack.append(node.right)
-            if node.left:
-                self.stack.append(node.left)
-            res = (self.idx, node)
-            self.idx += 1
-            return res
+            # NLR: 当前 node 刚出，压入右、左
+            if curr.right and id(curr.right) not in self._seen:
+                self.stack.append(curr.right)
+            if curr.left and id(curr.left) not in self._seen:
+                self.stack.append(curr.left)
+            
+            self._current_node = self.stack.pop() if self.stack else None
 
         elif self.mode == 'in':
-            if not self.stack:
-                raise StopIteration
-            node = self.stack.pop()
-            if node.right:
-                self._push_left(node.right)
-            res = (self.idx, node)
-            self.idx += 1
-            return res
+            # LNR: 当前 node 刚出，如果有右子，去右子的最左边
+            if curr.right and id(curr.right) not in self._seen:
+                self._current_node = self._init_push_left(curr.right)
+            else:
+                self._current_node = self.stack.pop() if self.stack else None
 
-        else:  # post
-            while self.stack:
-                node, visited = self.stack.pop()
-                if visited:
-                    res = (self.idx, node)
-                    self.idx += 1
-                    return res
-                else:
-                    # 压入当前节点（标记已访问），然后右子、左子
-                    self.stack.append((node, True))
-                    if node.right:
-                        self.stack.append((node.right, False))
-                    if node.left:
-                        self.stack.append((node.left, False))
-            raise StopIteration
+        else: # post (LRN)
+            self._current_node = self._find_next_post_node()
+
+    def flatten(self, max_idx: Optional[int] = None):
+        return self._flatten(self, max_idx)
