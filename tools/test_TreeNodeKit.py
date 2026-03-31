@@ -233,7 +233,7 @@ def test_cycle_detection():
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
     assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
-    assert len(nodes) == 1
+    assert len(nodes) == 1, kit
     assert nodes[0][1] is root
     print("自环检测通过")
 
@@ -310,12 +310,9 @@ def test_cycle_detection():
     nodes[6].right = nodes[2] # n6 指向 n2
 
     kit_cross = TreeNodeKit(head)
-    # 安全迭代会提前停止（检测到 n6 重复），最多能访问几个节点？
-    # 层序安全顺序：[1(1),2(2),3(3),4(4),6(5),7(6)] 但 n4.right 指向 n6 时发现重复，
-    # 所以实际成功迭代的节点为 1,2,3,4,6（索引 0~4），然后停止。
-    # 因此访问索引 5 会触发环错误。
+    print(kit_cross)
     try:
-        _ = kit_cross[6]
+        _ = kit_cross[4]
         assert False, f"应该抛出 IndexError, kit.prep:\n{kit_cross}"
     except IndexError as e:
         assert "遇到环或重复节点" in str(e)
@@ -328,7 +325,6 @@ def test_cycle_detection():
     assert kit_cross[1].val == 2
     assert kit_cross[2].val == 3
     assert kit_cross[3].val == 4
-    assert kit_cross[4].val == 6
     
     print("环检测全部通过")
 

@@ -98,41 +98,41 @@ def _formated_string(val):
 T = TypeVar('T')
 class SafeIterBase(Iterator[Tuple[int,T]]):
     def __init__(self, init_node: Optional[T] = None, init_idx: int = 0):
-        self._seen: Dict[int, int] = {}  # id(node) -> index
-        self._repeat_idx: Optional[int] = None  # 记录重复节点的索引
+        self._seen: Dict[int, int] = {}  
+        self._repeat_idx: Optional[int] = None
         self._current_node = init_node
         self._current_idx = init_idx
+        
+        # 初始节点必须立即登记
+        if init_node is not None:
+            self._seen[id(init_node)] = init_idx
 
-    def _check_safe(self, node: Optional[T]) -> bool:
-        """
-        子类在压栈/入队前调用此方法。
-        仅当节点有效且未访问过，返回 True。
-        如果发现重复，记录索引并返回 False。
-        """
-        if node is None:
-            return False
+    def _check_safe(self, assigned_idx: int, node: Optional[T]) -> bool:
+        """检查并登记节点。如果已见过，记录 repeat_idx。"""
+        if node is None: return False
         nid = id(node)
         if nid in self._seen:
             self._repeat_idx = self._seen[nid]
             return False
+        # 关键：入队/入栈时就分配并记录索引，防止重复入队
+        self._seen[nid] = assigned_idx
         return True
 
-    # def __iter__(self): 已继承 Iterator 实现
-
     def __next__(self) -> Tuple[int, T]:
-        # 1. 检查是否有环或结束
-        if self._current_node is None or self._repeat_idx is not None:
+        # repeat_idx 的检查应该放在准备好 res 之后，或者由子类 prepare 控制
+        if self._current_node is None:
             raise StopIteration
             
-        # 2. 产出前正式登记 (此时才分配索引)
-        node_id = id(self._current_node)
-        self._seen[node_id] = self._current_idx
-        
         res = (self._current_idx, self._current_node)
         
-        # 3. 准备下一个
-        self._prepare_next()
+        # 如果已经发现环，产出当前节点后，下一个设为 None 即可终止
+        if self._repeat_idx is not None:
+            self._current_node = None
+        else:
+            self._prepare_next()
         return res
+
+    # def __iter__(self): 已继承 Iterator 实现
 
     def _prepare_next(self):
         """抽象方法：由子类实现，更新 _current_node"""
@@ -350,36 +350,30 @@ class HasLR(Protocol):
     right: Optional[Any]
 # 定义支持 .left , .right 属性的协议（泛型约束）
 T_LR = TypeVar("T_LR",bound=HasLR)
-
 class LayeredTraversal(SafeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
-        # 初始化基类，当前节点设为 root
-        # 注意：我们不立即把 root 放入队列，而是由基类管理 current_node
+        # 基类构造函数会处理 root 的登记 (id:1)
         super().__init__(init_node=root, init_idx=1)
-        self._queue:Deque[Tuple[int,T_LR]] = deque() # 存储 (index, node) 元组
+        self._queue = deque()
+        if root:
+            self._push_children()
 
-        # 如果根节点存在且安全，将其放入队列作为后续候选
-        # current_node 将在第一次 __next__ 时被产出
-        if self._check_safe(root):
-            self._push()
+    def _push_children(self):
+        assert self._current_node is not None, "_current_node 为空节点不可执行 _push_children()"
+        # 探测子节点并尝试登记
+        l_idx = self._current_idx * 2
+        if self._check_safe(l_idx, self._current_node.left):
+            self._queue.append((l_idx, self._current_node.left))
+            
+        if self._check_safe(l_idx + 1, self._current_node.right):
+            self._queue.append((l_idx + 1, self._current_node.right))
 
-    def _push(self):
-        left_child = getattr(self._current_node, 'left')
-        right_child = getattr(self._current_node, 'right')
-        # 根节点索引通常为 1 (完全二叉树标准)
-        if self._check_safe(left_child):
-            self._queue.append((self._current_idx * 2, left_child))
-        if self._check_safe(right_child):
-            self._queue.append((self._current_idx * 2 + 1, right_child))
-        
     def _prepare_next(self):
         if not self._queue:
             self._current_node = None
-            return
-
-        # 取出下一个节点
-        self._current_idx, self._current_node = self._queue.popleft()
-        self._push()
+        else:
+            self._current_idx, self._current_node = self._queue.popleft()
+            self._push_children()
 
     def flatten(self, max_idx: Optional[int] = None):
         return super()._flatten(self, max_idx)
