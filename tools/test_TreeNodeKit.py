@@ -324,6 +324,7 @@ def test_cycle_detection():
 
     kit_cross = TreeNodeKit(head)
     val_list = list(filter(bool,val_list))
+    print(kit_cross)
 
     # 索引访问（层序遍历）
     for i in range(6):

@@ -431,7 +431,6 @@ class TreeNodeKitBase(KitBase[T_LR]):
     二叉树调试增强工具基类，使用代理模式。
     提供安全的扁平化（层序遍历）和重复节点检测，避免因错误的树结构导致死循环。
     """
-
     @property
     def left(self) -> 'TreeNodeKitBase[T_LR]':
         if self.node is None:
@@ -515,7 +514,6 @@ class TreeNodeKitBase(KitBase[T_LR]):
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
         return LayeredTraversal[T_LR](self._node)
     
-
     def NLR_iter(self) -> SafeIterBase[T_LR]:
         """前序遍历迭代器 (NLR)"""
         return PreorderTraversal[T_LR](self._node)
