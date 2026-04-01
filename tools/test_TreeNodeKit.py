@@ -76,73 +76,82 @@ def add_random_cycle(root: TreeNode, node_set: Set[TreeNode]) -> Tuple[TreeNode,
 # ------------------ 经过Leetcode验证的专业无BUG代码 -----------------------------
 
 class TreeTraversal:
-    @classmethod
-    def preorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
-        ans = list()
-        def dfs(node):
-            nonlocal max_nodes,ans
-            if node and len(ans)<max_nodes:
-                ans.append(node.val)
-                dfs(node.left)
-                dfs(node.right)   
-        dfs(root)
-        return ans
+    def __init__(self) -> None:
+        self.rep = []
 
-    @classmethod
-    def inorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
+    def preorder(self, root: Optional['TreeNode']) -> List[int]:
         ans = list()
         seen = set()
         def dfs(node):
-            nonlocal max_nodes,ans
-            if node and len(ans)<max_nodes:
-                if id(node) in seen: return # 避免重复访问
+            if node:
+                if id(node) in seen:
+                    self.rep.append(node.val)
+                    return
                 seen.add(id(node))
-                dfs(node.left)
                 ans.append(node.val)
-                dfs(node.right)   
+                dfs(node.left)
+                dfs(node.right)
         dfs(root)
         return ans
 
-    @classmethod
-    def postorder(cls, root: Optional[TreeNode] , max_nodes:int=(1<<31)-1) -> List[int]:        
+    def inorder(self, root: Optional['TreeNode']) -> List[int]:
         ans = list()
         seen = set()
         def dfs(node):
-            nonlocal max_nodes,ans
-            if node and len(ans)<max_nodes:
-                if id(node) in seen: return # 避免重复访问
+            if node:
+                if id(node) in seen:
+                    self.rep.append(node.val)
+                    return
                 seen.add(id(node))
                 dfs(node.left)
-                dfs(node.right)   
+                ans.append(node.val)
+                dfs(node.right)
+        dfs(root)
+        return ans
+
+    def postorder(self, root: Optional['TreeNode']) -> List[int]:
+        ans = list()
+        seen = set()
+        def dfs(node):
+            if node:
+                if id(node) in seen:
+                    self.rep.append(node.val)
+                    return
+                seen.add(id(node))
+                dfs(node.left)
+                dfs(node.right)
                 ans.append(node.val)
         dfs(root)
         return ans
 
-    @classmethod
-    def levelFlatten(cls, root: Optional[TreeNode], max_nodes:int=(1<<31)-1) -> List[List[TreeNode]]:
-        """max_nodes仅作为早停限制，不代表实际节点数"""
+    def levelFlatten(self, root: Optional['TreeNode']) -> List[List[TreeNode]]:
+        """层序遍历，返回每层节点的值序列"""
         if not root: return []
-        result = [[root],]
-        cnt_node = 1
-        while cnt_node < max_nodes and result[-1]:
-            q = []
-            for node in result[-1]:
-                if node.left:
-                    q.append(node.left)
-                if node.right:
-                    q.append(node.right)
-            if q:
-                result.append(q)
-                cnt_node += len(q)
-            else:
-                break
+        result = []
+        queue = [root]
+        seen = {id(root)}
+        
+        while queue:
+            level_nodes = []
+            next_queue = []
+            for node in queue:
+                level_nodes.append(node)
+                for child in [node.left, node.right]:
+                    if child:
+                        if id(child) in seen:
+                            self.rep.append(child.val)
+                            continue
+                        seen.add(id(child))
+                        next_queue.append(child)
+            result.append(level_nodes)
+            queue = next_queue
         return result
-
-    @classmethod
-    def levelOrder(cls, root: Optional[TreeNode], max_nodes:int=(1<<31)-1) -> List[List[int]]:
-        """max_nodes仅作为早停限制，不代表实际节点数"""
-        return [[node.val for node in level] for level in cls.levelFlatten(root,max_nodes)] # type: ignore
     
+    def levelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:
+        """max_nodes仅作为早停限制，不代表实际节点数"""
+        return [[node.val for node in level] for level in self.levelFlatten(root)] # type: ignore
+    
+
 # ------------------ 经过Leetcode验证的专业无BUG代码 END -----------------------------
 
 def test_basic_functionality():
@@ -277,7 +286,7 @@ def test_cycle_detection():
     kit = TreeNodeKit(a)
     nodes, cycle_idx = kit.flatten()
     # 层序：a(0), b(1), c(2) 当 b.left 访问 a 时，a 已经出现（索引0），环起始索引0
-    assert cycle_idx == 1
+    assert cycle_idx == 1,kit
     # 注意：当 c.right 访问 b 时，b 也已经出现，但此时环已经被检测到，不会再记录
     print("多环节点检测通过")
 
@@ -313,7 +322,7 @@ def test_cycle_detection():
     kit_cross = TreeNodeKit(head)
     print(kit_cross)
     try:
-        _ = kit_cross[5]
+        _ = kit_cross[6]
         assert False, f"应该抛出 IndexError, kit.prep:\n{kit_cross}"
     except IndexError as e:
         assert "遇到环或重复节点" in str(e)
@@ -406,10 +415,11 @@ def clip_distinct(val_list):
     dup = None
     for v in val_list:
         if v in seen:
-            dup = v
-            break
-        seen.add(v)
-        res.append(v)
+            if dup is None:
+                dup = v
+        else:
+            seen.add(v)
+            res.append(v)
     return res, dup
 
 def test_random_tree(seed = 42):
@@ -429,26 +439,26 @@ def test_random_tree(seed = 42):
         assert stop_idx is None, "合法二叉树的 stop_idx 应为 None"
 
         # 层序遍历（展平后 val 列表）
-        level_vals_expected = [val for level in TreeTraversal.levelOrder(root) for val in level]
+        traver = TreeTraversal()
+        level_vals_expected = [val for level in traver.levelOrder(root) for val in level]
         level_vals_actual   = [node.val for _, node in idx_nodes]
         assert level_vals_expected == level_vals_actual, "合法树 flatten 与层序遍历不一致"
 
         # 前序/中序/后序（使用递归遍历，因为此时树无环）
-        pre_expected  = TreeTraversal.preorder(root)
-        in_expected   = TreeTraversal.inorder(root)
-        post_expected = TreeTraversal.postorder(root)
+        pre_expected  = traver.preorder(root)
+        in_expected   = traver.inorder(root)
+        post_expected = traver.postorder(root)
         pre_actual    = [node.val for _, node in kit.NLR_iter()]
         in_actual     = [node.val for _, node in kit.LNR_iter()]
-        # post_actual   = [node.val for _, node in kit.LRN_iter()]
+        post_actual   = [node.val for _, node in kit.LRN_iter()]
         assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit}"
         assert in_expected == in_actual
-        # assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit}"
+        assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit}"
 
         # ----- 随机添加非法链接（重复节点或环）-----
         nodes_dict = dict(idx_nodes)                     # 索引 -> 节点
         reachable_idxs = list(nodes_dict.keys())
-        max_nodes_orig = len(level_vals_expected)        # 原始节点数，用作 max_nodes 上限
-        min_nodes = max(1, int(random.random() * max_nodes_orig))
+        min_nodes = max(1, int(random.random() * len(level_vals_expected)))
 
         while len(reachable_idxs) > min_nodes:
             # 随机选择两个可达节点（可能相同），让一个指向另一个
@@ -460,8 +470,9 @@ def test_random_tree(seed = 42):
                 cur.right = tail
 
             # 1. 层序遍历标准序列（限制最大节点数，防止死循环）
-            level_raw = [val for level in TreeTraversal.levelOrder(root, max_nodes_orig) for val in level]
-            level_std, dup_val = clip_distinct(level_raw)
+            traver = TreeTraversal()
+            level_std = [val for level in traver.levelOrder(root) for val in level]
+            dup_val = traver.rep[0]
 
             # 2. 获取 kit 的 flatten 结果（自动环检测）
             nodes_list, stop_idx = kit.flatten()
@@ -472,33 +483,27 @@ def test_random_tree(seed = 42):
                 assert stop_idx is not None, "应有环但 flatten 未检测到"
                 assert dup_val == nodes_dict[stop_idx].val, f"重复值与环起始节点值不匹配，dup={dup_val},but:\n{kit}"
             else:
-                assert stop_idx is None, "无环但 flatten 报告有环"
+                assert stop_idx is None, f"无环但 flatten 报告有环, stop_idx={stop_idx}\n{kit}"
 
-            assert level_std == level_kit, f"层序遍历序列不一致\nstd = {level_std}\nreal = {level_kit}\n{kit}"
+            assert level_std == level_kit, f"层序遍历序列不一致\nstd = {level_std}\nreal = {level_kit}\nraw = {level_raw[:len(level_kit)]}\n{kit}"
 
             # 3. 验证 __iter__（默认层序）与 flatten 结果一致
             assert level_kit == [node.val for _, node in kit], "__iter__ 与 flatten 不一致"
 
             # 4. 前序遍历
-            pre_raw = TreeTraversal.preorder(root, max_nodes_orig)
-            pre_std, _ = clip_distinct(pre_raw)
+            pre_std = traver.preorder(root)
             pre_kit = [node.val for _, node in kit.NLR_iter()]
             assert pre_std == pre_kit, f"前序遍历序列不一致\nstd = {pre_std}\nreal = {pre_kit}\n{kit}"
 
             # 5. 中序遍历
-            try:
-                in_raw = TreeTraversal.inorder(root, max_nodes_orig)
-                in_std, _ = clip_distinct(in_raw)
-                in_kit = [node.val for _, node in kit.LNR_iter()]
-                assert in_std == in_kit, "中序遍历序列不一致"
-            except:
-                print(kit)
+            in_std = traver.inorder(root)
+            in_kit = [node.val for _, node in kit.LNR_iter()]
+            assert in_std == in_kit, f"中序遍历序列不一致\nstd = {in_std}\nreal = {in_kit}\n{kit}"
 
             # 6. 后序遍历
-            # post_raw = TreeTraversal.postorder(root, max_nodes_orig)
-            # post_std, _ = clip_distinct(post_raw)
-            # post_kit = [node.val for _, node in kit.LRN_iter()]
-            # assert post_std == post_kit, "后序遍历序列不一致"
+            post_std = traver.postorder(root)
+            post_kit = [node.val for _, node in kit.LRN_iter()]
+            assert post_std == post_kit, f"后序遍历序列不一致\nstd = {post_std}\nreal = {post_kit}\n{kit}"
 
             # 更新可达节点索引（基于当前 flatten 结果）
             reachable_idxs = [idx for idx, _ in nodes_list]

@@ -112,7 +112,9 @@ class SafeIterBase(Iterator[Tuple[int,T]]):
         if node is None: return False
         nid = id(node)
         if nid in self._seen:
-            self._repeat_idx = self._seen[nid]
+            # 只有第一次发现重复时才记录，防止被后续的其他环覆盖
+            if self._repeat_idx is None:
+                self._repeat_idx = self._seen[nid]
             return False
         # 关键：入队/入栈时就分配并记录索引，防止重复入队
         self._seen[nid] = assigned_idx
@@ -124,12 +126,9 @@ class SafeIterBase(Iterator[Tuple[int,T]]):
             raise StopIteration
             
         res = (self._current_idx, self._current_node)
-
-        # 如果已经发现环，产出当前节点后，下一个设为 None 即可终止
-        if self._repeat_idx is not None:
-            self._current_node = None
-        else:
-            self._prepare_next()
+        
+        # 子类在 _prepare_next 中如果发现没法继续了（栈空或撞环），会将 _current_node 设为 None。
+        self._prepare_next()
         return res
 
     # def __iter__(self): 已继承 Iterator 实现
@@ -607,40 +606,39 @@ class PostorderTraversal(SafeIterBase[T_LR]):
         if root and self._check_safe(1, root):
             self._stack.append((1, root, False))
             self._current_node = self._find_next_post_node()
-
+        
     def _find_next_post_node(self) -> Optional[T_LR]:
-        """查找下一个该产出的后序节点"""
         while self._stack:
             idx, node, visited = self._stack[-1]
             
             if visited:
-                # 子树已处理完，弹出并准备产出当前节点
+                # 已经标记为 True，说明子节点都处理（或尝试处理）过了，弹出并产出
                 self._stack.pop()
                 self._current_idx = idx
                 return node
-            else:
-                # 标记当前节点为已访问，并压入子节点（LRN 逆序：先右后左）
-                self._stack[-1] = (idx, node, True)
-                
-                # 压入右子
-                r_idx = idx * 2 + 1
-                right = getattr(node, 'right', None)
-                if right:
-                    if not self._check_safe(r_idx, right):
-                        # 发现环，设置终止
-                        return None
-                    self._stack.append((r_idx, right, False))
-                
-                # 压入左子
-                l_idx = idx * 2
-                left = getattr(node, 'left', None)
-                if left:
-                    if not self._check_safe(l_idx, left):
-                        return None
-                    self._stack.append((l_idx, left, False))
-                
-                # 继续循环以处理刚压入的子节点（下探）
+            
+            # 1. 标记当前节点为已访问
+            self._stack[-1] = (idx, node, True)
+            
+            # 2. 尝试压入子节点。注意：即便这里 _repeat_idx 已经有值（之前的路径撞过环），
+            # 只要当前的子节点是安全的，就应该压入。
+            
+            # 后序压栈顺序：右、左（保证弹出顺序为左、右）
+            r_node = getattr(node, 'right', None)
+            if r_node:
+                # _check_safe 内部如果撞环会记录 repeat_idx，但我们依然要看左边
+                if self._check_safe(idx * 2 + 1, r_node):
+                    self._stack.append((idx * 2 + 1, r_node, False))
+            
+            l_node = getattr(node, 'left', None)
+            if l_node:
+                if self._check_safe(idx * 2, l_node):
+                    self._stack.append((idx * 2, l_node, False))
+                    
+            # 3. 继续循环。如果刚才压入了 l_node，下一轮会去处理 l_node；
+            # 如果左右都撞环或为空，下一轮会执行上面的 if visited 分支弹出当前节点。
         return None
+
 
     def _prepare_next(self):
         # 寻找下一个后序产出点
