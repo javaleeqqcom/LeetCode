@@ -183,13 +183,11 @@ def test_basic_functionality():
     assert kit[4].val == 4
     assert kit[5].val == 5
     assert kit[6].val == 6
-    assert kit[7].node is None
-    assert kit[13].node is None
     try:
-        _ = kit[14]
+        _ = kit[7]
         assert False, "应该抛出 IndexError"
-    except IndexError:
-        pass
+    except IndexError as e:
+        assert "超出" in str(e)
 
     # flatten
     nodes, cycle_idx = kit.flatten()

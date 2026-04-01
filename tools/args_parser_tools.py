@@ -401,25 +401,36 @@ class LayeredTraversal(SafeIterBase[T_LR]):
     def flatten(self, max_idx: Optional[int] = None):
         return super()._flatten(self, max_idx)
 
-
 class HeapRoute(SafeIterBase[T_LR]):
-    def __init__(self, init_node: 'T_LR', heap_index: int):
-        super().__init__(init_node,1,True) # 从1开始索引，早停
-        self.route_r = [op=='1' for op in bin(heap_index)[3:]]
+    def __init__(self, init_node: T_LR, heap_index: int):
+        # init_node 是堆索引 1 的節點
+        super().__init__(init_node, 1, early_stop=False)
+        # 將 '101' 轉為 [False, True] (0=左, 1=右)
+        self.route_ops = [op == '1' for op in bin(heap_index)[3:]]
 
     def _prepare_next(self):
-        if not self.route_r:
-            raise StopIteration
-        if self._check_safe(self._current_idx,self._current_node):
-            if self.route_r[0]:
-                self._current_node = self._current_node.right
-                self._current_idx = 2*self._current_idx+1
+        # 1. 檢查路徑是否已走完
+        if not self.route_ops:
+            self._current_node = None
+            return
+
+        # 2. 獲取下一步的操作指令
+        is_right = self.route_ops.pop(0)
+        
+        # 4. 取得下一個節點對象
+        # 注意：我們必須在當前節點不為空的情況下才能訪問 .left/.right
+        if self._current_node:
+            next_idx = self._current_idx * 2 + int(is_right)
+            next_node = self._current_node.right if is_right else self._current_node.left
+            
+            # 5. 安全檢查：在更新 _current_node 之前檢查下一個節點是否安全
+            # 如果不安全，_check_safe 會設置 repeat_indices，基類 next 會處理早停
+            if self._check_safe(next_idx, next_node):
+                self._current_node = next_node
+                self._current_idx = next_idx
             else:
-                self._current_node = self._current_node.left
-                self._current_idx = 2*self._current_idx
-            del self.route_r[0]
-        else:
-            raise StopIteration
+                # 發現環路，阻斷下探
+                self._current_node = None
 
 class TreeNodeKitBase(KitBase[T_LR]):
     """
@@ -451,27 +462,43 @@ class TreeNodeKitBase(KitBase[T_LR]):
             raise AttributeError("空树节点不能设置 right 属性")
         self._node.right = self.unwrap(value)
 
-    def get(self,heap_index:int)-> 'TreeNodeKitBase[T_LR]':
-        """按从1开始的堆索引获取节点，若节点无法访问则报错，但是注意若其父节点存在，但访问到该节点恰为空则返回 TreeNodeKitBase[None]"""
-        if heap_index<1:
-            raise IndexError("堆索引不能小于1")
-        it = HeapRoute(self.node, heap_index)
-        cur = None
-        for idx,cur in it:
-            if not cur:
-                if it.repeat_idx:
-                    raise IndexError("堆索引发现环路")
-                raise IndexError("堆索引超出范围")
-        # cur = self.node
-        # op_list = bin(heap_index)[3:]
-        # for op in op_list:
-        #     if not cur:
-        #         raise IndexError("堆索引超出范围")
-        #     if op == '0':
-        #         cur = cur.left
-        #     else:
-        #         cur = cur.right
-        return TreeNodeKitBase(cur)
+class TreeNodeKitBase(KitBase[T_LR]):
+    def get(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
+        """
+        按從1開始的堆索引獲取節點。
+        邏輯：
+        - 正常路徑：返回該節點的 Kit 包裝。
+        - 路徑中途斷裂：拋出 IndexError("堆索引超出範圍")。
+        - 遇到重複節點（環）：
+            - 第一次重複（第二次見）：視為合法路徑，返回該節點。
+            - 第二次重複（第三次見）：由 SafeIterBase 攔截並拋出 IndexError。
+        """
+        if heap_index < 1:
+            raise IndexError("堆索引不能小於1")
+        
+        it = HeapRoute(self._node, heap_index)
+        last_idx = 0
+        last_node = None
+        
+        # 遍歷迭代器以驅動路徑查找
+        # 即使 heap_index 為 1，也會執行一次，產出 root
+        for idx, node in it:
+            last_idx = idx
+            last_node = node
+            
+        # 檢查是否真正到達了目標 heap_index
+        if last_idx != heap_index:
+            # 恰好超出范围，不报错
+            if it._current_idx == heap_index:
+                return self.__class__(it._current_node)
+            # 如果停止索引不是目標索引，檢查原因
+            if it._repeat_indices:
+                raise IndexError(f"堆索引 {heap_index} 訪問失敗：檢測到環路，重複節點索引為 {it._repeat_indices[0]}")
+            else:
+                raise IndexError(f"堆索引 {heap_index} 超出範圍：路徑在索引 {last_idx} 之後中斷")
+        
+        # 返回 Kit 對象，這裏 last_node 可能是 None（如果 heap_index 指向一個空位）
+        return self.__class__(last_node)
 
     def __getitem__(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
         """按从1开始的堆索引获取节点，若节点不存在返回 TreeNodeKitBase[None]"""
@@ -556,6 +583,19 @@ class TreeNodeKitBase(KitBase[T_LR]):
     
     # ===================== 新增三个遍历迭代器 =====================
 
+class DfsTreeTraversal(SafeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR]):
+        super().__init__(root, 1)
+        # 栈存储 (索引, 节点, 是否已访问子节点)
+        self._stack: List[Tuple[int, T_LR, Any]] = []
+
+    def _safe_push(self, idx: int, node: Optional[T_LR], *args):
+        # 反向压栈：先右后左，保证左子在栈顶先被处理
+        if node and self._check_safe(idx, node):
+            self._stack.append((idx, node, *args)) 
+
+    ... # 其中共同点代码
+
 class PreorderTraversal(SafeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
         super().__init__(root, 1) # 初始 current_node 为 None，由 prepare_next 填充
@@ -565,15 +605,15 @@ class PreorderTraversal(SafeIterBase[T_LR]):
         if root:
             self._push_children(1,root)
 
-    def _push_children(self, node_idx ,node):
+    def _push_children(self, node_idx ,node:T_LR):
         """前序压栈：先右后左，保证左子先出"""
         left_idx = 2 * node_idx
 
         # 反向压栈：先右后左，保证左子在栈顶先被处理
         if self._check_safe(left_idx+1, node.right):
-            self._stack.append((left_idx+1, node.right)) # type: ignore
+            self._stack.append((left_idx+1, node.right)) 
         if self._check_safe(left_idx, node.left):
-            self._stack.append((left_idx, node.left)) # type: ignore
+            self._stack.append((left_idx, node.left)) 
 
     def _prepare_next(self):
         """
@@ -593,7 +633,7 @@ class InorderTraversal(SafeIterBase[T_LR]):
     """中序遍历迭代器 (LNR)"""
     def __init__(self, root: Optional[T_LR]):
         # 初始 current 设为 None，由下探逻辑确定第一个产出节点
-        super().__init__(None, 0)
+        super().__init__(None, 1)
         self._stack: List[Tuple[int, T_LR]] = []
         
         if root and self._check_safe(1, root):
@@ -644,7 +684,7 @@ class InorderTraversal(SafeIterBase[T_LR]):
 class PostorderTraversal(SafeIterBase[T_LR]):
     """后序遍历迭代器 (LRN)"""
     def __init__(self, root: Optional[T_LR]):
-        super().__init__(None, 0)
+        super().__init__(None, 1)
         # 栈存储 (索引, 节点, 是否已访问子节点)
         self._stack: List[Tuple[int, T_LR, bool]] = []
         
