@@ -176,15 +176,17 @@ def test_basic_functionality():
     assert kit.left.right.val == 5
     assert kit.right.left.val == 6
 
-    # 索引访问（层序索引）
-    assert kit[0].val == 1
-    assert kit[1].val == 2
-    assert kit[2].val == 3
-    assert kit[3].val == 4
-    assert kit[4].val == 5
-    assert kit[5].val == 6
+    # 索引访问（堆索引）
+    assert kit[1].val == 1
+    assert kit[2].val == 2
+    assert kit[3].val == 3
+    assert kit[4].val == 4
+    assert kit[5].val == 5
+    assert kit[6].val == 6
+    assert kit[7].node is None
+    assert kit[13].node is None
     try:
-        _ = kit[6]
+        _ = kit[14]
         assert False, "应该抛出 IndexError"
     except IndexError:
         pass
@@ -296,11 +298,13 @@ def test_cycle_detection():
     root = TreeNode(100)
     root.right = root
     kit_self_cycle = TreeNodeKit(root)
+    assert kit_self_cycle[2].node is None
+    assert kit_self_cycle[3] == kit_self_cycle[1] # 自环相等检测
 
-    # 尝试访问索引 1（理论上第二个节点，但因为环，实际只能安全遍历到根节点）
+    # 尝试访问索引 3（因为环，实际只能安全遍历到根节点）
     try:
-        _ = kit_self_cycle[1]
-        assert False, "应该抛出 IndexError"
+        _ = kit_self_cycle[6]
+        assert False, "第二次检测到重复节点时，应该停止遍历并抛出 IndexError"
     except IndexError as e:
         # 验证异常消息中包含环检测相关信息
         assert "遇到环或重复节点" in str(e), f"错误消息不正确: {e}"
@@ -433,12 +437,13 @@ def test_random_tree(seed = 42):
         right_p = random.random()
         root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
+        # 获取 kit 的 flatten 结果（自动环检测）
+        idx_nodes_lst, stop_idx = kit.flatten()
+        nodes_dict = None
 
         for j in range(100): # 非法链接次数上限                # 索引 -> 节点
-            if  0==j:
-                # 获取 kit 的 flatten 结果（自动环检测）
-                idx_nodes_lst, stop_idx = kit.flatten()
-                nodes_dict = dict(idx_nodes_lst)     
+            if nodes_dict is None:
+                nodes_dict = dict(idx_nodes_lst)    
             # 第一次必是合法树，因此只需从第二次开始添加非法链接（重复节点或环）
             if j>0 and len(idx_nodes_lst)>1: # 至少要有两个节点，才增加非法链接。否则只有一个节点的情况下，只能无限形成自环，而自环已在基础测试中通过，无需再测。
                 reachable_idxs = list(nodes_dict.keys())
@@ -490,9 +495,6 @@ def test_random_tree(seed = 42):
             # post_expected = traver.postorder(root)
             # post_actual   = [node.val for _, node in kit.LRN_iter()]
             # assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit}"
-
-            # 更新可达节点索引（基于当前 flatten 结果）
-            reachable_idxs = [idx for idx, _ in idx_nodes_lst]
 
     print("随机树 + 非法链接测试全部通过")
 

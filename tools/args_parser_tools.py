@@ -1,7 +1,9 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable ,cast
-from collections import deque
+from collections import deque,defaultdict
 from binarytree import build
 import json
+
+__DEBUG__ = True
 
 def _is_base_type(sig_type) -> bool:
     """
@@ -96,52 +98,71 @@ def _formated_string(val):
         return str(val)
 
 T = TypeVar('T')
-class SafeIterBase(Iterator[Tuple[int,T]]):
-    def __init__(self, init_node: Optional[T] = None, init_idx: int = 0):
-        self._seen: Dict[int, int] = {}  
-        self._repeat_idx: Optional[int] = None
+class SafeIterBase(Iterator[Tuple[int, T]]):
+    def __init__(self, init_node: Optional[T] = None, init_idx: int = 0, early_stop: bool = not __DEBUG__):
+        # nid -> 访问过该节点的 idx 列表
+        self._seen: Dict[int, List[int]] = defaultdict(list)
+        # 记录所有导致冲突的【原始节点索引】
+        self._repeat_indices: List[int] = []  
+        
         self._current_node = init_node
         self._current_idx = init_idx
-        
-        # 初始节点必须立即登记
+        self._early_stop = early_stop
+
         if init_node is not None:
-            self._seen[id(init_node)] = init_idx
+            self._seen[id(init_node)].append(init_idx)
 
     def _check_safe(self, assigned_idx: int, node: Optional[T]) -> bool:
-        """检查并登记节点。如果已见过，记录 repeat_idx。"""
+        """
+        核心逻辑：
+        1. 发现重复：记录目标节点的原始索引，返回 False（阻止子类入栈/入队该节点）。
+        2. 正常：登记并返回 True。
+        """
         if node is None: return False
         nid = id(node)
+        
         if nid in self._seen:
-            # 只有第一次发现重复时才记录，防止被后续的其他环覆盖
-            if self._repeat_idx is None:
-                self._repeat_idx = self._seen[nid]
-            return False
-        # 关键：入队/入栈时就分配并记录索引，防止重复入队
-        self._seen[nid] = assigned_idx
+            # 记录被指向的那个“前辈”的第一个索引
+            self._repeat_indices.append(self._seen[nid][0])
+            # 记录本次非法指向发生的当前索引，用于路径追溯
+            self._seen[nid].append(assigned_idx)
+            return False # 物理阻断，防止死循环
+            
+        self._seen[nid].append(assigned_idx)
         return True
 
     def __next__(self) -> Tuple[int, T]:
-        # repeat_idx 的检查应该放在准备好 res 之后，或者由子类 prepare 控制
         if self._current_node is None:
             raise StopIteration
             
+        # 1. 准备当前要返回的结果
         res = (self._current_idx, self._current_node)
         
-        # 子类在 _prepare_next 中如果发现没法继续了（栈空或撞环），会将 _current_node 设为 None。
+        # 2. 尝试寻找后继节点
         self._prepare_next()
+
+        # 3. 策略处理：
+        # 如果开启了 early_stop 且刚刚探测到了环
+        if self._early_stop and self._repeat_indices:
+            # 强制将下一个节点设为 None，使得下一次调用 next 时 StopIteration
+            self._current_node = None
+            
         return res
 
-    # def __iter__(self): 已继承 Iterator 实现
-
-    def _prepare_next(self):
-        """抽象方法：由子类实现，更新 _current_node"""
-        raise NotImplementedError
+    @property
+    def repeat_idx(self) -> List[int]:
+        """返回所有触发重复的节点的原始索引列表"""
+        return self._repeat_indices
 
     @property
-    def repeat_idx(self) -> Optional[int]:
-        """当迭代器检测到重复节点时，会赋值该属性为重复节点的索引，否则为 None"""
-        return self._repeat_idx
+    def first_repeat(self) -> Optional[int]:
+        """返回第一个检测到的重复节点的原始索引"""
+        return self._repeat_indices[0] if self._repeat_indices else None
 
+    def _prepare_next(self):
+        """抽象方法：由子类实现，内部必须使用 _check_safe 控制入栈/入队"""
+        raise NotImplementedError
+    
     @classmethod
     def _flatten(cls, it: SafeIterBase, max_idx: Optional[int] = None):
         """
@@ -158,7 +179,7 @@ class SafeIterBase(Iterator[Tuple[int,T]]):
             if max_idx is not None and idx > max_idx:
                 return items, max_idx
             items.append((idx, node))
-        return items, it.repeat_idx
+        return items, it.first_repeat
 
 @runtime_checkable
 class HasNext(Protocol):
@@ -380,6 +401,26 @@ class LayeredTraversal(SafeIterBase[T_LR]):
     def flatten(self, max_idx: Optional[int] = None):
         return super()._flatten(self, max_idx)
 
+
+class HeapRoute(SafeIterBase[T_LR]):
+    def __init__(self, init_node: 'T_LR', heap_index: int):
+        super().__init__(init_node,1,True) # 从1开始索引，早停
+        self.route_r = [op=='1' for op in bin(heap_index)[3:]]
+
+    def _prepare_next(self):
+        if not self.route_r:
+            raise StopIteration
+        if self._check_safe(self._current_idx,self._current_node):
+            if self.route_r[0]:
+                self._current_node = self._current_node.right
+                self._current_idx = 2*self._current_idx+1
+            else:
+                self._current_node = self._current_node.left
+                self._current_idx = 2*self._current_idx
+            del self.route_r[0]
+        else:
+            raise StopIteration
+
 class TreeNodeKitBase(KitBase[T_LR]):
     """
     二叉树调试增强工具基类，使用代理模式。
@@ -410,27 +451,31 @@ class TreeNodeKitBase(KitBase[T_LR]):
             raise AttributeError("空树节点不能设置 right 属性")
         self._node.right = self.unwrap(value)
 
-    def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
-        """按层序遍历顺序索引...若树非法...节点可能出现重复，停止迭代并报错"""
-        if index < 0:
-            raise IndexError("索引不能为负数")
-        safe_iter = LayeredTraversal(self._node)
-        node_count = 0
-        for i, (_, node) in enumerate(safe_iter):
-            node_count += 1
-            if i == index:
-                return self.__class__(node)
-        # 迭代提前终止，可能因为环或正常结束
-        if safe_iter.repeat_idx is not None:
-            raise IndexError(
-                f"索引 {index} 访问时遇到环或重复节点，首次重复键为 {safe_iter.repeat_idx}。"
-                f"已遍历 {node_count} 个节点后检测到重复。"
-            )
-        else:
-            # 正常结束，节点总数 = node_count
-            raise IndexError(
-                f"索引 {index} 超出节点总数（共 {node_count} 个节点）。"
-            )
+    def get(self,heap_index:int)-> 'TreeNodeKitBase[T_LR]':
+        """按从1开始的堆索引获取节点，若节点无法访问则报错，但是注意若其父节点存在，但访问到该节点恰为空则返回 TreeNodeKitBase[None]"""
+        if heap_index<1:
+            raise IndexError("堆索引不能小于1")
+        it = HeapRoute(self.node, heap_index)
+        cur = None
+        for idx,cur in it:
+            if not cur:
+                if it.repeat_idx:
+                    raise IndexError("堆索引发现环路")
+                raise IndexError("堆索引超出范围")
+        # cur = self.node
+        # op_list = bin(heap_index)[3:]
+        # for op in op_list:
+        #     if not cur:
+        #         raise IndexError("堆索引超出范围")
+        #     if op == '0':
+        #         cur = cur.left
+        #     else:
+        #         cur = cur.right
+        return TreeNodeKitBase(cur)
+
+    def __getitem__(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
+        """按从1开始的堆索引获取节点，若节点不存在返回 TreeNodeKitBase[None]"""
+        return self.get(heap_index)
     
     def flatten(self,max_depth:int|None = None) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
@@ -569,7 +614,7 @@ class InorderTraversal(SafeIterBase[T_LR]):
                 break
             self._stack.append((curr_idx, curr.left))
             curr = curr.left
-            
+
     def _prepare_next(self):
         # 1. 弹出刚刚产出的节点
         if not self._stack:

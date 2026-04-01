@@ -297,8 +297,12 @@ results = optimized.run(cases, log_suffix="_optimized")
 - ~~增强树的可视化打印~~✅ **已完成**
    - 已实现 直观的二叉树打印方法
 1. **SafeIterBase**
-   - 实现是否早停选项，若非早停，则记录全部重复节点，便于调试和分析
-   - _seen 成员变量改为 {node:[历次访问时的 idx，...]}，无需记录 repeat_idx，而是通过遍历 _seen 中 访问 idx 超过 1 次的节点得到重复节点信息
+   - 实现是否早停选项 early_stop，若非早停，则记录全部重复节点，便于调试和分析
+   - 当 early_stop 为 True 时，检测到任何重复节点时即终止遍历，不管遍历类的栈或队列是否还有元素；
+   - 当 early_stop 为 False 时，也能防止死循环（要求继承类合理调用安全检查下），检测到重复节点时记录同时阻止根据重复节点而后继的行为。
+   - _seen 成员变量改为 {node:[历次访问时的 idx，...]}，通过遍历 _seen 可以得到所有指向重复节点的索引，即可还原如树结构的非法路径
+   - repeat_idx 改为数组，记录所有重复节点（当非早停时至多只能有1个元素）
+   - 将来可以用 Cython 优化性能，唯一需要依赖 python 结构的就只有求 id(node) 吧
 2. **统一安全迭代器接口**
    - 为 `ListNodeKit` 和 `TreeNodeKit` 增加 `safe_iter()` 方法，返回 `SafeIter` 实例，支持手动安全遍历
    - 树的安全迭代先实现层序遍历（`LayeredTraversal` 包装），后续可扩展前序/中序/后序
