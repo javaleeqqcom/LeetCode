@@ -569,7 +569,7 @@ class InorderTraversal(SafeIterBase[T_LR]):
                 break
             self._stack.append((curr_idx, curr.left))
             curr = curr.left
-
+            
     def _prepare_next(self):
         # 1. 弹出刚刚产出的节点
         if not self._stack:
@@ -578,7 +578,7 @@ class InorderTraversal(SafeIterBase[T_LR]):
         
         _, old_node = self._stack.pop()
 
-        # 2. 转向右子树
+        # 2. 尝试转向右子树
         if old_node.right:
             # 右子节点在完全二叉树中的索引
             r_idx = self._current_idx * 2 + 1
@@ -586,11 +586,11 @@ class InorderTraversal(SafeIterBase[T_LR]):
                 self._stack.append((r_idx, old_node.right))
                 self._push_left(r_idx, old_node.right)
             else:
-                # 右侧有环，产出当前后终止
-                self._current_node = None
-                return
+                # 右侧有环，记录 repeat_idx (在 _check_safe 内部已完成)
+                # 关键：这里不要设为 None，保持现状，让下面的逻辑从栈中取父节点
+                pass 
         
-        # 3. 确定下一个产出目标
+        # 3. 确定下一个产出目标（可能是刚才转向右树压入的，也可能是更上层的父节点）
         if self._stack:
             self._current_idx, self._current_node = self._stack[-1]
         else:
