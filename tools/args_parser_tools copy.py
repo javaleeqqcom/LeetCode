@@ -586,11 +586,11 @@ class TreeNodeKitBase(KitBase[T_LR]):
         print_bit_map = [None] * print_size   # 索引从 1 开始，列表长度为 max_idx'
 
         for idx in idx_val.keys():
-            if idx <= print_size:
+            if idx < print_size:
                 print_bit_map[idx-1] = str(idx)
             
         for idx,s in repeat_idx_dict.items():
-            if idx <= print_size:
+            if idx < print_size:
                 print_bit_map[idx-1] = s
         
         # 构建用于 binarytree.build 的层序列表

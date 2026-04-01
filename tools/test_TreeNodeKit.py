@@ -324,7 +324,24 @@ def test_cycle_detection():
 
     kit_cross = TreeNodeKit(head)
     val_list = list(filter(bool,val_list))
-    print(kit_cross)
+    print(kit_cross.to_str(full_traversal=True))
+
+    # 2.5 测试 构造交叉环（前面 2.2 中的结构）并尝试访问超出安全长度的索引
+    print("\n2.5 __getitem__ 交叉环测试")
+    
+    val_list = [11,13,17,19,None,23,29]
+    head = List2TreeNode(val_list) # n1,n2,n3,n4,  n6,n7
+    nodes = dict(TreeNodeKit(head).flatten()[0])
+
+    # 构造 n4->n3->n6->n2->n4 的交叉环
+    nodes[4].left = nodes[3] # n4 指向 n3
+    nodes[6].right = nodes[2] # n6 指向 n2
+
+    kit_cross = TreeNodeKit(head)
+    val_list = list(filter(bool,val_list))
+    print(kit_cross.to_str(full_traversal=True))
+
+    exit(0)
 
     # 索引访问（层序遍历）
     for i in range(6):
