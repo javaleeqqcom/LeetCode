@@ -112,15 +112,13 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
         if init_node is not None:
             self._seen[id(init_node)].append(init_idx)
 
-    def _check_safe(self, assigned_idx: int, node: Optional[T]) -> bool:
+    def _check_safe(self, assigned_idx: int, node: T) -> bool:
         """
         核心逻辑：
         1. 发现重复：记录目标节点的原始索引，返回 False（阻止子类入栈/入队该节点）。
         2. 正常：登记并返回 True。
         """
-        if node is None: return False
         nid = id(node)
-        
         if nid in self._seen:
             # 记录被指向的那个“前辈”的第一个索引
             self._repeat_indices.append(self._seen[nid][0])
@@ -377,20 +375,20 @@ class LayeredTraversal(SafeIterBase[T_LR]):
         super().__init__(init_node=root, init_idx=1)
         self._queue = deque()
 
-    def _push_children(self):
-        # 此时 current_node 就是刚刚产出的那个节点
-        if self._current_node is None: return
-        # 探测子节点并尝试登记
-        l_idx = self._current_idx * 2
-        if self._check_safe(l_idx, self._current_node.left):
-            self._queue.append((l_idx, self._current_node.left))
-            
-        if self._check_safe(l_idx + 1, self._current_node.right):
-            self._queue.append((l_idx + 1, self._current_node.right))
+    def _safe_push(self, idx: int, node: Optional[T_LR])->bool:
+        if node and self._check_safe(idx,node):
+            self._queue.append((idx, node))
+            return True
+        return False
 
     def _prepare_next(self):
+        # 此时 current_node 就是刚刚产出的那个节点
+        if self._current_node is None: return
+
         # 1. 先把当前节点的子节点入队
-        self._push_children()
+        l_idx = self._current_idx * 2
+        self._safe_push(l_idx, self._current_node.left)
+        self._safe_push(l_idx+1, self._current_node.right)
 
         # 2. 从队列取下一个
         if not self._queue:
@@ -402,29 +400,34 @@ class LayeredTraversal(SafeIterBase[T_LR]):
         return super()._flatten(self, max_idx)
 
 class HeapRoute(SafeIterBase[T_LR]):
-    """仅防止堆索引路由过程中重复访问祖先节点的错误"""
     def __init__(self, init_node: T_LR, heap_index: int):
         # init_node 是堆索引 1 的節點
-        super().__init__(init_node, 1, early_stop=True)
+        super().__init__(init_node, 1, early_stop=False)
         # 將 '101' 轉為 [False, True] (0=左, 1=右)
         self.route_ops = [op == '1' for op in bin(heap_index)[3:]]
 
     def _prepare_next(self):
+        # 1. 檢查路徑是否已走完
         if not self.route_ops:
             self._current_node = None
             return
 
+        # 2. 獲取下一步的操作指令
         is_right = self.route_ops.pop(0)
         
+        # 4. 取得下一個節點對象
+        # 注意：我們必須在當前節點不為空的情況下才能訪問 .left/.right
         if self._current_node:
             next_idx = self._current_idx * 2 + int(is_right)
             next_node = getattr(self._current_node, 'right' if is_right else 'left', None)
-
+            
             # 恰好是最後一跳到達空節點，允許更新，但如果後面還有指令則會中斷
             if (not next_node) or self._check_safe(next_idx, next_node):
                 self._current_node = next_node
                 self._current_idx = next_idx
-            # early_stop=True 会将 self._current_node = None
+            else:
+                # 發現環路（非法樹），阻斷下探
+                self._current_node = None
 
 class TreeNodeKitBase(KitBase[T_LR]):
     """
@@ -456,54 +459,46 @@ class TreeNodeKitBase(KitBase[T_LR]):
             raise AttributeError("空树节点不能设置 right 属性")
         self._node.right = self.unwrap(value)
 
-    def get_heap(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
+    def get(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
         """
         按從1開始的堆索引獲取節點。
         邏輯：
         - 正常路徑：返回該節點的 Kit 包裝。
         - 路徑中途斷裂：拋出 IndexError("堆索引超出範圍")。
-        - 遇到重複的祖先節點（環）：由 SafeIterBase 攔截並拋出 IndexError。
-        - 注意仅防止堆索引路由过程中重复访问祖先节点的错误，对于树中非祖先路径的重复节点，无法检测到重复节点的错误。
+        - 遇到重複節點（環）：
+            - 第一次重複（第二次見）：視為合法路徑，返回該節點。
+            - 第二次重複（第三次見）：由 SafeIterBase 攔截並拋出 IndexError。
         """
         if heap_index < 1:
             raise IndexError("堆索引不能小於1")
         
-        # 這裡 early_stop 設為 True，保證一撞環就停止
         it = HeapRoute(self._node, heap_index)
-
-        idx,node = 0,None
-        # 遍歷驅動
-        for idx, node in it: pass
-
-        # 優先檢查是否因非法環路終止
-        if it._repeat_indices:
-            # _repeat_indices[0] 記錄的是該重複節點第一次出現的索引
-            raise IndexError(f"非法樹結構：檢測到環路指向索引 {it._repeat_indices[0]}")
-                
-        # 已經到達目標索引（不論 node 是否為 None），直接返回
-        if idx == heap_index:
-            return self.__class__(node)
-        elif it._current_idx == heap_index:
-            return self.__class__(None)
-
-        # 路徑太深，超出範圍（中途斷裂）
-        raise IndexError(f"堆索引 {heap_index} 超出範圍：路徑在索引 {idx} 之後已中斷")
-
-    def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
-        """按层序遍历顺序索引，跳过重复节点和空节点，若超出树的有效节点或形成有向环，则报错"""
-        if index < 0:
-            raise IndexError("索引不能为负数")
-        safe_iter = LayeredTraversal(self._node)
-        node_count = 0
-        for i, (_, node) in enumerate(safe_iter):
-            node_count += 1
-            if i == index:
-                return self.__class__(node)
+        last_idx = 0
+        last_node = None
         
-        # 正常结束，节点总数 = node_count
-        raise IndexError(
-            f"索引 {index} 超出树的无重复节点总数: {node_count}。"
-        )
+        # 遍歷迭代器以驅動路徑查找
+        # 即使 heap_index 為 1，也會執行一次，產出 root
+        for idx, node in it:
+            last_idx = idx
+            last_node = node
+            
+        # 檢查是否真正到達了目標 heap_index
+        if last_idx != heap_index:
+            # 停止时刚好到达目标索引，不报错
+            if it._current_idx == heap_index:
+                return self.__class__(it._current_node)
+            # 如果停止索引不是目標索引，檢查原因
+            if it._repeat_indices:
+                raise IndexError(f"堆索引 {heap_index} 訪問失敗：檢測到環路，重複節點索引為 {it._repeat_indices[0]}")
+            else:
+                raise IndexError(f"堆索引 {heap_index} 超出範圍：路徑在索引 {last_idx} 之後中斷")
+        
+        # 返回 Kit 對象，這裏 last_node 可能是 None（如果 heap_index 指向一個空位）
+        return self.__class__(last_node)
+
+    def __getitem__(self, heap_index: int) -> 'TreeNodeKitBase[T_LR]':
+        """按从1开始的堆索引获取节点，若节点不存在返回 TreeNodeKitBase[None]"""
+        return self.get(heap_index)
     
     def flatten(self,max_depth:int|None = None) -> Tuple[List[Tuple[int, T_LR]], Optional[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 首次出现重复节点的键)。"""
@@ -584,148 +579,89 @@ class TreeNodeKitBase(KitBase[T_LR]):
     
     # ===================== 新增三个遍历迭代器 =====================
 
-class DfsTreeTraversal(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR]):
-        super().__init__(root, 1)
-        # 栈存储 (索引, 节点, 是否已访问子节点)
+class DfsTraversalBase(SafeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR], init_node: Optional[T_LR] = None):
+        # init_node 由子類決定第一個要產出的節點
+        super().__init__(init_node, 1)
         self._stack: List[Tuple[int, T_LR, Any]] = []
 
     def _safe_push(self, idx: int, node: Optional[T_LR], *args):
-        # 反向压栈：先右后左，保证左子在栈顶先被处理
+        """通用壓棧：包含安全檢查"""
         if node and self._check_safe(idx, node):
-            self._stack.append((idx, node, *args)) 
+            self._stack.append((idx, node, *args))
+            return True
+        return False
 
-    ... # 其中共同点代码
+    def _push_lr_reverse(self, idx: int, node: T_LR, *args):
+        """反向壓入左右子節點（先右後左，保證左先出）"""
+        self._safe_push(idx * 2 + 1, getattr(node, 'right', None), *args)
+        self._safe_push(idx * 2, getattr(node, 'left', None), *args)
 
-class PreorderTraversal(SafeIterBase[T_LR]):
+class PreorderTraversal(DfsTraversalBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
-        super().__init__(root, 1) # 初始 current_node 为 None，由 prepare_next 填充
-        self._stack:List[Tuple[int,T_LR]] = []
-        
-        # 2. 初始化时直接把 root 的子节点压栈（因为 root 已经准备好产出了）
+        super().__init__(root, root) # 第一個產出就是 root
         if root:
-            self._push_children(1,root)
-
-    def _push_children(self, node_idx ,node:T_LR):
-        """前序压栈：先右后左，保证左子先出"""
-        left_idx = 2 * node_idx
-
-        # 反向压栈：先右后左，保证左子在栈顶先被处理
-        if self._check_safe(left_idx+1, node.right):
-            self._stack.append((left_idx+1, node.right)) 
-        if self._check_safe(left_idx, node.left):
-            self._stack.append((left_idx, node.left)) 
+            self._push_lr_reverse(1, root)
 
     def _prepare_next(self):
-        """
-        前序逻辑：弹出栈顶作为当前节点，并立即压入其右、左子节点（顺序保证左先被访问）
-        """
         if not self._stack:
             self._current_node = None
-            return
+        else:
+            self._current_idx, self._current_node = self._stack.pop()
+            self._push_lr_reverse(self._current_idx, self._current_node)
 
-        # 1. 取出下一个要产出的节点
-        self._current_idx, self._current_node = self._stack.pop()
-        
-        # 2. 立即把这个新节点的子节点压栈，为下一次迭代做准备
-        self._push_children(self._current_idx, self._current_node)
-
-class InorderTraversal(SafeIterBase[T_LR]):
-    """中序遍历迭代器 (LNR)"""
+class InorderTraversal(DfsTraversalBase[T_LR]):
     def __init__(self, root: Optional[T_LR]):
-        # 初始 current 设为 None，由下探逻辑确定第一个产出节点
-        super().__init__(None, 1)
-        self._stack: List[Tuple[int, T_LR]] = []
-        
+        super().__init__(root, None) # 第一個節點需由下探決定
         if root and self._check_safe(1, root):
             self._stack.append((1, root))
-            self._push_left(1, root)
-            # 栈顶即为最左节点
-            if self._stack:
-                self._current_idx, self._current_node = self._stack[-1]
+            self._push_left_path(1, root)
+            self._set_current_from_stack()
 
-    def _push_left(self, idx: int, node: T_LR):
-        """下探左子树，入栈即登记"""
-        curr = node
-        curr_idx = idx
+    def _push_left_path(self, idx: int, node: T_LR):
+        """持續向左下探並壓棧"""
+        curr, c_idx = node, idx
         while curr.left:
-            curr_idx *= 2
-            if not self._check_safe(curr_idx, curr.left):
-                # 发现环，记录后中断下探
-                break
-            self._stack.append((curr_idx, curr.left))
+            c_idx *= 2
+            if not self._safe_push(c_idx, curr.left): break
             curr = curr.left
 
-    def _prepare_next(self):
-        # 1. 弹出刚刚产出的节点
-        if not self._stack:
-            self._current_node = None
-            return
-        
-        _, old_node = self._stack.pop()
-
-        # 2. 尝试转向右子树
-        if old_node.right:
-            # 右子节点在完全二叉树中的索引
-            r_idx = self._current_idx * 2 + 1
-            if self._check_safe(r_idx, old_node.right):
-                self._stack.append((r_idx, old_node.right))
-                self._push_left(r_idx, old_node.right)
-            else:
-                # 右侧有环，记录 repeat_idx (在 _check_safe 内部已完成)
-                # 关键：这里不要设为 None，保持现状，让下面的逻辑从栈中取父节点
-                pass 
-        
-        # 3. 确定下一个产出目标（可能是刚才转向右树压入的，也可能是更上层的父节点）
+    def _set_current_from_stack(self):
         if self._stack:
-            self._current_idx, self._current_node = self._stack[-1]
+            self._current_idx, self._current_node = self._stack[-1][:2]
         else:
             self._current_node = None
 
-class PostorderTraversal(SafeIterBase[T_LR]):
-    """后序遍历迭代器 (LRN)"""
-    def __init__(self, root: Optional[T_LR]):
-        super().__init__(None, 1)
-        # 栈存储 (索引, 节点, 是否已访问子节点)
-        self._stack: List[Tuple[int, T_LR, bool]] = []
+    def _prepare_next(self):
+        if not self._stack:
+            self._current_node = None
+            return
         
+        _, old_node, *_ = self._stack.pop()
+        # 轉向右子樹
+        r_idx = self._current_idx * 2 + 1
+        if self._safe_push(r_idx, getattr(old_node, 'right', None)):
+            self._push_left_path(r_idx, old_node.right)
+        
+        self._set_current_from_stack()
+
+class PostorderTraversal(DfsTraversalBase[T_LR]):
+    def __init__(self, root: Optional[T_LR]):
+        super().__init__(root, None)
         if root and self._check_safe(1, root):
             self._stack.append((1, root, False))
-            self._current_node = self._find_next_post_node()
-        
-    def _find_next_post_node(self) -> Optional[T_LR]:
-        while self._stack:
-            idx, node, visited = self._stack[-1]
-            
-            if visited:
-                # 已经标记为 True，说明子节点都处理（或尝试处理）过了，弹出并产出
-                self._stack.pop()
-                self._current_idx = idx
-                return node
-            
-            # 1. 标记当前节点为已访问
-            self._stack[-1] = (idx, node, True)
-            
-            # 2. 尝试压入子节点。注意：即便这里 _repeat_idx 已经有值（之前的路径撞过环），
-            # 只要当前的子节点是安全的，就应该压入。
-            
-            # 后序压栈顺序：右、左（保证弹出顺序为左、右）
-            r_node = getattr(node, 'right', None)
-            if r_node:
-                # _check_safe 内部如果撞环会记录 repeat_idx，但我们依然要看左边
-                if self._check_safe(idx * 2 + 1, r_node):
-                    self._stack.append((idx * 2 + 1, r_node, False))
-            
-            l_node = getattr(node, 'left', None)
-            if l_node:
-                if self._check_safe(idx * 2, l_node):
-                    self._stack.append((idx * 2, l_node, False))
-                    
-            # 3. 继续循环。如果刚才压入了 l_node，下一轮会去处理 l_node；
-            # 如果左右都撞环或为空，下一轮会执行上面的 if visited 分支弹出当前节点。
-        return None
-
+            self._prepare_next() # 尋找第一個後序節點
 
     def _prepare_next(self):
-        # 寻找下一个后序产出点
-        self._current_node = self._find_next_post_node()
+        while self._stack:
+            idx, node, visited = self._stack[-1]
+            if visited:
+                self._current_idx, self._current_node, _ = self._stack.pop()
+                return 
+            
+            # 標記為已訪問並壓入子節點
+            self._stack[-1] = (idx, node, True)
+            if self._repeat_indices: continue # 撞環不再下探
+            self._push_lr_reverse(idx, node, False)
+            
+        self._current_node = None

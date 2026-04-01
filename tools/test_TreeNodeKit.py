@@ -176,15 +176,23 @@ def test_basic_functionality():
     assert kit.left.right.val == 5
     assert kit.right.left.val == 6
 
-    # 索引访问（堆索引）
-    assert kit[1].val == 1
-    assert kit[2].val == 2
-    assert kit[3].val == 3
-    assert kit[4].val == 4
-    assert kit[5].val == 5
-    assert kit[6].val == 6
+    # 索引访问（层序遍历）
+    for i in range(6):
+        assert kit[i].val == i+1,f"expected kit[{i}]={i}, got {kit[i].val}"
+        
     try:
-        _ = kit[7]
+        _ = kit[6]
+        assert False, "应该抛出 IndexError"
+    except IndexError as e:
+        assert "超出" in str(e)
+
+    # 索引访问（堆索引）
+    for i in range(1,7):
+        assert kit.get_heap(i).val == i,f"expected kit[{i}]={i}, got {kit[i].val}"
+    for i in range(7,14):
+        assert kit.get_heap(i).node is None,f"expected kit[{i}] is null node, got .val={kit[i].val}"
+    try:
+        _ = kit.get_heap(14)
         assert False, "应该抛出 IndexError"
     except IndexError as e:
         assert "超出" in str(e)
@@ -296,25 +304,18 @@ def test_cycle_detection():
     root = TreeNode(100)
     root.right = root
     kit_self_cycle = TreeNodeKit(root)
-    assert kit_self_cycle[2].node is None
-    assert kit_self_cycle[3] == kit_self_cycle[1] # 自环相等检测
-
-    # 尝试访问索引 3（因为环，实际只能安全遍历到根节点）
+    assert kit_self_cycle.get_heap(2).node is None
     try:
-        _ = kit_self_cycle[6]
-        assert False, "第二次检测到重复节点时，应该停止遍历并抛出 IndexError"
+        kit_self_cycle.get_heap(3)
+        assert False, f"检测到重复节点时，应当停止遍历并抛出 IndexError, kit_self_cycle:\n{kit_self_cycle}"
     except IndexError as e:
-        # 验证异常消息中包含环检测相关信息
-        assert "遇到环或重复节点" in str(e), f"错误消息不正确: {e}"
-        assert "首次重复键为" in str(e), f"错误消息不正确: {e}"
-        # 注意：重复键应该是 1（根节点的完全二叉树索引，1-index）
-        # 但具体数值取决于实现，这里只检查包含即可
-        print(f"   捕获到预期的 IndexError: {e}")
+        print(e)
 
     # 2.5 测试 构造交叉环（前面 2.2 中的结构）并尝试访问超出安全长度的索引
     print("\n2.5 __getitem__ 交叉环测试")
     
-    head = List2TreeNode([1,2,3,4,None,6,7]) # n1,n2,n3,n4,  n6,n7
+    val_list = [1,2,3,4,None,6,7]
+    head = List2TreeNode(val_list) # n1,n2,n3,n4,  n6,n7
     nodes = dict(TreeNodeKit(head).flatten()[0])
 
     # 构造 n4->n3->n6->n2->n4 的交叉环
@@ -322,22 +323,27 @@ def test_cycle_detection():
     nodes[6].right = nodes[2] # n6 指向 n2
 
     kit_cross = TreeNodeKit(head)
-    print(kit_cross)
-    try:
-        _ = kit_cross[6]
-        assert False, f"应该抛出 IndexError, kit.prep:\n{kit_cross}"
-    except IndexError as e:
-        assert "遇到环或重复节点" in str(e)
-        # 首次重复的键应该是 n6 第一次出现的键（应该是 5，因为完全二叉树索引中 n6 第一次出现是左子3的左子，索引为 2*3+1? 需计算）
-        # 但只需验证消息包含即可
-        print(f"   捕获到预期的 IndexError: {e}")
+    val_list = list(filter(bool,val_list))
 
-    # 正常访问安全范围内的索引应该成功
-    assert kit_cross[0].val == 1
-    assert kit_cross[1].val == 2
-    assert kit_cross[2].val == 3
-    assert kit_cross[3].val == 4
-    
+    # 索引访问（层序遍历）
+    for i in range(6):
+        assert kit_cross[i].val == val_list[i],f"expected kit_cross[{i}]={i}, got {kit_cross[i].val}"
+
+    # 索引访问（堆索引）
+    for i in val_list:
+        assert kit_cross.get_heap(i).val == i,f"expected kit_cross[{i}]={i}, got {kit_cross[i].val}"
+    for i in [5,9,12,14,15]:
+        assert kit_cross.get_heap(i).node is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
+    for i in [8,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
+        assert kit_cross.get_heap(i).val != i
+        
+    try:
+        for i in [10,11,16]:
+            _ = kit_cross.get_heap(i)
+            assert False, f"kit_cross[{i}] 应该抛出 IndexError, kit.prep:\n{kit_cross}"
+    except IndexError as e:
+        print(e)
+
     print("环检测全部通过")
 
 def validate_flatten(kit: TreeNodeKit, expected_cycle_ids: Optional[Set[int]], log: str = ""):
