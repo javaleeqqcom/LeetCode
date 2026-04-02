@@ -4,6 +4,7 @@ from itertools import chain
 from binarytree import build
 import json
 import numpy as np
+import cython
 
 __DEBUG__ = True
 
@@ -99,7 +100,15 @@ def _formated_string(val):
     else:
         return str(val)
 
-T = TypeVar('T')
+
+@runtime_checkable
+class HasBoolHash(Protocol):
+    __bool__ :Callable[...,bool] # 能够判断节点是否为空
+    __hash__ :Callable[..., int] # 能够将节点转哈希
+# 定义支持 .next 属性的协议（泛型约束）
+T = TypeVar("T",bound=HasBoolHash)
+
+# T = TypeVar('T')
 class SafeIterBase(Iterator[Tuple[int, T]]):
     def __init__(self, init_node: Optional[T] = None, init_idx: int = 0, early_stop: bool = not __DEBUG__):
         # nid -> 访问过该节点的 idx 列表
