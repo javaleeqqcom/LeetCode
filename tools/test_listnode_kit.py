@@ -1,6 +1,7 @@
 # test_listnode_kit.py
 import random
 from args_parser import ListNode, ListNodeKit , List2ListNode
+from args_parser_tools import ListNodeKitBase,KitBase
 
 def test_listnode_kit():
     """测试 ListNodeKit 的所有功能（基础 + 随机压力）"""
@@ -244,7 +245,7 @@ def test_iter():
     # 迭代应在遇到重复节点 b 时停止，不会输出索引3
     assert collected == [(0, 1), (1, 2), (2, 3)], f"有环链表迭代结果错误: {collected}"
     # 检查 repeat_idx 属性
-    assert it.repeat_idx == 1, f"repeat_idx 应为 1，实际为 {it.repeat_idx}"
+    assert it.repeat_indices == [1], f"repeat_idx 应为 1，实际为 {it.repeat_indices}"
     print("   有环链表迭代（环检测）测试通过")
 
     # 4. 重复值但无环链表（不应触发环检测）
@@ -294,8 +295,20 @@ def test_flatten_methods():
     assert len(nodes) == 5
     print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=None")
 
+    # 1.4 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
+    kit[4].next = kit[0]
+    nodes, stop = kit.flatten(max_len=5)
+    assert stop == 5, f"max_len=5 应返回 stop=5，实际 {stop}"
+
+    assert len(nodes) == 5
+    print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")
+
     # ---------- 类调用方式（将 head 作为第一个参数）----------
     # 2.1 类调用 flatten(head)
+    print(f"type(head)={type(head)}")
+    assert isinstance(head, ListNode)
+
+    
     nodes2, stop2 = ListNodeKit.flatten(head)
     assert stop2 is None
     assert len(nodes2) == 5

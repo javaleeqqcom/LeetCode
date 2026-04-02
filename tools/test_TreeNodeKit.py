@@ -201,7 +201,7 @@ def test_basic_functionality():
     nodes, cycle_idx = kit.flatten()
     node_vals = [node.val for _, node in nodes]
     assert node_vals == [1, 2, 3, 4, 5, 6]
-    assert cycle_idx is None
+    assert not cycle_idx, "无环链表 cycle_idx 应为空"
 
     # 超出深度打印
     print("超出深度打印")
@@ -249,7 +249,7 @@ def test_cycle_detection():
 
 
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
-    assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
+    assert cycle_idx == [1], f"自环起始索引应为1，实际{cycle_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
     assert len(nodes) == 1, kit
     assert nodes[0][1] is root
@@ -280,7 +280,7 @@ def test_cycle_detection():
     # 层序顺序: [1,2,3,4,5,6] 当遍历到 n4 时，n4.right 指向 n5，而 n5 已经出现过（在索引4）
     # 所以环起始索引应该是 n5 首次出现的索引，即 4（0-based）
     print(kit)
-    assert cycle_idx == 6, f"交叉环起始索引应为6，实际{cycle_idx}"
+    assert cycle_idx == [6], f"交叉环起始索引应为6，实际{cycle_idx}"
     print("交叉环检测通过")
 
     # 2.3 多个环（复杂情况）：一个节点同时被多个节点指向
@@ -294,7 +294,7 @@ def test_cycle_detection():
     kit = TreeNodeKit(a)
     nodes, cycle_idx = kit.flatten()
     # 层序：a(0), b(1), c(2) 当 b.left 访问 a 时，a 已经出现（索引0），环起始索引0
-    assert cycle_idx == 1,kit
+    assert cycle_idx[0] == 1,f"cycle_idx={cycle_idx},树：\n{kit}"
     # 注意：当 c.right 访问 b 时，b 也已经出现，但此时环已经被检测到，不会再记录
     print("多环节点检测通过")
 
@@ -381,7 +381,7 @@ def test_duplicate_values():
     n2.left = n3
     kit = TreeNodeKit(n1)
     nodes, cycle_idx = kit.flatten()
-    assert cycle_idx is None
+    assert not cycle_idx 
     assert len(nodes) == 3
     assert nodes[0][1].val == 100
     assert nodes[1][1].val == 100
@@ -443,7 +443,7 @@ def test_random_tree(seed = 42):
         root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
-        idx_nodes_lst, stop_idx = kit.flatten()
+        idx_nodes_lst, stop_idxs = kit.flatten()
         nodes_dict = None
 
         for j in range(100): # 非法链接次数上限                # 索引 -> 节点
@@ -462,7 +462,7 @@ def test_random_tree(seed = 42):
                     cur.right = tail
                     
                 # 获取 kit 的 flatten 结果（自动环检测）
-                idx_nodes_lst, stop_idx = kit.flatten()
+                idx_nodes_lst, stop_idxs = kit.flatten()
                 nodes_dict = dict(idx_nodes_lst)     
 
             # 层序遍历（展平后 val 列表）
@@ -478,10 +478,10 @@ def test_random_tree(seed = 42):
 
             # 验证环起始索引与重复值一致
             if excepted_rep_val is not None:
-                assert stop_idx is not None, "应有环但 flatten 未检测到"
-                assert excepted_rep_val == nodes_dict[stop_idx].val, f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit}"
+                assert stop_idxs, "应有环但 flatten 未检测到"
+                assert excepted_rep_val == nodes_dict[stop_idxs[0]].val, f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit}"
             else:
-                assert stop_idx is None, f"无环但 flatten 报告有环, stop_idx={stop_idx}\n{kit}"
+                assert not stop_idxs, f"无环但 flatten 报告有环, stop_idx={stop_idxs}\n{kit}"
 
             assert level_vals_actual == level_kit, f"层序遍历序列不一致\nstd = {level_vals_actual}\nreal = {level_kit}\n{kit}"
 
