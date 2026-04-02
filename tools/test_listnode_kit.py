@@ -292,9 +292,18 @@ def test_flatten_methods():
     print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=None")
 
     # 1.4 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
-    kit[4].next = kit[0]
+    assert not hasattr(kit[4].next.node, '_node'), f"kit[4].next = kit[0] 操作前正常"
+
+    kit[0].val = 1234
+    kit[0].next = kit[1].node  
+
+    assert not hasattr(kit[2].next.node, '_node'), f"kit[2].next 没有问题"
+
+    kit[4].next = kit[0]  
+    assert not hasattr(kit[4].next.node, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
+
     nodes, stop = kit.flatten(max_len=5)
-    assert stop == 5, f"max_len=5 应返回 stop=5，实际 {stop}"
+    assert stop == 0, f"由于环位置是 0 应返回 stop=5，实际 {stop}"
 
     assert len(nodes) == 5
     print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")

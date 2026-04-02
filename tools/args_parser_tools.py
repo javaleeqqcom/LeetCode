@@ -186,25 +186,33 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
 @runtime_checkable
 class HasNext(Protocol):
     next: Optional[Any]
+
 # 定义支持 .next 属性的协议（泛型约束）
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 
 # 用于 ListNodeKit
 class IterNext(SafeIterBase[T_NEXT]):
-    """安全链表迭代器，继承 SafeIterBase 实现环检测。"""
+    """安全链表迭代器，继承 SafeIterBase 实现环检测，自动解包包装类。"""
     def __init__(self, head: Optional[T_NEXT]):
-        # 索引从 0 开始，由 _prepare_next 实现早停，early_stop 可以为任意值
-        super().__init__(init_node=head, init_idx=0, early_stop = False)
+
+        # 防御性编程：如果 head 是包装类（KitBase 子类），提取其内部原始节点
+        if __DEBUG__ and hasattr(head, '_node'):
+            head = head._node
+
+        super().__init__(init_node=head, init_idx=0, early_stop=False)
 
     def _prepare_next(self) -> None:
-        """移动到下一个节点，并检测环。"""
+        """移动到下一个节点，并自动解包包装类。"""
         if self._current_node is None:
             return
-
         self._current_idx += 1
-        self._current_node = self._current_node.next
+        nxt = self._current_node.next
 
-        # 下一节点非空 且出现重复，则中断
+        # 防御性编程：如果下一个节点是包装类，提取原始节点
+        if __DEBUG__ and hasattr(nxt, '_node'):
+            nxt = nxt._node
+
+        self._current_node = nxt
         if self._current_node and (not self._check_safe(self._current_idx, self._current_node)):
             self._current_node = None
 
@@ -260,21 +268,48 @@ class ListNodeKitBase(KitBase[T_NEXT]):
     """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
     @property
     def next(self)->'ListNodeKitBase[T_NEXT]':
-        if self.node is None:
+        node = object.__getattribute__(self,"_node")
+        if node is None:
             raise AttributeError(f"空链表不能使用 next 属性")
+        
+        if __DEBUG__:
+            assert hasattr(node,"val")
+            assert node.val != 1234, "ListNodeKitBase.property 被触发"
+
         # 关键：返回当前类的实例，保持装饰器效果延续
-        return self.__class__(self.node.next)
+        return self.__class__(node.next)
     
+    @next.getter
+    def next(self)->'ListNodeKitBase[T_NEXT]':
+        node = object.__getattribute__(self,"_node")
+        if node is None:
+            raise AttributeError(f"空链表不能使用 next 属性")
+        
+        if __DEBUG__:
+            assert hasattr(node,"val")
+            assert node.val != 1234, "next.getter 被触发"
+
+        # 关键：返回当前类的实例，保持装饰器效果延续
+        return self.__class__(node.next)
+
     @next.setter
     def next(self, value: 'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> None:
         """
         显式定义 setter，支持 kit.next = node 或 kit.next = other_kit
         """
-        if self.node is None:
+        node = object.__getattribute__(self,"_node")
+        if node is None:
             raise AttributeError("Can't set attribute on None (empty ListNodeKitBase)")
         
         # 如果赋值的是包装类，提取其内部节点
-        self.node.next = self.unwrap(value)
+        value = KitBase.unwrap(value)
+        assert not hasattr(value, "_node"), "Can't set attribute as wrapped Node"
+
+        if __DEBUG__ :
+            assert hasattr(value,"val")
+            assert value.val != 1234, "test_flatten_methods 的 1.4 赋值调用了 ListNodeKitBase.next.setter"
+
+        node.next = value
 
     # 使ListNodeKit可以像列表一样索引
     def __getitem__(self, index: int) -> 'ListNodeKitBase[T_NEXT]':
@@ -286,6 +321,11 @@ class ListNodeKitBase(KitBase[T_NEXT]):
                 cur = cur.next
             else:
                 raise IndexError("Index out of range")
+            
+        # 防御：如果 cur 是原始节点（意外状态），重新包装
+        if __DEBUG__ and not isinstance(cur, KitBase):
+            cur = self.__class__(cur)
+
         return cur
     
     def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: Optional[int] = None) -> Tuple[List[T_NEXT], int | None]:
@@ -308,24 +348,26 @@ class ListNodeKitBase(KitBase[T_NEXT]):
                 - 正常结束 → None
         """
         node =  ListNodeKitBase.unwrap(self)
-        it = IterNext[T_NEXT](node)
 
         if __DEBUG__:
-            print(f"type(it)={type(it)}")
+            assert not hasattr(node,"_node"), "节点被二次包装（double wrap）"
 
-        items, stop_idx = SafeIterBase._flatten(it,None if max_len is None else max_len-1)
+        it = IterNext[T_NEXT](node)
+
+        items, stop_idx = SafeIterBase._flatten(it, None if max_len is None else max_len-1)
         if __DEBUG__:
             assert len(stop_idx)<=1
         return [node for idx, node in items], stop_idx[0] if stop_idx else None
 
     def __iter__(self):
         """返回安全链表迭代器"""
-        return IterNext[T_NEXT](self.node)
+        return IterNext[T_NEXT](KitBase.unwrap(self))
     
     @classmethod
     def _to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = 10**5) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
-        nodes, stop_index = ListNodeKitBase[T_NEXT].flatten(head,max_len = max_len)        
+        # 注意要用 unwrap 去包装节点
+        nodes, stop_index = ListNodeKitBase[T_NEXT].flatten( KitBase.unwrap(head) ,max_len = max_len)       
 
         str_lst = []
         
