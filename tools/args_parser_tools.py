@@ -100,12 +100,10 @@ def _formated_string(val):
     else:
         return str(val)
 
-
 # 定义支持 .next 属性的协议（泛型约束）
 T = TypeVar("T")
 class SafeIterBase(Iterator[Tuple[int, T]]):
     def __init__(self, init_node: Optional[T] = None, init_idx: int = 0, early_stop: bool = not __DEBUG__):
-        # nid -> 访问过该节点的 idx 列表
         self._seen: Dict[int, int] = {}   # nid -> 首次出现时的 assigned_idx
         # 记录所有导致冲突的【原始节点索引】
         self._repeat_indices = defaultdict(list) # 首次出现时的 assigned_idx -> [重复访问时的 assigned_idx 列表]
@@ -191,26 +189,24 @@ class HasNext(Protocol):
 # 定义支持 .next 属性的协议（泛型约束）
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 
-# 待修订，用于 ListNodeKit
-class IterNext(Generic[T_NEXT]):
-    """迭代器，用于遍历链表（通过 next 属性获取下一个节点）"""
+# 用于 ListNodeKit
+class IterNext(SafeIterBase[T_NEXT]):
+    """安全链表迭代器，继承 SafeIterBase 实现环检测。"""
     def __init__(self, head: Optional[T_NEXT]):
-        """初始化迭代器，从指定节点开始"""
-        self.link = head
-        self.idx = 0
-    
-    def __next__(self) -> Tuple[int,T_NEXT]:
-        """返回当前节点并移动到下一个节点"""
-        if not self.link:
-            raise StopIteration
-        node = self.link
-        self.link = node.next  # 移动到下一个节点
-        self.idx += 1
-        return (self.idx - 1,node)
-    
-    def __iter__(self) -> 'IterNext':
-        """返回自身，使对象可迭代"""
-        return self
+        # 索引从 0 开始，由 _prepare_next 实现早停，early_stop 可以为任意值
+        super().__init__(init_node=head, init_idx=0, early_stop = False)
+
+    def _prepare_next(self) -> None:
+        """移动到下一个节点，并检测环。"""
+        if self._current_node is None:
+            return
+
+        self._current_idx += 1
+        self._current_node = self._current_node.next
+
+        # 下一节点非空 且出现重复，则中断
+        if self._current_node and (not self._check_safe(self._current_idx, self._current_node)):
+            self._current_node = None
 
 T_Node = TypeVar('T_Node', bound=Optional[Any]) # NodeType 必须包含 None 的情况
 class KitBase(Generic[T_Node]): # 泛型
@@ -270,7 +266,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
         return self.__class__(self.node.next)
     
     @next.setter
-    def next(self, value: 'ListNodeKitBase[T_NEXT]|T_NEXT') -> None:
+    def next(self, value: 'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> None:
         """
         显式定义 setter，支持 kit.next = node 或 kit.next = other_kit
         """
@@ -311,15 +307,20 @@ class ListNodeKitBase(KitBase[T_NEXT]):
                 - 达到 max_len → max_len
                 - 正常结束 → None
         """
-        node = self.node if isinstance(self, ListNodeKitBase) else self
+        node =  ListNodeKitBase.unwrap(self)
         it = IterNext[T_NEXT](node)
-        Node_List, stop_index = SafeIter.flatten(it, max_idx=max_len)
-        return [node for idx, node in Node_List], stop_index
+
+        if __DEBUG__:
+            print(f"type(it)={type(it)}")
+
+        items, stop_idx = SafeIterBase._flatten(it,None if max_len is None else max_len-1)
+        if __DEBUG__:
+            assert len(stop_idx)<=1
+        return [node for idx, node in items], stop_idx[0] if stop_idx else None
 
     def __iter__(self):
-        """调用 SafeIter 安全地遍历，遍历完毕或在链表环节点前停止"""
-        it = IterNext[T_NEXT](self.node)  # 👈 从原始节点开始
-        return SafeIter(it)
+        """返回安全链表迭代器"""
+        return IterNext[T_NEXT](self.node)
     
     @classmethod
     def _to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = 10**5) -> str:

@@ -89,11 +89,6 @@ def test_listnode_kit():
     print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
     print(f"   kit_by_val.node.val: {kit_by_val.node.val}")  # 5
     
-    # ---------- 5. 随机压力测试（新增）----------
-    print("\n5. 随机压力测试（1000 轮，最大节点数 200）")
-    random.seed(42)  # 可复现
-    test_random_lists()
-    print("   随机压力测试通过")
     
     print("\n所有测试完成！")
 
@@ -212,6 +207,7 @@ def test_duplicate_values_no_cycle():
 
 def test_iter():
     """测试 ListNodeKit 的 __iter__ 方法（安全迭代）"""
+    print("\n5.========== 测试 __iter__ 方法 ==========")
     from args_parser import List2ListNode
 
     # 1. 空链表迭代
@@ -261,7 +257,7 @@ def test_iter():
 
 def test_flatten_methods():
     """专门测试 flatten 方法的调用方式和 stop_index 的所有可能值"""
-    print("\n========== 测试 flatten 方法 ==========")
+    print("\n6.========== 测试 flatten 方法 ==========")
 
     # ---------- 准备无环链表 ----------
     # 1 -> 2 -> 3 -> 4 -> 5
@@ -374,3 +370,9 @@ if __name__ == "__main__":
     test_iter()
     # 新增 flatten 专项测试
     test_flatten_methods()
+
+    # ---------- 5. 随机压力测试（新增）----------
+    print("\n7. 随机压力测试（1000 轮，最大节点数 200）")
+    random.seed(42)  # 可复现
+    test_random_lists()
+    print("   随机压力测试通过")
