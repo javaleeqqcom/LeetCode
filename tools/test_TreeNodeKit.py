@@ -190,7 +190,7 @@ def test_basic_functionality():
     for i in range(1,7):
         assert kit.get_heap(i).val == i,f"expected kit[{i}]={i}, got {kit[i].val}"
     for i in range(7,14):
-        assert kit.get_heap(i).node is None,f"expected kit[{i}] is null node, got .val={kit[i].val}"
+        assert kit.get_heap(i)._node is None,f"expected kit[{i}] is null node, got .val={kit[i].val}"
     try:
         _ = kit.get_heap(14)
         assert False, "应该抛出 IndexError"
@@ -304,7 +304,7 @@ def test_cycle_detection():
     root = TreeNode(100)
     root.right = root
     kit_self_cycle = TreeNodeKit(root)
-    assert kit_self_cycle.get_heap(2).node is None
+    assert kit_self_cycle.get_heap(2)._node is None
     try:
         kit_self_cycle.get_heap(3)
         assert False, f"检测到重复节点时，应当停止遍历并抛出 IndexError, kit_self_cycle:\n{kit_self_cycle}"
@@ -334,7 +334,7 @@ def test_cycle_detection():
     for i in val_list:
         assert kit_cross.get_heap(i).val == i,f"expected kit_cross[{i}]={i}, got {kit_cross[i].val}"
     for i in [5,9,12,14,15]:
-        assert kit_cross.get_heap(i).node is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
+        assert kit_cross.get_heap(i)._node is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
     for i in [8,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
         assert kit_cross.get_heap(i).val != i
         
@@ -401,7 +401,7 @@ def test_setters_and_unwrap():
 
     # 通过包装类设置 left
     kit_a.left = kit_b
-    assert a.left.node is b, f"a.left<{type(a.left.node)}>={a.left.val} != b.val<{type(b)}>={b.val}"
+    assert a.left is b, f"a.left<{type(a.left)}>.val={a.left.val} != b.val<{type(b)}>={b.val}"
 
     # 通过原始节点设置
     kit_a.right = b
@@ -443,7 +443,7 @@ def test_random_tree(seed = 42):
         root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
-        idx_nodes_lst, stop_idxs = kit.flatten()
+        idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
         nodes_dict = None
 
         for j in range(100): # 非法链接次数上限                # 索引 -> 节点
@@ -462,7 +462,7 @@ def test_random_tree(seed = 42):
                     cur.right = tail
                     
                 # 获取 kit 的 flatten 结果（自动环检测）
-                idx_nodes_lst, stop_idxs = kit.flatten()
+                idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
                 nodes_dict = dict(idx_nodes_lst)     
 
             # 层序遍历（展平后 val 列表）

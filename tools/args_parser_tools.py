@@ -1,12 +1,13 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable ,cast
 from collections import deque,defaultdict
 from itertools import chain
+from typing_extensions import Self
 from binarytree import build
 import json
 import numpy as np
 import cython
 
-__DEBUG__ = True
+__DEBUG__ = False
 
 def _is_base_type(sig_type) -> bool:
     """
@@ -223,31 +224,8 @@ class KitBase(Generic[T_Node]): # 泛型
     def __init__(self, node: Optional[T_Node]):
         object.__setattr__(self, '_node', node)
 
-    @property
-    def node(self) -> T_Node:
-        return object.__getattribute__(self, '_node')
-
-    @node.setter
-    def node(self, value: T_Node) -> None:
-        object.__setattr__(self, '_node', value)
-
     def __bool__(self) -> bool:
-        return self.node is not None
-
-    def __getattr__(self, name: str) -> T_Node:
-        if name == '_node':
-            return object.__getattribute__(self, name)
-        if self.node is None:
-            raise AttributeError(f"Empty node has no attribute '{name}'")
-        return getattr(self.node, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == '_node':
-            object.__setattr__(self, name, value)
-        else:
-            if self.node is None:
-                raise AttributeError(f"Can't set attribute '{name}' on empty node")
-            setattr(self.node, name, value)
+        return self._node is not None
 
     @classmethod
     def unwrap(cls: type['KitBase[T_Node]'], other: 'KitBase[T_Node] | T_Node | None') -> T_Node | None:
@@ -261,8 +239,35 @@ class KitBase(Generic[T_Node]): # 泛型
             return cast(T_Node, other._node)
         return other
         
+    def __getattr__(self, name: str) -> T_Node:
+        node = object.__getattribute__(self, '_node')
+        if name in ['_node']:
+            return node
+        
+        if __DEBUG__: print(f"KitBase.__getattr__({name})")
+
+        if node is None:
+            raise AttributeError(f"Empty node has no attribute '{name}'")
+        return getattr(node, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        value = KitBase.unwrap(value) # 关键：若 value 是 KitBase 包装对象，必须用 KitBase.unwrap(value) 解包
+        if name == '_node':
+            object.__setattr__(self,'_node',value)
+        else: # 其余属性视为给 self.node 赋值
+
+            if __DEBUG__: print(f"KitBase.__setattr__({name})")
+
+            node = object.__getattribute__(self, '_node')
+            if node is None:
+                raise AttributeError(f"Can't set attribute '{name}' on empty node")
+            setattr(node, name, value)
+
     def __eq__(self, other: Any) -> bool:
-        return id(self.node) == id(self.unwrap(other))
+        return id(self._node) == id(self.unwrap(other))
+    
+    def __ne__(self, other: Any) -> bool:
+        return id(self._node) != id(self.unwrap(other))
 
 class ListNodeKitBase(KitBase[T_NEXT]):
     """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
@@ -274,43 +279,15 @@ class ListNodeKitBase(KitBase[T_NEXT]):
         
         if __DEBUG__:
             assert hasattr(node,"val")
-            assert node.val != 1234, "ListNodeKitBase.property 被触发"
+            print(f"调用了 ListNodeKitBase.next , .val={self.val}")
 
         # 关键：返回当前类的实例，保持装饰器效果延续
         return self.__class__(node.next)
     
-    @next.getter
-    def next(self)->'ListNodeKitBase[T_NEXT]':
-        node = object.__getattribute__(self,"_node")
-        if node is None:
-            raise AttributeError(f"空链表不能使用 next 属性")
-        
-        if __DEBUG__:
-            assert hasattr(node,"val")
-            assert node.val != 1234, "next.getter 被触发"
-
-        # 关键：返回当前类的实例，保持装饰器效果延续
-        return self.__class__(node.next)
-
     @next.setter
     def next(self, value: 'ListNodeKitBase[T_NEXT]|T_NEXT|None') -> None:
-        """
-        显式定义 setter，支持 kit.next = node 或 kit.next = other_kit
-        """
-        node = object.__getattribute__(self,"_node")
-        if node is None:
-            raise AttributeError("Can't set attribute on None (empty ListNodeKitBase)")
+        raise NotImplementedError("ListNodeKitBase.next.setter 本该仅用于声明，但却被调用了")
         
-        # 如果赋值的是包装类，提取其内部节点
-        value = KitBase.unwrap(value)
-        assert not hasattr(value, "_node"), "Can't set attribute as wrapped Node"
-
-        if __DEBUG__ :
-            assert hasattr(value,"val")
-            assert value.val != 1234, "test_flatten_methods 的 1.4 赋值调用了 ListNodeKitBase.next.setter"
-
-        node.next = value
-
     # 使ListNodeKit可以像列表一样索引
     def __getitem__(self, index: int) -> 'ListNodeKitBase[T_NEXT]':
         if index < 0:
@@ -419,7 +396,7 @@ class HasLR(Protocol):
 T_LR = TypeVar("T_LR",bound=HasLR)
 
 class LayeredTraversal(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], early_stop: bool = not __DEBUG__):
+    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
         super().__init__(init_node=root, init_idx=1, early_stop=early_stop)
         self._queue = deque()
 
@@ -473,7 +450,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
     """
     @property
     def left(self) -> 'TreeNodeKitBase[T_LR]':
-        if self.node is None:
+        if self._node is None:
             raise AttributeError("空树节点不能使用 left 属性")
         return self.__class__(self._node.left)
 
@@ -481,7 +458,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
     def left(self, value: 'TreeNodeKitBase[T_LR] | T_LR | None'):
         if self._node is None:
             raise AttributeError("空树节点不能设置 left 属性")
-        self.node.left = self.unwrap(value)   # 使用 unwrap 简化
+        self._node.left = self.unwrap(value)   # 使用 unwrap 简化
 
     @property
     def right(self) -> 'TreeNodeKitBase[T_LR]':
@@ -532,7 +509,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
         """按层序遍历顺序索引，跳过重复节点和空节点，若超出树的有效节点或形成有向环，则报错"""
         if index < 0:
             raise IndexError("索引不能为负数")
-        safe_iter = LayeredTraversal(self._node)
+        safe_iter = LayeredTraversal(self._node,early_stop=False)
         node_count = 0
         for i, (_, node) in enumerate(safe_iter):
             node_count += 1
@@ -544,10 +521,10 @@ class TreeNodeKitBase(KitBase[T_LR]):
             f"索引 {index} 超出树的无重复节点总数: {node_count}。"
         )
     
-    def flatten(self,max_depth:int|None = None) -> Tuple[List[Tuple[int, T_LR]], List[int]]:
+    def flatten(self,max_depth:int|None = None ,early_stop:bool=False) -> Tuple[List[Tuple[int, T_LR]], List[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 重复节点的索引列表)。"""
         limit = None if max_depth is None else (2 ** (max_depth + 1))
-        it = LayeredTraversal(self._node) 
+        it = LayeredTraversal(self._node,early_stop) 
         return SafeIterBase._flatten(it,limit)
 
     def layer_iter(self) -> SafeIterBase[T_LR]:

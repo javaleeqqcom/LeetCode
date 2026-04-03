@@ -2,6 +2,7 @@
 import random
 from args_parser import ListNode, ListNodeKit , List2ListNode
 from args_parser_tools import ListNodeKitBase,KitBase
+__MIX_TEST__ = False
 
 def test_listnode_kit():
     """测试 ListNodeKit 的所有功能（基础 + 随机压力）"""
@@ -36,7 +37,7 @@ def test_listnode_kit():
     print(f"   kit.next.next.val: {kit.next.next.val}")  # 3
     
     # 2.2 node 属性（原生节点）
-    print(f"   kit.node is n1: {kit.node is n1}")    # True
+    print(f"   kit.node is n1: {kit._node is n1}")    # True
     
     # 2.3 索引访问
     print(f"   kit[0].val: {kit[0].val}")            # 1
@@ -87,7 +88,7 @@ def test_listnode_kit():
     print("\n4. 使用 val 参数构造")
     kit_by_val = ListNodeKit(val=5)
     print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
-    print(f"   kit_by_val.node.val: {kit_by_val.node.val}")  # 5
+    print(f"   kit_by_val.node.val: {kit_by_val._node.val}")  # 5
     
     
     print("\n所有测试完成！")
@@ -161,12 +162,12 @@ def test_random_lists():
             for _ in range(5):
                 idx = random.randint(0, node_count - 1)
                 node_kit = kit[idx]
-                assert node_kit.node is not None
+                assert node_kit._node is not None
                 # 检查索引访问的值是否与直接遍历一致
                 cur = head
                 for _ in range(idx):
                     cur = cur.next
-                assert node_kit.node.val == cur.val
+                assert node_kit._node.val == cur.val
             # 测试超出长度的索引
             try:
                 _ = kit[node_count]
@@ -291,23 +292,6 @@ def test_flatten_methods():
     assert len(nodes) == 5
     print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=None")
 
-    # 1.4 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
-    assert not hasattr(kit[4].next.node, '_node'), f"kit[4].next = kit[0] 操作前正常"
-
-    kit[0].val = 1234
-    kit[0].next = kit[1].node  
-
-    assert not hasattr(kit[2].next.node, '_node'), f"kit[2].next 没有问题"
-
-    kit[4].next = kit[0]  
-    assert not hasattr(kit[4].next.node, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
-
-    nodes, stop = kit.flatten(max_len=5)
-    assert stop == 0, f"由于环位置是 0 应返回 stop=5，实际 {stop}"
-
-    assert len(nodes) == 5
-    print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")
-
     # ---------- 类调用方式（将 head 作为第一个参数）----------
     # 2.1 类调用 flatten(head)
     print(f"type(head)={type(head)}")
@@ -327,6 +311,23 @@ def test_flatten_methods():
     assert len(nodes2) == 3
     print("✓ 类调用 ListNodeKit.flatten(head, max_len=3) 提前终止")
 
+    # 2.3 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
+    assert not hasattr(kit[4].next._node, '_node'), f"kit[4].next = kit[0] 操作前正常"
+
+    kit[0].val = 1234
+    kit[0].next = kit[1]._node  
+
+    assert not hasattr(kit[2].next._node, '_node'), f"kit[2].next 没有问题"
+
+    kit[4].next = kit[0]  
+    assert not hasattr(kit[4].next._node, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
+
+    nodes, stop = kit.flatten(max_len=5)
+    assert stop == 0, f"由于环位置是 0 应返回 stop=5，实际 {stop}"
+
+    assert len(nodes) == 5
+    print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")
+
     # ---------- 有环链表 ----------
     # 构造环：1 -> 2 -> 3 -> 4 -> 5 -> 3  (环起始节点为 3，索引为 2)
     # 注意：环起始索引基于 flatten 返回的列表顺序，从 0 开始计数
@@ -342,6 +343,11 @@ def test_flatten_methods():
     n5.next = n3   # 形成环，环起点是 n3 (val=3)
     cycle_head = n1
     cycle_kit = ListNodeKit(cycle_head)
+
+    if __MIX_TEST__:
+        n5.next = cycle_kit[1]   # 非法赋值，将 ListNodeKit 强行赋给 ListNode，检查是否死循环
+        nodes, stop = cycle_kit.flatten(max_len=100)
+        assert stop == 1, f"max_len=100 应检测到环起始索引 1，实际 {stop}, 说明混用 ListNodeKit 和 ListNode 将导致环检测失效。"
 
     # 3.1 实例调用 flatten()，检测到环
     nodes, stop = cycle_kit.flatten()
@@ -359,18 +365,47 @@ def test_flatten_methods():
     # 3.3 实例调用 flatten(max_len=5)，max_len 大于环起始索引，触发环检测
     nodes, stop = cycle_kit.flatten(max_len=5)
     assert stop == 2, f"max_len=5 仍应检测到环起始索引 2，实际 {stop}"
-    # 收集的节点数可能超过 max_len? 注意 SafeIter.flatten 在 max_len 边界处理：
-    # 当 idx >= max_len 时立即返回已收集的 items，stop = max_len；但如果有环且环起始索引 < max_len，
-    # 则会在迭代过程中因重复而停止，此时 stop = 重复索引，且可能收集的节点数 > max_len？不会，
-    # 因为一旦检测到重复就停止，且重复索引一定小于 max_len（因为环起始索引 < max_len 才会触发），
-    # 收集的节点数 = 环起始索引 + 环内节点数，可能超过 max_len？实际上不会超过，因为环起始索引 < max_len，
-    # 但环内节点可能很多，但收集时会包括环内所有节点直到重复节点被再次遇到，数量可能超过 max_len。
-    # 我们这里不严格断言长度，只断言 stop 正确即可。
     print("✓ 有环链表 flatten(max_len=5) 仍正确检测环")
 
     print("========== flatten 方法测试全部通过 ==========\n")
 
+def temp():
+    n1 = ListNode(17)
+    n2 = ListNode(31)
+    kit1 = ListNodeKitBase(n1)
+    kit2 = ListNodeKitBase(n2)
+    print(1)
+    print(f"kit1.val = {kit1.val}")
+    print(2)
+    kit1.next = kit2
+    print(3)
+    assert not hasattr(kit1.next._node , "_node"),"kit1合法赋值"
+    print(4)
+    kit1.next = kit2._node
+    print(5)
+    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值"
+    print(6)
+    kit2.next = kit1.next
+    print(7)
+    assert not hasattr(kit2.next._node , "_node"),"kit2非法赋值1"
+    print(8)
+    kit1.next._node = kit2._node
+    print(9)
+    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值3"
+    print(10)
+    print(f"kit1.val = {kit1.val}")
+    print(11)
+    print(f"kit2.val = {kit2.val}")
+    print(12)
+    kit1._node.next = kit2
+    print(13)
+    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值4"
+    print(14)
+
 if __name__ == "__main__":
+    # temp()
+    # exit(0)
+
     # 先运行原有基础测试
     test_listnode_kit()
     # 额外运行重复值测试（避免被随机测试掩盖）

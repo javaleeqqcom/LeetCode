@@ -12,8 +12,8 @@ def custom_caller(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     assert ListNodeKit(None)._node is None , "ListNodeKit(None)._node is None"
     assert False == bool(ListNodeKit(None)), "False == bool(ListNodeKit(None))"
     a = ListNodeKit(val=2)
-    assert a.node.val == 2,"a.node.val"
-    assert a.node.next,"a.node.next"
+    assert a.raw_node.val == 2,"a.node.val"
+    assert a.raw_node.next,"a.node.next"
 
     # 空链表
     if not head_list:

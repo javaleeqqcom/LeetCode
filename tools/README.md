@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.5.14
+- 版本：0.5.15
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -290,36 +290,36 @@ results = optimized.run(cases, log_suffix="_optimized")
 
 ## 🔮 下一步计划
 
-- ~~args_parser.py 中的自定义类方法有死循环的风险，必须完善。如链表成环、树有环等，需增加环路检测。~~ ✅ **已完成**
-   - 已通过 `test_listnode_kit` 和 `test_TreeNodeKit` 测试
-   - 已实现 `SafeIter` 统一安全迭代器，替代原有 `SafeFlatten`
-   - 已提取 `KitBase` 基类，消除 `ListNodeKitBase` 与 `TreeNodeKitBase` 的重复代码
-- ~~增强树的可视化打印~~✅ **已完成**
-   - 已实现 直观的二叉树打印方法
-1. **SafeIterBase**
-   - 实现是否早停选项 early_stop，若非早停，则记录全部重复节点，便于调试和分析
-   - 当 early_stop 为 True 时，检测到任何重复节点时即终止遍历，不管遍历类的栈或队列是否还有元素；
-   - 当 early_stop 为 False 时，也能防止死循环（要求继承类合理调用安全检查下），检测到重复节点时记录同时阻止根据重复节点而后继的行为。
-   - _seen 成员变量改为 {node:[历次访问时的 idx，...]}，通过遍历 _seen 可以得到所有指向重复节点的索引，即可还原如树结构的非法路径
-   - repeat_idx 改为数组，记录所有重复节点（当非早停时至多只能有1个元素）
-   - 将来可以用 Cython 优化性能，唯一需要依赖 python 结构的就只有求 id(node) 吧
-2. **统一安全迭代器接口**
+1. **SafeIterBase**能否将修改意见改为：
+   - 集成 __getitem__ 方法，以便能够自动获取指定索引的节点值，甚至可以做成带缓存的版本，如每 100 个节点缓存一次值，以减少对节点的访问次数。注意 __getitem__ 返回的
+   - 将 KitBase 定义在 SafeIterBase 前面，设置调试模式时取  id(node) 改为 id(KitBase.unwrap(node))，（不继承KitBase，而只用其类方法 unwrap）
+如果可行请生成修改过的函数或类的代码
+2. 树结构迭代器提取公共类 **TreeIterBase**
+   - 将 LayeredTraversal、HeapRoute、PreorderTraversal、... 的公共代码抽象为 TreeIterBase 类（替代其中夭折的 DfsTreeTraversal），继承 SafeIterBase，减少重复代码
+   - TreeIterBase.flatten(max_depth) 调用 SafeIterBase的 _flatten
+   - TreeIterBase._stack_or_queue （可能需要换一个合适的名字）
+   - TreeIterBase._push_safe 调用，反正 deque 和 list 都有 append 方法:
+```
+if node and self._check_safe(idx, node):
+   self._stack.append((idx, node, *args)) 
+```
+1. **统一安全迭代器接口**
    - 为 `ListNodeKit` 和 `TreeNodeKit` 增加 `safe_iter()` 方法，返回 `SafeIter` 实例，支持手动安全遍历
    - 树的安全迭代先实现层序遍历（`LayeredTraversal` 包装），后续可扩展前序/中序/后序
-3. **优化链表的索引访问**
+2. **优化链表的索引访问**
    - 当链表存在环时，`__getitem__` 可通过取余运算实现任意大索引的 O(环长度) 复杂度访问（类似循环链表）
    - 仅当链表无环且索引超出实际节点数时才抛出 `IndexError`
-4. **自动向AI提问**（维持原计划）
+3. **自动向AI提问**（维持原计划）
    - 注意：提问的范围仅限于测试学生的代码是否正确
    - 用于自动生成测试样例代码
    - 智能地区分单一魔术方法，和多魔术方法等不同情况
    - 若设置的AI-agent，则自动提问测试样例生成代码；若未设置则仅生成 token 提示词，由学生复制后手动向AI提问
-5. **极小化预定义代码**（维持原计划）
+4. **极小化预定义代码**（维持原计划）
    - 智能检测用户代码所需的特殊类型定义，筛选其中实际用到的特殊类型代码，减少 pre_code 代码量
-6. **更智能的调度策略**（维持原计划）
+5. **更智能的调度策略**（维持原计划）
    - 优化等比递减分割器，使各线程负载更加均衡
    - 改进早停机制，减少多线程环境下的滞后现象
-7. **VS Code 插件集成**（维持原计划）
+6. **VS Code 插件集成**（维持原计划）
    - 一键运行当前题目测试，结果直接显示在编辑器侧边栏
 
 ---
