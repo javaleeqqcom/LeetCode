@@ -412,18 +412,21 @@ class TreeIterBase(SafeIterBase[T_LR]):
         super().__init__(root, 1, early_stop)
 
         self._use_queue = use_queue
-        self._container: Deque|List = deque() if use_queue else []
+        self._container: List|Deque = deque() if use_queue else []
         self._pop = self._container.popleft if use_queue else self._container.pop
 
-    # ==================== 容器统一 ====================
-    def _push(self, item):
-        self._container.append(item)
-
+    def _push(self, idx: int, node: Optional[T_LR], *extra)->bool:
+        node = KitBase.unwrap(node)
+        if node:
+            self._container.append((idx, node, *extra))
+            return True
+        return False
+    
     # ==================== 安全 push ====================
     def _push_safe(self, idx: int, node: Optional[T_LR], *extra)->bool:
         node = KitBase.unwrap(node)
         if node and self._check_safe(idx, node):
-            self._push((idx, node, *extra))
+            self._container.append((idx, node, *extra))
             return True
         return False
 
@@ -654,16 +657,19 @@ class PreorderTraversal(TreeIterBase[T_LR]):
             self._push_children(1, root)
 
     def _push_children(self, idx, node):
-        self._push_safe(idx * 2 + 1, node.right)
-        self._push_safe(idx * 2, node.left)
+        self._push(idx * 2 + 1, node.right)
+        self._push(idx * 2, node.left)
 
     def _prepare_next(self):
-        if self._container:
-            self._current_idx, self._current_node, *_ = self._pop()
-            self._push_children(self._current_idx, self._current_node)
-        else:
-            self._current_node = None
-       
+        while self._container:
+            if self._check_safe(*self._container[-1][:2]):
+                self._current_idx, self._current_node,*_ = self._pop()
+                self._push_children(self._current_idx, self._current_node)
+                return
+            else:
+                self._pop()
+        self._current_node = None
+
 class InorderTraversal(TreeIterBase[T_LR]):
     """中序遍历迭代器 (LNR)，继承 TreeIterBase 使用栈容器。"""
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
@@ -703,7 +709,8 @@ class PostorderTraversal(TreeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
         super().__init__(None, use_queue=False, early_stop=early_stop)
 
-        if self._push_safe(1, root, False): # 自带检查 root is not None
+        if root:
+            self._container.append((1, root, False))
             # 找到第一个后序节点
             self._current_node = self._find_next_post_node()
 
@@ -715,16 +722,21 @@ class PostorderTraversal(TreeIterBase[T_LR]):
                 self._container.pop()
                 self._current_idx = idx
                 return node
-            # 标记为已访问
-            self._container[-1] = (idx, node, True)
+            elif self._check_safe(idx, node): # 未访问，需要检查合法性
+                # 标记为已访问
+                self._container[-1] = (idx, node, True)
 
-            l_idx = idx * 2
-            # 压入右子节点（先右后左，保证左先出栈）
-            right = getattr(node, 'right', None)
-            self._push_safe(l_idx + 1, right, False)
-            # 再压入左子节点
-            left = getattr(node, 'left', None)
-            self._push_safe(l_idx, left, False)
+                l_idx = idx * 2
+                # 压入右子节点（先右后左，保证左先出栈）
+                right = getattr(node, 'right', None)
+                if right:
+                    self._container.append((l_idx + 1, right, False))
+                # 再压入左子节点
+                left = getattr(node, 'left', None)
+                if left:
+                    self._container.append((l_idx, left, False))
+            else:
+                self._container.pop()
 
         return None
 

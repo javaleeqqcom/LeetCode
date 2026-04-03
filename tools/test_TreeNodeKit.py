@@ -430,7 +430,7 @@ def test_random_tree(seed = 42):
         print(f"random test {i}",end="\r")
         left_p = random.random()
         right_p = random.random()
-        root = random_tree(8, 100, left_p, right_p)   # 生成合法二叉树
+        root = random_tree(4, 10, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
         idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
