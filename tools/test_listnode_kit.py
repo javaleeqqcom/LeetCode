@@ -312,7 +312,8 @@ def test_flatten_methods():
     print("✓ 类调用 ListNodeKit.flatten(head, max_len=3) 提前终止")
 
     # 2.3 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
-    assert not hasattr(kit[4].next._node, '_node'), f"kit[4].next = kit[0] 操作前正常"
+    print(type(kit[4]))
+    assert kit[4] and not hasattr(kit[4].next._node, '_node'), f"kit[4].next = kit[0] 操作前正常"
 
     kit[0].val = 1234
     kit[0].next = kit[1]._node  

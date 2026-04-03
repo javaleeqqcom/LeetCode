@@ -291,10 +291,9 @@ results = optimized.run(cases, log_suffix="_optimized")
 ## 🔮 下一步计划
 
 1. **SafeIterBase**能否将修改意见改为：
-   - 集成 __getitem__ 方法，以便能够自动获取指定索引的节点值，甚至可以做成带缓存的版本，如每 100 个节点缓存一次值，以减少对节点的访问次数。注意 __getitem__ 返回的
    - 将 KitBase 定义在 SafeIterBase 前面，设置调试模式时取  id(node) 改为 id(KitBase.unwrap(node))，（不继承KitBase，而只用其类方法 unwrap）
 如果可行请生成修改过的函数或类的代码
-2. 树结构迭代器提取公共类 **TreeIterBase**
+1. 树结构迭代器提取公共类 **TreeIterBase**
    - 将 LayeredTraversal、HeapRoute、PreorderTraversal、... 的公共代码抽象为 TreeIterBase 类（替代其中夭折的 DfsTreeTraversal），继承 SafeIterBase，减少重复代码
    - TreeIterBase.flatten(max_depth) 调用 SafeIterBase的 _flatten
    - TreeIterBase._stack_or_queue （可能需要换一个合适的名字）

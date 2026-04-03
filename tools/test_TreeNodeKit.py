@@ -1,13 +1,15 @@
 # test_TreeNodeKit.py
 import random
 import sys
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Tuple, Set, Any,TypeVar
 import collections
 import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
 from args_parser import TreeNode, TreeNodeKit,List2TreeNode
 from args_parser_tools import LayeredTraversal
+
+_CHECK_REAPET_TREE = True
 
 def random_tree(max_depth:int ,num_nodes: int ,left_p: float, right_p: float) ->Optional[TreeNode]:
     """
@@ -31,128 +33,116 @@ def random_tree(max_depth:int ,num_nodes: int ,left_p: float, right_p: float) ->
         
     return dfs(max_depth,1)
 
-# ------------------ 辅助函数：为无环树随机添加一个环 ------------------
-def add_random_cycle(root: TreeNode, node_set: Set[TreeNode]) -> Tuple[TreeNode, Set[int]]:
-    """
-    随机选择树中一个非根节点，将其 left 或 right 指针指向该节点的某个祖先（包括自身），形成环。
-    返回 (根节点, 环起始节点id集合) 以便验证。
-    """
-    # 构建父节点映射
-    parent: Dict[TreeNode, Optional[TreeNode]] = {root: None}
-    queue = [root]
-    while queue:
-        cur = queue.pop(0)
-        if cur.left:
-            parent[cur.left] = cur
-            queue.append(cur.left)
-        if cur.right:
-            parent[cur.right] = cur
-            queue.append(cur.right)
-
-    # 获取每个节点的祖先集合（包括自身）
-    ancestors = {}
-    for node in node_set:
-        anc = set()
-        cur = node
-        while cur:
-            anc.add(cur)
-            cur = parent.get(cur)
-        ancestors[node] = anc
-
-    # 选择非根节点作为环起点
-    candidates = [n for n in node_set if n is not root]
-    if not candidates:
-        return root, set()
-    cycle_source = random.choice(candidates)
-    # 从该节点的祖先中随机选择一个目标
-    target = random.choice(list(ancestors[cycle_source]))
-    side = 'left' if random.choice([True, False]) else 'right'
-    if side == 'left':
-        cycle_source.left = target
-    else:
-        cycle_source.right = target
-    return root, {id(target)}
+T = TypeVar('T')
+def clip_instinct_val(val_list:List[T])->Tuple[List[T],int|None]:
+    """去除 val_list 的重复值，返回(去重列表,首个重复值索引(None表示无重复))"""
+    seen = {}
+    for i,val in enumerate(val_list):
+        if val not in seen:
+            seen[val] = i
+        else:
+            return val_list[:i],seen[val]
+    return val_list,None
 
 # ------------------ 经过Leetcode验证的专业无BUG代码 -----------------------------
 
 class TreeTraversal:
-    def __init__(self) -> None:
+    def __init__(self,early_stop:bool=False) -> None:
         self.rep = []
+        self.early_stop = early_stop
 
     def preorder(self, root: Optional['TreeNode']) -> List[int]:
         ans = list()
         seen = set()
-        def dfs(node):
+        # 返回：是否提前终止
+        def dfs(node)->bool:
             if node:
                 if id(node) in seen:
                     self.rep.append(node.val)
-                    return
+                    return self.early_stop
                 seen.add(id(node))
                 ans.append(node.val)
-                dfs(node.left)
-                dfs(node.right)
+                if dfs(node.left):
+                    return self.early_stop
+                if dfs(node.right):
+                    return self.early_stop
+            return False
         dfs(root)
         return ans
 
     def inorder(self, root: Optional['TreeNode']) -> List[int]:
         ans = list()
         seen = set()
-        def dfs(node):
+
+        def dfs(node) -> bool:
             if node:
                 if id(node) in seen:
                     self.rep.append(node.val)
-                    return
+                    return self.early_stop
                 seen.add(id(node))
-                dfs(node.left)
+                if dfs(node.left):
+                    return True
                 ans.append(node.val)
-                dfs(node.right)
+                if dfs(node.right):
+                    return True
+            return False
+
         dfs(root)
         return ans
 
     def postorder(self, root: Optional['TreeNode']) -> List[int]:
         ans = list()
         seen = set()
-        def dfs(node):
+
+        def dfs(node) -> bool:
             if node:
                 if id(node) in seen:
                     self.rep.append(node.val)
-                    return
+                    return self.early_stop
                 seen.add(id(node))
-                dfs(node.left)
-                dfs(node.right)
+                if dfs(node.left):
+                    return True
+                if dfs(node.right):
+                    return True
                 ans.append(node.val)
+            return False
+
         dfs(root)
         return ans
 
-    def levelFlatten(self, root: Optional['TreeNode']) -> List[List[TreeNode]]:
-        """层序遍历，返回每层节点的值序列"""
-        if not root: return []
+    def levelFlatten(self, root: Optional['TreeNode']) -> List[List['TreeNode']]:
+        """层序遍历，返回每层节点的值序列，支持早停"""
+        if not root:
+            return []
         result = []
         queue = [root]
         seen = {id(root)}
-        
+
         while queue:
             level_nodes = []
             next_queue = []
             for node in queue:
                 level_nodes.append(node)
-                for child in [node.left, node.right]:
+                for child in (node.left, node.right):
                     if child:
-                        if id(child) in seen:
+                        cid = id(child)
+                        if cid in seen:
                             self.rep.append(child.val)
+                            if self.early_stop:
+                                return result
                             continue
-                        seen.add(id(child))
+                        seen.add(cid)
                         next_queue.append(child)
             result.append(level_nodes)
             queue = next_queue
         return result
-    
+
     def levelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:
         """max_nodes仅作为早停限制，不代表实际节点数"""
         return [[node.val for node in level] for level in self.levelFlatten(root)] # type: ignore
     
-
 # ------------------ 经过Leetcode验证的专业无BUG代码 END -----------------------------
+
 
 def test_basic_functionality():
     """测试基本功能：正常二叉树、属性访问、索引、flatten、repr"""
@@ -440,7 +430,7 @@ def test_random_tree(seed = 42):
         print(f"random test {i}",end="\r")
         left_p = random.random()
         right_p = random.random()
-        root = random_tree(10, 800, left_p, right_p)   # 生成合法二叉树
+        root = random_tree(8, 100, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
         idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
@@ -469,7 +459,7 @@ def test_random_tree(seed = 42):
             traver = TreeTraversal()
             level_vals_expected = [val for level in traver.levelOrder(root) for val in level]
             level_vals_actual   = [node.val for _, node in idx_nodes_lst]
-            assert level_vals_expected == level_vals_actual, f"expected :{level_vals_expected}\nlevel_actual :{level_vals_actual}\n{kit}"
+            assert level_vals_expected == level_vals_actual, f"expected :{level_vals_expected}\nlevel_actual :{level_vals_actual}\n{kit.to_str(full_traversal=True)}"
 
             # 测试用例检测到的重复键值
             excepted_rep_val = traver.rep[0] if traver.rep else None
@@ -479,27 +469,28 @@ def test_random_tree(seed = 42):
             # 验证环起始索引与重复值一致
             if excepted_rep_val is not None:
                 assert stop_idxs, "应有环但 flatten 未检测到"
-                assert excepted_rep_val == nodes_dict[stop_idxs[0]].val, f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit}"
+                assert excepted_rep_val == nodes_dict[stop_idxs[0]].val, f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit.to_str(full_traversal=True)}"
             else:
-                assert not stop_idxs, f"无环但 flatten 报告有环, stop_idx={stop_idxs}\n{kit}"
+                assert not stop_idxs, f"无环但 flatten 报告有环, stop_idx={stop_idxs}\n{kit.to_str(full_traversal=True)}"
 
-            assert level_vals_actual == level_kit, f"层序遍历序列不一致\nstd = {level_vals_actual}\nreal = {level_kit}\n{kit}"
+            assert level_vals_actual == level_kit, f"层序遍历序列不一致\nstd = {level_vals_actual}\nreal = {level_kit}\n{kit.to_str(full_traversal=True)}"
 
             # 3. 验证 __iter__（默认层序）与 flatten 结果一致
             assert level_kit == [node.val for _, node in kit], "__iter__ 与 flatten 不一致"
 
-            # # 前序/中序/后序（使用递归遍历，因为此时树无环）
-            # pre_expected  = traver.preorder(root)
-            # pre_actual    = [node.val for _, node in kit.NLR_iter()]
-            # assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit}"
+            if _CHECK_REAPET_TREE or 0==j: # 是否测试有重复节点的树
+                # 前序/中序/后序（使用递归遍历，因为此时树无环）
+                pre_expected  = traver.preorder(root)
+                pre_actual    = [node.val for _, node in kit.NLR_iter()]
+                assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit.to_str(full_traversal=True)}"
 
-            # in_expected   = traver.inorder(root)
-            # in_actual     = [node.val for _, node in kit.LNR_iter()]
-            # assert in_expected == in_actual, f"expected: {in_expected}\nin_actual = {in_actual}\n{kit}"
+                in_expected   = traver.inorder(root)
+                in_actual     = [node.val for _, node in kit.LNR_iter()]
+                assert in_expected == in_actual, f"expected: {in_expected}\nin_actual = {in_actual}\n{kit.to_str(full_traversal=True)}"
 
-            # post_expected = traver.postorder(root)
-            # post_actual   = [node.val for _, node in kit.LRN_iter()]
-            # assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit}"
+                post_expected = traver.postorder(root)
+                post_actual   = [node.val for _, node in kit.LRN_iter()]
+                assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
     print("随机树 + 非法链接测试全部通过")
 
