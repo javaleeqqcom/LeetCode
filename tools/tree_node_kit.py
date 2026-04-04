@@ -105,9 +105,9 @@ class TreeIter(SafeIterBase[T_LR]):
         """默认实现：适用于栈容器（DFS）的通用迭代逻辑"""
         while self._container:
             # 弹出栈顶元素，检查是否已安全
-            idx, node, *checked = self._pop() # 若为 2 个元素，checked=[]；若为 3 个元素，checked=[True] 或 checked=[False]
-            if checked and checked[0]: # 检查过已安全，设置为当前节点
-                self._current_idx, self._current_node = idx, node
+            idx, node, checked = self._pop()
+            if checked: # 检查过已安全，设置为当前节点
+                self._update_current(idx, node)
                 return
             elif self._check_safe(idx, node): # 未检查过，则进行查重
                 for op_fun in self._operation_funs:
