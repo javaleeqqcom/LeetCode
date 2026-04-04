@@ -6,7 +6,6 @@ import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
 from args_parser import TreeNode, TreeNodeKit,List2TreeNode
-from tree_node_kit import LayeredTraversal
 
 _CHECK_REAPET_TREE = True
 _CHECK_EARLY = True
@@ -168,7 +167,7 @@ def test_basic_functionality():
 
     # 索引访问（层序遍历）
     for i in range(6):
-        assert kit[i].val == i+1,f"expected kit[{i}]={i}, got {kit[i].val}"
+        assert kit[i].val == i+1,f"expected kit[{i}]={i+1}, got {kit[i].val}"
         
     try:
         _ = kit[6]
@@ -229,11 +228,11 @@ def test_cycle_detection():
     kit = TreeNodeKit(root)
     nodes, cycle_idx = kit.flatten()
     if cycle_idx != 1:
-        it = LayeredTraversal(root)
+        it = kit.layer_iter()
         try:
             while True:
                 idx,node = next(it)
-                print(f"val={node.val}, idx={idx} , queue.len = {len(it._queue)}")
+                print(f"val={node.val}, idx={idx} , queue.len = {len(it._container)}")
         except:
             print(f"it.seen={it._seen}")
 

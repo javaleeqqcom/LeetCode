@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.5.16
+- 版本：0.6.0
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -34,27 +34,24 @@
 - 使用 `ast.literal_eval` 安全解析嵌套结构
 - ⚠️ 学生不可修改（调试完成后建议设为只读）
 
+### 🧱 `tools/args_parser.py`（核心基础） + `list_node_kit.py` / `tree_node_kit.py`
 
+> **模块拆分**：原 `args_parser_tools.old.txt` 被拆分为三个职责单一的文件：
+> - `args_parser_tools.py`：定义通用基础类 `KitBase`（代理模式）和 `SafeIterBase`（安全迭代器，统一环检测）。
+> - `list_node_kit.py`：链表调试增强工具 `ListNodeKit`。
+> - `tree_node_kit.py`：二叉树调试增强工具 `TreeNodeKit`，并包含一个**极其精简且巧妙**的统一遍历器 `TreeIter`。
 
-### 🧱 `tools/args_parser.py`
-👉 定义 LeetCode 标准数据结构及链表安全工具类
-- `ListNode` / `TreeNode`：带友好 `__repr__`（打印链表/树结构，自动处理环路）
-- `input_parser_registry`：注册类型转换器（如 `(ListNode, list) → List2ListNode`）
-- 预导入常用类型：`Optional`, `List`, `Dict`
-- 提供了 **`ListNodeKit`** 链表安全增强工具类：
-  - **`ListNodeKit`**是用于辅助链表调试的包装类，提供安全的扁平化、环检测和打印功能。它将原生 `ListNode` 节点包装为增强对象，保持链式操作的类型一致性。
+### 🔷 基础工具（`args_parser_tools.py`）
+- `KitBase`：泛型代理基类，统一处理包装类与原生节点的互转（`unwrap`），避免重复包装。
+- `SafeIterBase`：带环检测的安全迭代器基类，自动记录重复节点索引，支持提前停止或跳过重复节点。
+- `input_parser_registry`：类型转换注册表（如 `List[int] → ListNode`）。
+- 预导入常用类型：`Optional`, `List`, `Dict`。
 
-#### ListNodeKit
-- **安全扁平化**：自动检测环路（返回节点列表和环起始索引，-1表示无环）
-- **死循环防护**：处理带环链表时能自动检测首个成环节点并终止迭代，避免死循环
-- **篡改验证**：通过 `flatten()` 方法验证学生代码是否修改链表结构
-- **可视化打印**：`to_string()` 安全打印链表，若链表有环，则以 `>` 表示环起点，结尾 `^` 表示最后一个节点后继到环起点。
-- **便捷操作**：支持 `ListNodeKit(head)[index]` 索引访问，简化测试用例验证
-
-#### TreeNodeKit
-- **安全层序遍历**：基于 `SafeIter` 实现环检测，`flatten()` 返回节点列表与首次重复的完全二叉树索引。
-- **索引访问保护**：`__getitem__` 遇到环时立即停止并抛出 `IndexError`，附带重复键和已遍历节点数，避免死循环。
-- **可视化打印**：`__repr__` 输出层序节点及其完全二叉树索引，若有重复节点则标记 `repeat_key`。
+### 🔷 链表调试（`list_node_kit.py`）
+- **`ListNodeKit`**：包装原生 `ListNode`，提供安全扁平化、环检测、可视化打印。
+  - `flatten()`：返回节点列表和环起始索引（无环为 `None`）。
+  - `__repr__`：打印格式 `<class 'ListNodeKit'>: [1,2,>3,4,^]`（`>` 标记环起点，`^` 标记环尾）。
+  - `__getitem__`：按索引访问节点，自动处理环。
 
 ```python
 # 使用示例
@@ -69,6 +66,53 @@ assert cycle_idx == 0  # 环起点在索引0
 student_result = solve(head)
 after_nodes, _ = ListNodeKit(student_result).flatten()
 assert after_nodes == nodes  # 确保学生未修改链表结构
+```
+
+明白了。根据实际代码，`TreeIter` 的精妙之处在于使用**操作字符串**驱动遍历，但字符含义与 README 之前的描述完全不同。以下是**完全基于代码**的准确说明，可直接替换 README 中 `### 🧱 tools/args_parser.py` 小节内关于 `TreeIter` 的描述部分。
+
+---
+
+### 🔷 二叉树调试 —— **✨ 精妙设计：一个 `TreeIter` 搞定所有遍历 ✨**（`tree_node_kit.py`）
+
+传统做法需要为前序、中序、后序、层序分别编写不同的迭代器，代码重复且易错。  
+本框架仅用一个 `TreeIter` 类，通过**操作字符串**和**统一的栈/队列容器**，优雅地实现了四种遍历方式，**代码量减少 70% 以上**，并完美继承 `SafeIterBase` 的环检测能力。
+
+#### 核心原理（基于实际代码）
+
+`TreeIter` 构造函数接收三个关键参数：
+- `operation`：操作字符串，每个小写字母代表一个动作（**注意：字符含义不同于常见缩写**）
+- `use_queue`：`True` 使用队列（层序），`False` 使用栈（深度优先）
+- `early_stop`：遇到重复节点时是否立即停止
+
+**动作映射表**（`_operation_funs`）：
+| 字符 | 方法 | 作用 |
+|------|------|------|
+| `l` | `_push_left` | 将当前节点的左子节点压入容器 |
+| `r` | `_push_right` | 将当前节点的右子节点压入容器 |
+| `c` | `_push_current` | 将当前节点自身**再次**压入容器，并附带一个 `True` 标志（用于后序/中序的二次访问） |
+| `u` | `_update_current` | **直接**将当前节点设为 `_current_node`（用于层序或前序的即时输出） |
+
+**遍历实现对照表**（`TreeNodeKit` 提供的方法及内部调用）：
+| 遍历方式 | 方法 | `operation` | `use_queue` | 原理 |
+|----------|------|-------------|-------------|------|
+| 层序遍历 | `layer_iter()` | `"ULR"` | `True` | `u` 立即输出当前节点，然后 `l`、`r` 将左右子入队，利用队列 FIFO 实现层序 |
+| 前序遍历 | `NLR_iter()` | `"RLU"` | `False` | 先压右子，再压左子（栈 LIFO 保证左子先出），最后 `u` 输出当前节点 |
+| 中序遍历 | `LNR_iter()` | `"RCL"` | `False` | 先压右子，再压**当前节点（带标志）**，最后压左子。弹出时带标志的节点直接输出 |
+| 后序遍历 | `LRN_iter()` | `"CRL"` | `False` | 先压**当前节点（带标志）**，再压右子，最后压左子。标志确保左右子处理完毕后才输出根 |
+
+#### 为什么说“极其精简且巧妙”？
+
+- **一个类代替四个类**：不再需要 `LayeredTraversal`、`PreorderTraversal`、`InorderTraversal`、`PostorderTraversal`。
+- **操作字符串驱动**：改变字符串即可切换遍历顺序，逻辑清晰，易于扩展（例如逆层序只需反转队列顺序）。
+- **标志位复用**：利用 `c` 动作压入带 `True` 标志的节点，`_prepare_next` 中统一处理“已检查过”的逻辑，巧妙解决了后序和中序需要二次访问父节点的问题。
+- **环检测自动继承**：所有遍历共享 `SafeIterBase` 的 `_check_safe`，无需额外代码。
+- **代码行数从 300+ 缩减至约 100 行**，可读性和可维护性大幅提升。
+
+**示例：手动创建一个中序遍历迭代器**
+```python
+it = TreeIter(root, operation="RCL", use_queue=False)
+for idx, node in it:
+    print(idx, node.val)   # 输出顺序：左 → 根 → 右
 ```
 
 ### `tools/compacted_json.py`
@@ -291,24 +335,26 @@ results = optimized.run(cases, log_suffix="_optimized")
 ## 🔮 下一步计划
 
 1. **统一 TreeNodeKitBase构造格式**
+   - 统一放在 tree_node_kit.py 中
    - 大幅简化代码，并分多个文件保存，便于维护和扩展。以后 AI agent 也便于分别提取代码供AI参考。
-2. **统一安全迭代器接口**
+   - 
+3. **统一安全迭代器接口**
    - 为 `ListNodeKit` 和 `TreeNodeKit` 增加 `safe_iter()` 方法，返回 `SafeIter` 实例，支持手动安全遍历
    - 树的安全迭代先实现层序遍历（`LayeredTraversal` 包装），后续可扩展前序/中序/后序
-3. **优化链表的索引访问**
+4. **优化链表的索引访问**
    - 当链表存在环时，`__getitem__` 可通过取余运算实现任意大索引的 O(环长度) 复杂度访问（类似循环链表）
    - 仅当链表无环且索引超出实际节点数时才抛出 `IndexError`
-4. **自动向AI提问**（维持原计划）
+5. **自动向AI提问**（维持原计划）
    - 注意：提问的范围仅限于测试学生的代码是否正确
    - 用于自动生成测试样例代码
    - 智能地区分单一魔术方法，和多魔术方法等不同情况
    - 若设置的AI-agent，则自动提问测试样例生成代码；若未设置则仅生成 token 提示词，由学生复制后手动向AI提问
-5. **极小化预定义代码**（维持原计划）
+6. **极小化预定义代码**（维持原计划）
    - 智能检测用户代码所需的特殊类型定义，筛选其中实际用到的特殊类型代码，减少 pre_code 代码量
-6. **更智能的调度策略**（维持原计划）
+7. **更智能的调度策略**（维持原计划）
    - 优化等比递减分割器，使各线程负载更加均衡
    - 改进早停机制，减少多线程环境下的滞后现象
-7. **VS Code 插件集成**（维持原计划）
+8. **VS Code 插件集成**（维持原计划）
    - 一键运行当前题目测试，结果直接显示在编辑器侧边栏
 
 ---

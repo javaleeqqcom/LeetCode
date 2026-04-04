@@ -49,13 +49,27 @@ class HeapRoute(SafeIterBase[T_LR]):
             raise IndexError("空树不能使用堆索引")
         return self.__class__(self._current_node, self._heap_index)
 
-class TreeIterBase(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], use_queue: bool, early_stop: bool = False):
+class TreeIter(SafeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR], operation:str, use_queue: bool,  early_stop: bool = False):
         root = KitBase.unwrap(root)
         super().__init__(None, 1, early_stop)
-        self._container = deque() if use_queue else list()
-        self._pop = self._container.popleft if use_queue else self._container.pop
+        _operation_funs = {
+            "l": self._push_left,
+            "r": self._push_right,
+            "c": self._push_current,
+            "u": self._update_current
+        }
+        self._operation = operation
+        self._operation_funs:Tuple[Callable[[int,T_LR],None],...] = tuple(_operation_funs[c] for c in operation.lower())
+        self._instant_updates = "u" in operation.lower()
         
+        if use_queue:
+            self._container = deque()
+            self._pop = self._container.popleft
+        else:
+            self._container = list()
+            self._pop = self._container.pop
+
         if self._push(1, root, False):
             self._prepare_next()
 
@@ -65,7 +79,19 @@ class TreeIterBase(SafeIterBase[T_LR]):
             self._container.append((idx, node, *extra))
             return True
         return False
+    
+    def _push_left(self, idx: int, node: T_LR)->None:
+        self._push(2*idx, node.left, False)
+    
+    def _push_right(self, idx: int, node: T_LR)->None:
+        self._push(2*idx +1, node.right, False)
+    
+    def _push_current(self, idx: int, node: T_LR) ->None:
+        self._push(idx, node, True)
 
+    def _update_current(self, idx: int, node: T_LR) ->None:
+        self._current_idx, self._current_node = idx, node
+        
     def _push_successor(self, idx: int, node: T_LR) -> bool:
         """
         将当前节点（已通过安全检查）的后继节点压入容器。
@@ -84,7 +110,9 @@ class TreeIterBase(SafeIterBase[T_LR]):
                 self._current_idx, self._current_node = idx, node
                 return
             elif self._check_safe(idx, node): # 未检查过，则进行查重
-                if self._push_successor(idx, node):
+                for op_fun in self._operation_funs:
+                    op_fun(idx,node)
+                if self._instant_updates:
                     return # 已经更新 _current_node，马上返回
             elif self._early_stop: # 不安全（重复）节点，若早停则跳出循环，按无后继处理
                 break
@@ -97,77 +125,13 @@ class TreeIterBase(SafeIterBase[T_LR]):
 
     def _clone_from_start(self):
         # 调用 init（root, 是否为队列，是否早停）
-        return self.__class__(self._current_node, early_stop=self._early_stop)
+        return self.__class__(
+            self._current_node, 
+            self._operation, 
+            isinstance(self._container, deque),
+            early_stop=self._early_stop
+            )
 
-class LayeredTraversal(TreeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, use_queue=True, early_stop=early_stop)
-
-    def _prepare_next(self):
-        while self._container:
-            idx, node, *_ = self._pop()
-            if self._check_safe(idx,node):
-                self._current_idx, self._current_node = idx,node
-
-                l_idx = self._current_idx * 2
-
-                self._push(l_idx, self._current_node.left)
-                self._push(l_idx + 1, self._current_node.right)
-                return
-            elif self._early_stop: break
-        self._current_node = None
-
-class LayeredTraversal_ERR(TreeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, True, early_stop=early_stop)
-
-    def _push_successor(self,idx,node)->bool:
-        l_idx = idx * 2
-        # 队列按正序入队，先赋值当前节点，再push左右子节点
-        self._current_idx, self._current_node = idx, node
-        self._push(l_idx, node.left)
-        self._push(l_idx + 1, node.right)
-        return True
-
-class PreorderTraversal(TreeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, False, early_stop=early_stop)
-
-    def _push_successor(self,idx,node)->bool:
-        l_idx = idx * 2
-        # 压栈顺序：右、左、自身（已检查）
-        self._push(l_idx + 1, node.right, False)
-        self._push(l_idx, node.left, False)
-        self._current_idx, self._current_node = idx, node
-        return True
-    
-class InorderTraversal(TreeIterBase[T_LR]):
-    """中序遍历 (LNR)"""
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, False, early_stop=early_stop)
-
-    def _push_successor(self, idx: int, node: T_LR) -> bool:
-        l_idx = idx * 2
-        # 压栈顺序：右、自身（已检查）、左
-        self._push(l_idx + 1, node.right, False)
-        self._push(idx, node, True)
-        self._push(l_idx, node.left, False)
-        return False
-
-
-class PostorderTraversal(TreeIterBase[T_LR]):
-    """后序遍历 (LRN)"""
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, False, early_stop=early_stop)
-
-    def _push_successor(self, idx: int, node: T_LR) -> bool:
-        l_idx = idx * 2
-        # 压栈顺序：自身（已检查）、右、左
-        self._push(idx, node, True)
-        self._push(l_idx + 1, node.right, False)
-        self._push(l_idx, node.left, False)
-        return False
-    
 class TreeNodeKitBase(KitBase[T_LR]):
     """
     二叉树调试增强工具基类，使用代理模式。
@@ -215,30 +179,30 @@ class TreeNodeKitBase(KitBase[T_LR]):
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
         """按层序遍历顺序索引，跳过重复节点和空节点，若超出树的有效节点，则报错"""
-        it = LayeredTraversal(self._node, early_stop=False)
+        it = TreeIter(self._node, "ULR", True, early_stop=False)
         return self.__class__(it[index])
     
     def flatten(self,max_depth:int|None = None ,early_stop:bool=False) -> Tuple[List[Tuple[int, T_LR]], List[int]]:
         """层序遍历树，返回 (<完全二叉树索引键，节点>列表, 重复节点的索引列表)。"""
         limit = None if max_depth is None else (2 ** (max_depth + 1))
-        it = LayeredTraversal(self._node,early_stop) 
+        it = TreeIter(self._node, "ULR", True, early_stop=early_stop)
         return SafeIterBase._flatten(it,limit)
 
-    def layer_iter(self,early_stop:bool=False) -> SafeIterBase[T_LR]:
+    def layer_iter(self,early_stop:bool=False) -> TreeIter[T_LR]:
         """调用 SafeIter 安全地层序遍历，遍历完毕或出现重复节点时停止"""
-        return LayeredTraversal[T_LR](self._node,early_stop=early_stop)
+        return TreeIter(self._node, "ULR", True, early_stop=early_stop)
     
-    def NLR_iter(self, early_stop:bool=False) -> SafeIterBase[T_LR]:
+    def NLR_iter(self, early_stop:bool=False) -> TreeIter[T_LR]:
         """前序遍历迭代器 (NLR)"""
-        return PreorderTraversal[T_LR](self._node,early_stop=early_stop)
+        return TreeIter(self._node, "RLU", False, early_stop=early_stop)
 
-    def LNR_iter(self, early_stop:bool=False) -> SafeIterBase[T_LR]:
+    def LNR_iter(self, early_stop:bool=False) -> TreeIter[T_LR]:
         """中序遍历迭代器 (LNR)"""
-        return InorderTraversal[T_LR](self._node,early_stop=early_stop)
+        return TreeIter(self._node, "RCL", False, early_stop=early_stop)
 
-    def LRN_iter(self, early_stop:bool=False) -> SafeIterBase[T_LR]:
+    def LRN_iter(self, early_stop:bool=False) -> TreeIter[T_LR]:
         """后序遍历迭代器 (LRN)"""
-        return PostorderTraversal[T_LR](self._node,early_stop=early_stop)
+        return TreeIter(self._node, "CRL", False, early_stop=early_stop)
     
     def __iter__(self):
         """默认返回层序遍历迭代器"""
@@ -266,7 +230,7 @@ class TreeNodeKitBase(KitBase[T_LR]):
             return "<class 'TreeNodeKit'>: empty"
 
         # 根据 full_traversal 决定 early_stop 行为
-        it = LayeredTraversal[T_LR](node, early_stop = not full_traversal)
+        it = TreeIter(node, "ULR", True, early_stop = not full_traversal)
         max_index = 2 ** max_depth
 
         # 收集所有可达节点和索引
