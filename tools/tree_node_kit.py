@@ -85,7 +85,7 @@ class TreeIterBase(SafeIterBase[T_LR]):
                 return
             elif self._check_safe(idx, node): # 未检查过，则进行查重
                 if self._push_successor(idx, node):
-                    break # 当前节点通过查重，可压入后继
+                    return # 已经更新 _current_node，马上返回
             elif self._early_stop: # 不安全（重复）节点，若早停则跳出循环，按无后继处理
                 break
         # 无后继
@@ -117,7 +117,6 @@ class LayeredTraversal(TreeIterBase[T_LR]):
             elif self._early_stop: break
         self._current_node = None
 
-
 class LayeredTraversal_ERR(TreeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
         super().__init__(root, True, early_stop=early_stop)
@@ -139,10 +138,9 @@ class PreorderTraversal(TreeIterBase[T_LR]):
         # 压栈顺序：右、左、自身（已检查）
         self._push(l_idx + 1, node.right, False)
         self._push(l_idx, node.left, False)
-        self._push(idx, node, True)
-        return False
+        self._current_idx, self._current_node = idx, node
+        return True
     
-
 class InorderTraversal(TreeIterBase[T_LR]):
     """中序遍历 (LNR)"""
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
