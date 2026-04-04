@@ -17,60 +17,6 @@ class HasLR(Protocol):
 # 定义支持 .left , .right 属性的协议（泛型约束）
 T_LR = TypeVar("T_LR",bound=HasLR)
 
-class TreeIterBase(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], use_queue: bool = False, early_stop: bool = False):
-        root = KitBase.unwrap(root)
-
-        super().__init__(root, 1, early_stop)
-
-        self._use_queue = use_queue
-        self._container: List|Deque = deque() if use_queue else []
-        self._pop = self._container.popleft if use_queue else self._container.pop
-
-    def _push(self, idx: int, node: Optional[T_LR], *extra)->bool:
-        node = KitBase.unwrap(node)
-        if node:
-            self._container.append((idx, node, *extra))
-            return True
-        return False
-    
-    # ==================== 安全 push ====================
-    def _push_safe(self, idx: int, node: Optional[T_LR], *extra)->bool:
-        node = KitBase.unwrap(node)
-        if node and self._check_safe(idx, node):
-            self._container.append((idx, node, *extra))
-            return True
-        return False
-
-    # ==================== flatten ====================
-    def flatten(self, max_depth: Optional[int] = None):
-        limit = None if max_depth is None else (2 ** (max_depth + 1))
-        return SafeIterBase._flatten(self, limit)
-
-    def _clone_from_start(self):
-        return self.__class__(self._current_node, early_stop=self._early_stop)
-    
-class LayeredTraversal(TreeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(None, use_queue=True, early_stop=early_stop)
-        if root:
-            self._container.append((1, root))
-            self._prepare_next()
-
-    def _prepare_next(self):
-        while self._container:
-            idx, node, *_ = self._pop()
-            if self._check_safe(idx,node):
-                self._current_idx, self._current_node = idx,node
-
-                l_idx = self._current_idx * 2
-
-                self._push(l_idx, self._current_node.left)
-                self._push(l_idx + 1, self._current_node.right)
-                return
-            elif self._early_stop: break
-        self._current_node = None
-
 class HeapRoute(SafeIterBase[T_LR]):
     """仅防止堆索引路由过程中重复访问祖先节点的错误"""
     def __init__(self, init_node: T_LR, heap_index: int):
@@ -102,25 +48,78 @@ class HeapRoute(SafeIterBase[T_LR]):
             raise IndexError("空树不能使用堆索引")
         return self.__class__(self._current_node, self._heap_index)
 
-class PreorderTraversal(TreeIterBase[T_LR]):
+class TreeIterBase(SafeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR], use_queue: bool = False, early_stop: bool = False):
+        root = KitBase.unwrap(root)
+
+        super().__init__(root, 1, early_stop)
+
+        self._use_queue = use_queue
+        self._container: List|Deque = deque() if use_queue else []
+        self._pop = self._container.popleft if use_queue else self._container.pop
+
+    def _push(self, idx: int, node: Optional[T_LR], *extra)->bool:
+        node = KitBase.unwrap(node)
+        if node:
+            self._container.append((idx, node, *extra))
+            return True
+        return False
+    
+    # ==================== flatten ====================
+    def flatten(self, max_depth: Optional[int] = None):
+        limit = None if max_depth is None else (2 ** (max_depth + 1))
+        return SafeIterBase._flatten(self, limit)
+
+    def _clone_from_start(self):
+        return self.__class__(self._current_node, early_stop=self._early_stop)
+    
+class LayeredTraversal(TreeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(root, use_queue=False,early_stop = early_stop)
-
+        super().__init__(None, use_queue=True, early_stop=early_stop)
         if root:
-            self._push_children(1, root)
-
-    def _push_children(self, idx, node):
-        self._push(idx * 2 + 1, node.right)
-        self._push(idx * 2, node.left)
+            self._container.append((1, root))
+            self._prepare_next()
 
     def _prepare_next(self):
         while self._container:
-            if self._check_safe(*self._container[-1][:2]):
-                self._current_idx, self._current_node,*_ = self._pop()
-                self._push_children(self._current_idx, self._current_node)
+            idx, node, *_ = self._pop()
+            if self._check_safe(idx,node):
+                self._current_idx, self._current_node = idx,node
+
+                l_idx = self._current_idx * 2
+
+                self._push(l_idx, self._current_node.left)
+                self._push(l_idx + 1, self._current_node.right)
                 return
-            else:
-                self._pop()
+            elif self._early_stop: break
+        self._current_node = None
+
+class PreorderTraversal(TreeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
+        super().__init__(None, use_queue=False,early_stop = early_stop)
+
+        if root:
+            self._push(1, root, False)
+            self._prepare_next()
+
+    def _push_successor(self,idx,node):
+        l_idx = idx * 2
+        # 压入右子节点（先右后左，保证左先出栈）
+        self._push(l_idx + 1, node.right, False)
+        # 再压入左子节点
+        self._push(l_idx, node.left, False)
+        # 压入本节点，并标记为已检查
+        self._push(idx, node, True)
+
+    def _prepare_next(self):
+        while self._container:
+            idx, node, checked = self._pop()
+            if checked:
+                self._current_idx, self._current_node = idx, node
+                return
+            elif self._check_safe(idx, node): # 未检查过，需要检查合法性
+                self._push_successor(idx,node)
+            elif self._early_stop: break # 出现重复，应当早停
         self._current_node = None
 
 class InorderTraversal(TreeIterBase[T_LR]):

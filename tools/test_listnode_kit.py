@@ -1,7 +1,7 @@
 # test_listnode_kit.py
 import random
 from args_parser import ListNode, ListNodeKit , List2ListNode
-from args_parser_tools import ListNodeKitBase,KitBase
+from list_node_kit import ListNodeKitBase
 __MIX_TEST__ = False
 
 def test_listnode_kit():
@@ -145,8 +145,8 @@ def validate_list_flatten(head, expected_cycle_start_node):
 
 def test_random_lists():
     """随机生成大量链表（包括有环和无环），验证 flatten 的正确性"""
-    test_rounds = 1000
-    max_nodes = 200
+    test_rounds = 10000
+    max_nodes = 100
     
     for round_i in range(test_rounds):
         node_count = random.randint(1, max_nodes)
@@ -185,7 +185,7 @@ def test_random_lists():
         # 对包含环的链表，测试 flatten 的环索引一致性（已在上方 validate 中完成）
         
         if (round_i + 1) % 200 == 0:
-            print(f"   已完成 {round_i + 1}/{test_rounds} 轮随机测试")
+            print(f"   已完成 {round_i + 1}/{test_rounds} 轮随机测试",end="\r")
 
 def test_duplicate_values_no_cycle():
     """测试值重复但节点不同的情况，不应触发环检测"""
