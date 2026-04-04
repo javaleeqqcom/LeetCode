@@ -10,6 +10,7 @@ from args_parser import TreeNode, TreeNodeKit,List2TreeNode
 from args_parser_tools import LayeredTraversal
 
 _CHECK_REAPET_TREE = True
+_CHECK_EARLY = True
 
 def random_tree(max_depth:int ,num_nodes: int ,left_p: float, right_p: float) ->Optional[TreeNode]:
     """
@@ -430,7 +431,7 @@ def test_random_tree(seed = 42):
         print(f"random test {i}",end="\r")
         left_p = random.random()
         right_p = random.random()
-        root = random_tree(4, 10, left_p, right_p)   # 生成合法二叉树
+        root = random_tree(8, 20, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
         idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
@@ -480,17 +481,31 @@ def test_random_tree(seed = 42):
 
             if _CHECK_REAPET_TREE or 0==j: # 是否测试有重复节点的树
                 # 前序/中序/后序（使用递归遍历，因为此时树无环）
-                pre_expected  = traver.preorder(root)
+                pre_expected  = TreeTraversal().preorder(root)
                 pre_actual    = [node.val for _, node in kit.NLR_iter()]
                 assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit.to_str(full_traversal=True)}"
 
-                in_expected   = traver.inorder(root)
+                in_expected   = TreeTraversal().inorder(root)
                 in_actual     = [node.val for _, node in kit.LNR_iter()]
                 assert in_expected == in_actual, f"expected: {in_expected}\nin_actual = {in_actual}\n{kit.to_str(full_traversal=True)}"
 
-                post_expected = traver.postorder(root)
+                post_expected = TreeTraversal().postorder(root)
                 post_actual   = [node.val for _, node in kit.LRN_iter()]
                 assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
+
+            if _CHECK_EARLY  and j>0: # j==0 时是完整树，没有必要测早停
+                # 前序/中序/后序 早停版（使用递归遍历，因为此时树无环）
+                pre_expected  = TreeTraversal(True).preorder(root)
+                pre_actual    = [node.val for _, node in kit.NLR_iter(True)]
+                assert pre_expected == pre_actual, f"early: expected: {pre_expected}\nactual: {pre_actual}\n{kit.to_str(full_traversal=True)}"
+
+                in_expected   = TreeTraversal(True).inorder(root)
+                in_actual     = [node.val for _, node in kit.LNR_iter(True)]
+                assert in_expected == in_actual, f"early: expected: {in_expected}\nin_actual = {in_actual}\n{kit.to_str(full_traversal=True)}"
+
+                post_expected = TreeTraversal(True).postorder(root)
+                post_actual   = [node.val for _, node in kit.LRN_iter(True)]
+                assert post_expected == post_actual, f"early: expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
     print("随机树 + 非法链接测试全部通过")
 
