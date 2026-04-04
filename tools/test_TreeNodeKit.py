@@ -2,12 +2,11 @@
 import random
 import sys
 from typing import List, Optional, Tuple, Set, Any,TypeVar
-import collections
 import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
 from args_parser import TreeNode, TreeNodeKit,List2TreeNode
-from args_parser_tools import LayeredTraversal
+from tree_node_kit import LayeredTraversal
 
 _CHECK_REAPET_TREE = True
 _CHECK_EARLY = True
@@ -117,24 +116,24 @@ class TreeTraversal:
             return []
         result = []
         queue = [root]
-        seen = {id(root)}
+        seen = set()
 
         while queue:
             level_nodes = []
             next_queue = []
             for node in queue:
+                if id(node) in seen:
+                    self.rep.append(node.val)
+                    if self.early_stop:
+                        next_queue = []
+                        break
+                    continue
+                seen.add(id(node))
                 level_nodes.append(node)
-                for child in (node.left, node.right):
-                    if child:
-                        cid = id(child)
-                        if cid in seen:
-                            self.rep.append(child.val)
-                            if self.early_stop:
-                                return result
-                            continue
-                        seen.add(cid)
-                        next_queue.append(child)
-            result.append(level_nodes)
+                next_queue.extend(list(filter(bool,(node.left, node.right))))
+            
+            if level_nodes:
+                result.append(level_nodes)
             queue = next_queue
         return result
 
@@ -494,6 +493,11 @@ def test_random_tree(seed = 42):
                 assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
             if _CHECK_EARLY  and j>0: # j==0 时是完整树，没有必要测早停
+                # 层序遍历
+                level_expected = [val for level in TreeTraversal(True).levelOrder(root) for val in level]
+                level_actual = [node.val for _, node in kit.layer_iter(True)]
+                assert level_expected == level_actual, f"early: expected: {level_expected}\nactual: {level_actual}\n{kit.to_str(full_traversal=True)}"
+
                 # 前序/中序/后序 早停版（使用递归遍历，因为此时树无环）
                 pre_expected  = TreeTraversal(True).preorder(root)
                 pre_actual    = [node.val for _, node in kit.NLR_iter(True)]
@@ -507,7 +511,7 @@ def test_random_tree(seed = 42):
                 post_actual   = [node.val for _, node in kit.LRN_iter(True)]
                 assert post_expected == post_actual, f"early: expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
-    print("随机树 + 非法链接测试全部通过")
+    print(" + ".join(filter(bool,["随机树" , "非法链接" , "前序/中序/后序" if _CHECK_REAPET_TREE else "" , "早停" if _CHECK_EARLY else ""])) + "测试全部通过")
 
 if __name__ == "__main__":
     test_basic_functionality()

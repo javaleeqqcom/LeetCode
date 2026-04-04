@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.5.15
+- 版本：0.5.16
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -290,35 +290,25 @@ results = optimized.run(cases, log_suffix="_optimized")
 
 ## 🔮 下一步计划
 
-1. **SafeIterBase**能否将修改意见改为：
-   - 将 KitBase 定义在 SafeIterBase 前面，设置调试模式时取  id(node) 改为 id(KitBase.unwrap(node))，（不继承KitBase，而只用其类方法 unwrap）
-如果可行请生成修改过的函数或类的代码
-1. 树结构迭代器提取公共类 **TreeIterBase**
-   - 将 LayeredTraversal、HeapRoute、PreorderTraversal、... 的公共代码抽象为 TreeIterBase 类（替代其中夭折的 DfsTreeTraversal），继承 SafeIterBase，减少重复代码
-   - TreeIterBase.flatten(max_depth) 调用 SafeIterBase的 _flatten
-   - TreeIterBase._stack_or_queue （可能需要换一个合适的名字）
-   - TreeIterBase._push_safe 调用，反正 deque 和 list 都有 append 方法:
-```
-if node and self._check_safe(idx, node):
-   self._stack.append((idx, node, *args)) 
-```
-1. **统一安全迭代器接口**
+1. **统一 TreeNodeKitBase构造格式**
+   - 大幅简化代码，并分多个文件保存，便于维护和扩展。以后 AI agent 也便于分别提取代码供AI参考。
+2. **统一安全迭代器接口**
    - 为 `ListNodeKit` 和 `TreeNodeKit` 增加 `safe_iter()` 方法，返回 `SafeIter` 实例，支持手动安全遍历
    - 树的安全迭代先实现层序遍历（`LayeredTraversal` 包装），后续可扩展前序/中序/后序
-2. **优化链表的索引访问**
+3. **优化链表的索引访问**
    - 当链表存在环时，`__getitem__` 可通过取余运算实现任意大索引的 O(环长度) 复杂度访问（类似循环链表）
    - 仅当链表无环且索引超出实际节点数时才抛出 `IndexError`
-3. **自动向AI提问**（维持原计划）
+4. **自动向AI提问**（维持原计划）
    - 注意：提问的范围仅限于测试学生的代码是否正确
    - 用于自动生成测试样例代码
    - 智能地区分单一魔术方法，和多魔术方法等不同情况
    - 若设置的AI-agent，则自动提问测试样例生成代码；若未设置则仅生成 token 提示词，由学生复制后手动向AI提问
-4. **极小化预定义代码**（维持原计划）
+5. **极小化预定义代码**（维持原计划）
    - 智能检测用户代码所需的特殊类型定义，筛选其中实际用到的特殊类型代码，减少 pre_code 代码量
-5. **更智能的调度策略**（维持原计划）
+6. **更智能的调度策略**（维持原计划）
    - 优化等比递减分割器，使各线程负载更加均衡
    - 改进早停机制，减少多线程环境下的滞后现象
-6. **VS Code 插件集成**（维持原计划）
+7. **VS Code 插件集成**（维持原计划）
    - 一键运行当前题目测试，结果直接显示在编辑器侧边栏
 
 ---

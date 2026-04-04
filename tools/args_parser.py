@@ -1,9 +1,11 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
-    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,ListNodeKitBase,ReprDecorator,TreeNodeKitBase # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from tools.tree_node_kit import TreeNodeKitBase
 except:
-    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,ListNodeKitBase,ReprDecorator,TreeNodeKitBase # 此部分代表过于冗长故放在 args_parser_tools
+    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,IterNext,ListNodeKitBase,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+    from tree_node_kit import TreeNodeKitBase
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
