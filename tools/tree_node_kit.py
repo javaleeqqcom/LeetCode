@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,Generic,TypeVar,Iterator,Hashable,Deque,Iterable,Protocol, runtime_checkable ,cast
+from abc import ABC, abstractmethod
 from collections import deque,defaultdict
 from itertools import chain
 from typing_extensions import Self
@@ -49,36 +50,58 @@ class HeapRoute(SafeIterBase[T_LR]):
         return self.__class__(self._current_node, self._heap_index)
 
 class TreeIterBase(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], use_queue: bool = False, early_stop: bool = False):
+    def __init__(self, root: Optional[T_LR], use_queue: bool, early_stop: bool = False):
         root = KitBase.unwrap(root)
-
-        super().__init__(root, 1, early_stop)
-
-        self._use_queue = use_queue
-        self._container: List|Deque = deque() if use_queue else []
+        super().__init__(None, 1, early_stop)
+        self._container = deque() if use_queue else list()
         self._pop = self._container.popleft if use_queue else self._container.pop
+        
+        if self._push(1, root, False):
+            self._prepare_next()
 
-    def _push(self, idx: int, node: Optional[T_LR], *extra)->bool:
+    def _push(self, idx: int, node: Optional[T_LR], *extra) -> bool:
         node = KitBase.unwrap(node)
         if node:
             self._container.append((idx, node, *extra))
             return True
         return False
-    
-    # ==================== flatten ====================
+
+    def _push_successor(self, idx: int, node: T_LR) -> bool:
+        """
+        将当前节点（已通过安全检查）的后继节点压入容器。
+        对于 DFS 遍历，通常需要压入右子、左子以及自身（带 checked 标志）。
+        子类必须实现此方法。
+        返回：是否跳出 Pop _container 的循环
+        """
+        raise NotImplementedError
+
+    def _prepare_next(self) -> None:
+        """默认实现：适用于栈容器（DFS）的通用迭代逻辑"""
+        while self._container:
+            # 弹出栈顶元素，检查是否已安全
+            idx, node, *checked = self._pop() # 若为 2 个元素，checked=[]；若为 3 个元素，checked=[True] 或 checked=[False]
+            if checked and checked[0]: # 检查过已安全，设置为当前节点
+                self._current_idx, self._current_node = idx, node
+                return
+            elif self._check_safe(idx, node): # 未检查过，则进行查重
+                if self._push_successor(idx, node):
+                    break # 当前节点通过查重，可压入后继
+            elif self._early_stop: # 不安全（重复）节点，若早停则跳出循环，按无后继处理
+                break
+        # 无后继
+        self._current_node = None
+
     def flatten(self, max_depth: Optional[int] = None):
         limit = None if max_depth is None else (2 ** (max_depth + 1))
         return SafeIterBase._flatten(self, limit)
 
     def _clone_from_start(self):
+        # 调用 init（root, 是否为队列，是否早停）
         return self.__class__(self._current_node, early_stop=self._early_stop)
-    
+
 class LayeredTraversal(TreeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(None, use_queue=True, early_stop=early_stop)
-        if root:
-            self._container.append((1, root))
-            self._prepare_next()
+        super().__init__(root, use_queue=True, early_stop=early_stop)
 
     def _prepare_next(self):
         while self._container:
@@ -94,108 +117,59 @@ class LayeredTraversal(TreeIterBase[T_LR]):
             elif self._early_stop: break
         self._current_node = None
 
+
+class LayeredTraversal_ERR(TreeIterBase[T_LR]):
+    def __init__(self, root: Optional[T_LR], early_stop: bool = False):
+        super().__init__(root, True, early_stop=early_stop)
+
+    def _push_successor(self,idx,node)->bool:
+        l_idx = idx * 2
+        # 队列按正序入队，先赋值当前节点，再push左右子节点
+        self._current_idx, self._current_node = idx, node
+        self._push(l_idx, node.left)
+        self._push(l_idx + 1, node.right)
+        return True
+
 class PreorderTraversal(TreeIterBase[T_LR]):
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(None, use_queue=False,early_stop = early_stop)
+        super().__init__(root, False, early_stop=early_stop)
 
-        if root:
-            self._push(1, root, False)
-            self._prepare_next()
-
-    def _push_successor(self,idx,node):
+    def _push_successor(self,idx,node)->bool:
         l_idx = idx * 2
-        # 压入右子节点（先右后左，保证左先出栈）
+        # 压栈顺序：右、左、自身（已检查）
         self._push(l_idx + 1, node.right, False)
-        # 再压入左子节点
         self._push(l_idx, node.left, False)
-        # 压入本节点，并标记为已检查
         self._push(idx, node, True)
-
-    def _prepare_next(self):
-        while self._container:
-            idx, node, checked = self._pop()
-            if checked:
-                self._current_idx, self._current_node = idx, node
-                return
-            elif self._check_safe(idx, node): # 未检查过，需要检查合法性
-                self._push_successor(idx,node)
-            elif self._early_stop: break # 出现重复，应当早停
-        self._current_node = None
+        return False
+    
 
 class InorderTraversal(TreeIterBase[T_LR]):
-    """中序遍历迭代器 (LNR)，继承 TreeIterBase 使用栈容器。"""
+    """中序遍历 (LNR)"""
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        # 先以 None 初始化基类，手动构建栈
-        super().__init__(None, use_queue=False, early_stop=early_stop)
+        super().__init__(root, False, early_stop=early_stop)
 
-        if root:
-            # (heap_idx,node,checked)
-            self._container.append((1, root, False))
-            self._prepare_next()
-
-    def _prepare_next(self):
-        while self._container:
-            idx, node, checked = self._pop()
-            if checked:
-                self._current_idx, self._current_node = idx, node
-                return
-            elif self._check_safe(idx, node): # 未检查过，需要检查合法性
-
-                l_idx = idx * 2
-                # 压入右子节点（先右后左，保证左先出栈）
-                right = getattr(node, 'right', None)
-                if right:
-                    self._container.append((l_idx + 1, right, False))
-
-                # 压入本节点，并标记为已检查
-                self._container.append((idx,node,True))
-
-                # 再压入左子节点
-                left = getattr(node, 'left', None)
-                if left:
-                    self._container.append((l_idx, left, False))
-
-            elif self._early_stop: break # 出现重复，应当早停
-
-        self._current_node = None # 无更多节点，置为 None
+    def _push_successor(self, idx: int, node: T_LR) -> bool:
+        l_idx = idx * 2
+        # 压栈顺序：右、自身（已检查）、左
+        self._push(l_idx + 1, node.right, False)
+        self._push(idx, node, True)
+        self._push(l_idx, node.left, False)
+        return False
 
 
 class PostorderTraversal(TreeIterBase[T_LR]):
-    """后序遍历迭代器 (LRN)，继承 TreeIterBase 使用栈容器，节点附带访问标志。"""
+    """后序遍历 (LRN)"""
     def __init__(self, root: Optional[T_LR], early_stop: bool = False):
-        super().__init__(None, use_queue=False, early_stop=early_stop)
+        super().__init__(root, False, early_stop=early_stop)
 
-        if root:
-            self._container.append((1, root, False))
-            # 找到第一个后序节点
-            self._prepare_next()
-
-    def _prepare_next(self):
-        while self._container:
-            idx, node, checked = self._pop()
-            if checked:
-                self._current_idx, self._current_node = idx, node
-                return
-            elif self._check_safe(idx, node): # 未检查过，需要检查合法性
-
-                # 压入本节点，并标记为已检查
-                self._container.append((idx,node,True))
-
-                l_idx = idx * 2
-                # 压入右子节点（先右后左，保证左先出栈）
-                right = getattr(node, 'right', None)
-                if right:
-                    self._container.append((l_idx + 1, right, False))
-
-                # 再压入左子节点
-                left = getattr(node, 'left', None)
-                if left:
-                    self._container.append((l_idx, left, False))
-
-            elif self._early_stop: break # 出现重复，应当早停
-
-        self._current_node = None # 无更多节点，置为 None
-
+    def _push_successor(self, idx: int, node: T_LR) -> bool:
+        l_idx = idx * 2
+        # 压栈顺序：自身（已检查）、右、左
+        self._push(idx, node, True)
+        self._push(l_idx + 1, node.right, False)
+        self._push(l_idx, node.left, False)
+        return False
+    
 class TreeNodeKitBase(KitBase[T_LR]):
     """
     二叉树调试增强工具基类，使用代理模式。
