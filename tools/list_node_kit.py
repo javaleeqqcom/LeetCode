@@ -6,7 +6,8 @@ from binarytree import build
 import json
 import numpy as np
 import cython
-from args_parser_tools import KitBase,SafeIterBase,_formated_string
+from args_parser_tools import KitBase,_formated_string
+from safe_iter_base import SafeIterBase
 
 __DEBUG__ = False
 
@@ -18,10 +19,13 @@ class HasNext(Protocol):
 T_NEXT = TypeVar("T_NEXT",bound=HasNext)
 
 # 用于 ListNodeKit
-class IterNext(SafeIterBase[T_NEXT]):
+class IterNext(SafeIterBase):
     """安全链表迭代器，继承 SafeIterBase 实现环检测，自动解包包装类。"""
     def __init__(self, head: KitBase[T_NEXT]|T_NEXT|None,getitem_null_end=True):
-        super().__init__(init_node=head, init_idx=0, early_stop=False,getitem_null_end=getitem_null_end)
+        super().__init__(
+            init_node= KitBase.unwrap(head) ,
+            init_idx=0, early_stop=False, 
+            getitem_null_end=getitem_null_end)
 
     def _clone_from_start(self):
         return IterNext(self._current_node)
@@ -34,8 +38,7 @@ class IterNext(SafeIterBase[T_NEXT]):
         nxt = self._current_node.next
 
         # 防御性编程：如果下一个节点是包装类，提取原始节点
-        if __DEBUG__ and hasattr(nxt, '_node'):
-            nxt = nxt._node
+        nxt = KitBase.unwrap(nxt)
 
         self._current_node = nxt
         if self._current_node and (not self._check_safe(self._current_idx, self._current_node)):
@@ -84,7 +87,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
             self =  ListNodeKitBase.unwrap(self)
             assert not hasattr(self,"_node"), "节点被二次包装（double wrap）"
 
-        it = IterNext[T_NEXT](self)
+        it = IterNext(self)
 
         items, stop_idx = SafeIterBase._flatten(it, None if max_len is None else max_len-1)
 
@@ -95,7 +98,7 @@ class ListNodeKitBase(KitBase[T_NEXT]):
 
     def __iter__(self):
         """返回安全链表迭代器"""
-        return IterNext[T_NEXT](KitBase.unwrap(self))
+        return IterNext(KitBase.unwrap(self))
     
     def __getitem__(self, key)->ListNodeKitBase[T_NEXT]:
         """根据索引获取链表节点，返回的是 ListNodeKitBase 包装类对象，允许最后一个节点恰为空节点返回，但若中途遇到重复节点或空节点则抛出异常"""

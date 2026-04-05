@@ -7,7 +7,8 @@ from binarytree import build
 import json
 import numpy as np
 import cython
-from args_parser_tools import SafeIterBase, KitBase
+from args_parser_tools import KitBase
+from safe_iter_base import SafeIterBase
 
 __DEBUG__ = False
 
@@ -18,11 +19,12 @@ class HasLR(Protocol):
 # 定义支持 .left , .right 属性的协议（泛型约束）
 T_LR = TypeVar("T_LR",bound=HasLR)
 
-class HeapRoute(SafeIterBase[T_LR]):
+class HeapRoute(SafeIterBase):
     """仅防止堆索引路由过程中重复访问祖先节点的错误"""
-    def __init__(self, init_node: T_LR, heap_index: int):
+    def __init__(self, init_node: KitBase[T_LR]|T_LR, heap_index: int):
         # init_node 是堆索引 1 的節點
-        super().__init__(init_node, 1, early_stop=True, getitem_null_end=True)
+        super().__init__(KitBase.unwrap(init_node), 1, early_stop=True, 
+                        getitem_null_end=True)
         self._heap_index = heap_index # 用于还原堆索引的路径操作列表
         # 將 '101' 轉為 [False, True] (0=左, 1=右)
         self.route_ops = [op == '1' for op in bin(heap_index)[3:]]
@@ -40,7 +42,7 @@ class HeapRoute(SafeIterBase[T_LR]):
 
             # 恰好是最後一跳到達空節點，允許更新，但如果後面還有指令則會中斷
             if (not next_node) or self._check_safe(next_idx, next_node):
-                self._current_node = next_node
+                self._current_node = KitBase.unwrap(next_node) # 防御性编程，防止混淆包装节点
                 self._current_idx = next_idx
             # early_stop=True 会将 self._current_node = None
 
@@ -49,9 +51,8 @@ class HeapRoute(SafeIterBase[T_LR]):
             raise IndexError("空树不能使用堆索引")
         return self.__class__(self._current_node, self._heap_index)
 
-class TreeIter(SafeIterBase[T_LR]):
-    def __init__(self, root: Optional[T_LR], operation:str, use_queue: bool,  early_stop: bool = False):
-        root = KitBase.unwrap(root)
+class TreeIter(SafeIterBase):
+    def __init__(self, root: KitBase[T_LR]|T_LR|None, operation:str, use_queue: bool,  early_stop: bool = False):
         super().__init__(None, 1, early_stop)
         _operation_funs = {
             "l": self._push_left,
@@ -60,7 +61,7 @@ class TreeIter(SafeIterBase[T_LR]):
             "u": self._update_current
         }
         self._operation = operation
-        self._operation_funs:Tuple[Callable[[int,T_LR],None],...] = tuple(_operation_funs[c] for c in operation.lower())
+        self._operation_funs:Tuple[Callable] = tuple(_operation_funs[c] for c in operation.lower())
         self._instant_updates = "u" in operation.lower()
         
         if use_queue:
@@ -73,34 +74,25 @@ class TreeIter(SafeIterBase[T_LR]):
         if self._push(1, root, False):
             self._prepare_next()
 
-    def _push(self, idx: int, node: Optional[T_LR], *extra) -> bool:
-        node = KitBase.unwrap(node)
+    def _push(self, idx: int, node: KitBase[T_LR]|T_LR|None, *extra) -> bool:
+        node = KitBase.unwrap(node) # 防御性编程，防止混淆包装节点
         if node:
             self._container.append((idx, node, *extra))
             return True
         return False
     
-    def _push_left(self, idx: int, node: T_LR)->None:
+    def _push_left(self, idx: int, node: KitBase[T_LR]|T_LR)->None:
         self._push(2*idx, node.left, False)
     
-    def _push_right(self, idx: int, node: T_LR)->None:
+    def _push_right(self, idx: int, node: KitBase[T_LR]|T_LR)->None:
         self._push(2*idx +1, node.right, False)
     
-    def _push_current(self, idx: int, node: T_LR) ->None:
+    def _push_current(self, idx: int, node: KitBase[T_LR]|T_LR) ->None:
         self._push(idx, node, True)
 
-    def _update_current(self, idx: int, node: T_LR) ->None:
+    def _update_current(self, idx: int, node: KitBase[T_LR]|T_LR) ->None:
         self._current_idx, self._current_node = idx, node
-        
-    def _push_successor(self, idx: int, node: T_LR) -> bool:
-        """
-        将当前节点（已通过安全检查）的后继节点压入容器。
-        对于 DFS 遍历，通常需要压入右子、左子以及自身（带 checked 标志）。
-        子类必须实现此方法。
-        返回：是否跳出 Pop _container 的循环
-        """
-        raise NotImplementedError
-
+      
     def _prepare_next(self) -> None:
         """默认实现：适用于栈容器（DFS）的通用迭代逻辑"""
         while self._container:

@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.6.2
+- 版本：0.6.3
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -335,9 +335,13 @@ results = optimized.run(cases, log_suffix="_optimized")
 ## 🔮 下一步计划
 
 1. ** SafeIterBase 采用 Cython 加速**
+   - 除了 assigned_idx 赋值关系的变量，其余整数均采用与计算机位数相同的无符号整型。
    - 更正 self._seen[nid] = [assigned_idx,...] # 表示重复访问 nid 内存时的历次 assigned_idx 。
    - 更正 self._repeat_indices  替换为 self._revisit ，当检测到重复节点时（1==self._seen[nid]）改用 nid（而不是assigned_idx） push 进 self._revisit，避免将大整数类的 assigned_idx 作为键值。
-   - assigned_idx 用于链表类型和树类型（堆索引方式）的位置标记，只需要做如下运算： ==、!=、+1、<<1（或*2）、>>1（或//2）、%2（判断奇偶）。拟采用带头结点的链表：头结点（链表首指针，链表长，首指针位数）、链表节点（next指针，val无符号整型）。其中 链表首 为最低位，以便于 <<1 时，当首指针位数<整型位数，只需要修改首指针.val << 1即可。而无需修改其他指针，+1同理，只有当 val 溢出，才用头插法创建新指针。
+   - assigned_idx 先暂时用 python 的 int 管理（大整数），以后再考虑优化为自定义大整数
+   - SafeIterBase 剔除 KitBase 依赖，由子类确保传入的 node 类型一致性
+ - 
+     - 用于链表类型和树类型（堆索引方式）的位置标记，只需要做如下运算： ==、!=、+1、<<1（或*2）、>>1（或//2）、%2（判断奇偶）。拟采用带头结点的链表：头结点（链表首指针，链表长，首指针位数）、链表节点（next指针，val无符号整型）。其中 链表首 为最低位，以便于 <<1 时，当首指针位数<整型位数，只需要修改首指针.val << 1即可。而无需修改其他指针，+1同理，只有当 val 溢出，才用头插法创建新指针。
 2. **统一安全迭代器接口**
    - 为 `ListNodeKit` 和 `TreeNodeKit` 增加 `safe_iter()` 方法，返回 `SafeIter` 实例，支持手动安全遍历
    - 树的安全迭代先实现层序遍历（`LayeredTraversal` 包装），后续可扩展前序/中序/后序
