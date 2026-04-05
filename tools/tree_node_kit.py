@@ -240,12 +240,12 @@ class TreeNodeKitBase(KitBase[T_LR]):
                 break
             idx_node.append((idx, n))
 
-        repeat_map = it._repeat_indices   # 直接使用内部字典，或通过新属性暴露
         repeat_idx_dict = {}
-        for first_idx, dup_idxs in repeat_map.items():
-            if first_idx not in repeat_idx_dict:
-                repeat_idx_dict[first_idx] = f"*{first_idx}"
-            for dup_idx in dup_idxs:
+        for nid in it._revisit:
+            revisit_idx = it._seen[nid]
+            first_idx = revisit_idx[0]
+            repeat_idx_dict[first_idx] = f"*{first_idx}"
+            for dup_idx in revisit_idx[1:]:
                 if dup_idx not in repeat_idx_dict:
                     repeat_idx_dict[dup_idx] = f"^{first_idx}"
 

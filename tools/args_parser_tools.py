@@ -173,20 +173,16 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
         # ⚠️ 核心：统一 unwrap
         init_node = KitBase.unwrap(init_node)
 
-        self._seen: Dict[int, int] = {}
-        self._repeat_indices = defaultdict(list)
+        self._seen: Dict[int, List[int]] = defaultdict(list)
+        self._revisit = list()
 
         self._current_node = init_node
         self._current_idx = init_idx
         self._early_stop = early_stop 
         self._getitem_null_end = getitem_null_end
 
-        # ⭐ 新增缓存：idx -> node
-        self._cache: Dict[int, T] = {}
-
         if init_node is not None:
-            self._seen[id(init_node)] = init_idx
-            self._cache[init_idx] = init_node
+            self._seen[id(init_node)].append(init_idx)
 
     # ==================== 核心安全检查（统一 unwrap） ====================
     def _safe_id(self, node: Optional[T]) -> int:
@@ -200,11 +196,11 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
         nid = self._safe_id(node)
 
         if nid in self._seen:
-            first_idx = self._seen[nid]
-            self._repeat_indices[first_idx].append(assigned_idx)
+            if 1 ==  len(self._seen[nid]):
+                self._revisit.append(nid)
             return False
 
-        self._seen[nid] = assigned_idx
+        self._seen[nid].append(assigned_idx)
 
         return True
 
@@ -241,20 +237,23 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
         self._prepare_next()
 
         # 如果开启了 early_stop 且刚刚探测到了环
-        if self._early_stop and self._repeat_indices:
+        if self._early_stop and self._revisit:
             self._current_node = None
 
         return res
 
     @property
     def repeat_indices(self) -> List[int]:
-        """返回所有重复节点的首次索引（去重）"""
-        return list(self._repeat_indices.keys())
+        """返回所有重复节点的首次索引，顺序与重复检测到顺序一致"""
+        res = [self._seen[nid][0] for nid in self._revisit]
+        if __DEBUG__:
+            assert len(res) == len(set(res)), "重复索引列表中存在重复元素"
+        return res
 
     @property
     def first_repeat(self) -> Optional[int]:
         """返回第一个检测到的重复节点的首次索引"""
-        return next(iter(self._repeat_indices.keys())) if self._repeat_indices else None
+        return self._seen[self._revisit[0]][0] if self._revisit else None
 
     def _prepare_next(self):
         """抽象方法：由子类实现，内部必须使用 _check_safe 控制入栈/入队"""
@@ -276,7 +275,6 @@ class SafeIterBase(Iterator[Tuple[int, T]]):
                 return items, it.repeat_indices + [idx]
             items.append((idx, node))
         return items, it.repeat_indices
-
 
 def ReprDecorator(prep_property: str = "val"):
     """
