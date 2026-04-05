@@ -513,9 +513,15 @@ def test_random_tree(seed = 42):
     print(" + ".join(filter(bool,["随机树" , "非法链接" , "前序/中序/后序" if _CHECK_REAPET_TREE else "" , "早停" if _CHECK_EARLY else ""])) + "测试全部通过")
 
 if __name__ == "__main__":
+    import time
     test_basic_functionality()
     test_cycle_detection()
     test_duplicate_values()
     test_setters_and_unwrap()
+
+    begin = time.time()
     test_random_tree()
+    end = time.time()
+    print(f"test_random_tree cost: {end-begin:.3f}s")
+
     print("\n🎉 所有测试通过！")
