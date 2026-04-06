@@ -176,10 +176,10 @@ def test_random_lists():
             try:
                 null_end = kit[node_count]
                 # 应该返回空链表（不是抛出异常），因为 ListNodeKit 的设计是 kit[n] 返回空链表
-                assert bool(null_end) is False
+                assert bool(null_end) is False, f"kit={kit}"
             except IndexError:
-                # 根据实现，索引第 n 个节点应返回空链表，不应抛出异常，这里兼容性处理
-                pass
+                # 根据实现，索引第 n 个节点应返回空链表，不应抛出异常
+                assert False, f"根据实现，索引第 n 个节点应返回空链表，kit: {kit}"
             try:
                 _ = kit[node_count + 1]
                 assert False, "索引越界超过1次应该抛出 IndexError"

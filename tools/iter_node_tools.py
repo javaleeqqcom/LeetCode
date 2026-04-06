@@ -3,7 +3,7 @@ iter_node_tool.py - 链表调试增强工具（方案二：操作包装节点）
 用于 LeetCode 本地自动化测试框架，支持环检测、安全遍历、美观打印。
 纯 Python 实现，便于后续转换为 Cython。
 """
-__DEBUG__ = True
+__DEBUG__ = False
 MAX_LEN = 100
 
 from typing import (
@@ -63,6 +63,11 @@ class KitBase2(Generic[T_Node]):
         assert not hasattr(node,'_node'), "Node has been wrapped twice!"
         return node
 
+    @property
+    def visit_index(self)->Any:
+        """ 访问节点索引编号，子类需覆盖此属性以返回特定类型 """
+        raise NotImplementedError("Subclasses must implement visit_index")
+    
     def __getattr__(self, name: str) -> Any:
         """代理属性访问到原生节点"""
         return getattr(self.raw, name)
@@ -109,6 +114,31 @@ class SafeIterBase2(Generic[T_Node]):
 
         if node:
             self._seen[node] = [node]
+
+    @classmethod
+    def _getitem(cls,it: Self, index: int ,getitem_null_end:bool= False) -> KitBase2[T_Node]:
+        """
+        根据索引获取节点。
+        - 如果遇到重复节点抛出 IndexError
+        - 如果索引越界超过1次或 _getitem_null_end 为假则抛出 IndexError，否则返回 None
+        - 其余情况按 iterator 的遍历次序返回节点
+        """
+        if index < 0:
+            raise IndexError("Negative index not supported")
+
+        i = -1
+        for i,node in enumerate(it):
+            if i == index:
+                return node
+            # 如果迭代因环而停止，抛出异常
+            if it.revisit_nodes:
+                raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0].visit_index}.")
+
+        # 索引恰好超出范围，若允许 _getitem_null_end 返回空节点
+        if getitem_null_end and i+1 == index:
+            return KitBase2(None)
+        else: # 否则报错
+            raise IndexError(f"Index: {index} out of range")
 
     def _check_safe(self, node: KitBase2[T_Node]) -> bool:
         """
@@ -211,25 +241,8 @@ class IterNext2(SafeIterBase2[T_NEXT]):
         - 如果索引越界且 _getitem_null_end=True，返回 None
         - 如果遇到环且未达到索引，根据 _getitem_null_end 返回 None 或抛出 IndexError
         """
-        if index < 0:
-            raise IndexError("Negative index not supported")
-
-        it = self.copy()
-        i = -1
-        for i,node in enumerate(it):
-            if i == index:
-                return cast(ListNodeKitBase,node)
-            # 如果迭代因环而停止，抛出异常
-            if it.revisit_nodes:
-                # 英文待润色
-                raise IndentationError(f"Circular reference detected by index: {it.revisit_nodes[0]._visit_idx}.")
-
-        # 索引恰好超出范围，若允许 _getitem_null_end 返回空节点
-        if self._getitem_null_end and i+1 == index:
-            return ListNodeKitBase[T_NEXT](None)
-        else: # 否则报错
-            raise IndexError(f"Index: {index} out of range")
-
+        return cast( ListNodeKitBase, SafeIterBase2._getitem( self.copy(), index, self._getitem_null_end ))
+    
     def __next__(self) -> ListNodeKitBase[T_NEXT]:
         return cast(ListNodeKitBase,super().__next__())
     
@@ -263,7 +276,7 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
         object.__setattr__(self, '_visit_index', visit_index)
         
     @property
-    def visit_index(self)->int:
+    def visit_index(self)->int: # Cython 用int计算机位数的普通有符号整型即可
         """ 访问节点索引编号，用于标记遍历到该节点的迭代次数 """
         return object.__getattribute__(self, '_visit_index')
 
@@ -303,11 +316,11 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
 
     def __iter__(self)->IterNext2[T_NEXT]:
         """返回安全链表迭代器"""
-        return IterNext2[T_NEXT](ListNodeKitBase(self),False)
+        return IterNext2[T_NEXT](ListNodeKitBase(self,visit_index=0),False) # 注意不能用 self 代替 ListNodeKitBase(self)，因为要重置 visit_index
     
     def __getitem__(self, key)->ListNodeKitBase[T_NEXT]:
         """根据索引获取链表节点，返回的是 ListNodeKitBase 包装类对象，允许最后一个节点恰为空节点返回，但若中途遇到重复节点或空节点则抛出异常"""
-        return self.__class__(IterNext2[T_NEXT](ListNodeKitBase(self),True)[key])        
+        return self.__class__(IterNext2[T_NEXT](ListNodeKitBase(self,0),True)[key]) # 用 ListNodeKitBase 同理（见 __iter__）
     
     @classmethod
     def _to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = MAX_LEN) -> str:
