@@ -1,7 +1,8 @@
 # test_listnode_kit.py
 import random
 from args_parser import ListNode, ListNodeKit , List2ListNode
-from list_node_kit import ListNodeKitBase
+# from list_node_kit import ListNodeKitBase
+from iter_node_tools import ListNodeKitBase
 __MIX_TEST__ = False
 
 def test_listnode_kit():
@@ -37,7 +38,7 @@ def test_listnode_kit():
     print(f"   kit.next.next.val: {kit.next.next.val}")  # 3
     
     # 2.2 node 属性（原生节点）
-    print(f"   kit.node is n1: {kit._node is n1}")    # True
+    print(f"   kit.node is n1: {kit.raw is n1}")    # True
     
     # 2.3 索引访问
     print(f"   kit[0].val: {kit[0].val}")            # 1
@@ -78,7 +79,8 @@ def test_listnode_kit():
     print(f"   str(ring_link): {str(ring_link)}")    # 预期: [1,>,2,3,4,^]
     nodes, cycle_idx = ring_link.flatten()
     print(f"   flatten() 节点数: {len(nodes)}, 环起始索引: {cycle_idx}")
-    assert cycle_idx == 1
+    assert cycle_idx == 1, f"环起始索引错误, cycle_idx={cycle_idx}"
+
     print(f"   环起始节点值: {nodes[cycle_idx].val}")  # 2
     
     print(f"   ring_link[0].val: {ring_link[0].val}")  # 1
@@ -88,7 +90,7 @@ def test_listnode_kit():
     print("\n4. 使用 val 参数构造")
     kit_by_val = ListNodeKit(val=5)
     print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
-    print(f"   kit_by_val.node.val: {kit_by_val._node.val}")  # 5
+    print(f"   kit_by_val.node.val: {kit_by_val.val}")  # 5
     
     
     print("\n所有测试完成！")
@@ -162,23 +164,25 @@ def test_random_lists():
             for _ in range(5):
                 idx = random.randint(0, node_count - 1)
                 node_kit = kit[idx]
-                assert node_kit._node is not None
+                assert node_kit.raw is not None
                 # 检查索引访问的值是否与直接遍历一致
                 cur = head
                 for _ in range(idx):
+                    assert cur, "构造了非法的测试样例，索引超出范围"
                     cur = cur.next
-                assert node_kit._node.val == cur.val
+                assert cur, "构造了非法的测试样例，索引超出范围"
+                assert node_kit.val == cur.val
             # 测试超出长度的索引
             try:
-                _ = kit[node_count]
+                null_end = kit[node_count]
                 # 应该返回空链表（不是抛出异常），因为 ListNodeKit 的设计是 kit[n] 返回空链表
-                assert bool(kit[node_count]) is False
+                assert bool(null_end) is False
             except IndexError:
                 # 根据实现，索引第 n 个节点应返回空链表，不应抛出异常，这里兼容性处理
                 pass
             try:
                 _ = kit[node_count + 1]
-                assert False, "索引越界应该抛出 IndexError"
+                assert False, "索引越界超过1次应该抛出 IndexError"
             except IndexError:
                 pass
         
@@ -220,7 +224,7 @@ def test_iter():
     # 2. 无环链表迭代
     head = List2ListNode([10, 20, 30])
     kit = ListNodeKit(head)
-    collected = [(idx, node.val) for idx, node in kit]
+    collected = [(kit_node.visit_index, kit_node.val) for kit_node in kit]
     expected = [(0, 10), (1, 20), (2, 30)]
     assert collected == expected, f"无环链表迭代结果错误: {collected} != {expected}"
     print("   无环链表迭代测试通过")
@@ -237,12 +241,12 @@ def test_iter():
 
     it = iter(kit_ring)          # 获取 SafeIter 实例
     collected = []
-    for idx, node in it:
-        collected.append((idx, node.val))
+    for kit_node in it:
+        collected.append((kit_node.visit_index, kit_node.val))
     # 迭代应在遇到重复节点 b 时停止，不会输出索引3
     assert collected == [(0, 1), (1, 2), (2, 3)], f"有环链表迭代结果错误: {collected}"
     # 检查 repeat_idx 属性
-    assert it.repeat_indices == [1], f"repeat_idx 应为 1，实际为 {it.repeat_indices}"
+    assert it.circle_index == 1, f"repeat_idx 应为 1，实际为 {it.circle_index}"
     print("   有环链表迭代（环检测）测试通过")
 
     # 4. 重复值但无环链表（不应触发环检测）
@@ -252,7 +256,7 @@ def test_iter():
     d.next = e
     e.next = f
     kit_dup = ListNodeKit(d)
-    collected_dup = [(idx, node.val) for idx, node in kit_dup]
+    collected_dup = [(kit_node.visit_index, kit_node.val) for kit_node in kit_dup]
     assert collected_dup == [(0, 100), (1, 100), (2, 100)], "重复值无环链表被错误检测为环"
     print("   重复值无环链表迭代测试通过")
 
@@ -313,24 +317,24 @@ def test_flatten_methods():
 
     # 2.3 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
     print(type(kit[4]))
-    assert kit[4] and not hasattr(kit[4].next._node, '_node'), f"kit[4].next = kit[0] 操作前正常"
+    assert kit[4] and not hasattr(kit[4].next.raw, '_node'), f"kit[4].next = kit[0] 操作前正常"
 
     kit[0].val = 1234
-    kit[0].next = kit[1]._node  
+    kit[0].next = kit[1].raw  
 
-    assert not hasattr(kit[2].next._node, '_node'), f"kit[2].next 没有问题"
+    assert not hasattr(kit[2].next.raw, '_node'), f"kit[2].next 没有问题"
 
     kit[4].next = kit[0]  
-    assert not hasattr(kit[4].next._node, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
+    assert not hasattr(kit[4].next.raw, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
 
     nodes, stop = kit.flatten(max_len=5)
-    assert stop == 0, f"由于环位置是 0 应返回 stop=5，实际 {stop}"
+    assert stop == 0, f"由于环位置是 0 应返回 stop=0，实际 {stop}"
 
     assert len(nodes) == 5
     print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")
 
     # ---------- 有环链表 ----------
-    # 构造环：1 -> 2 -> 3 -> 4 -> 5 -> 3  (环起始节点为 3，索引为 2)
+    # 构造环：1 -> 2 -> 3 -> 4 -> 5 -> 3  (环起始节点val为 3，索引为 2)
     # 注意：环起始索引基于 flatten 返回的列表顺序，从 0 开始计数
     n1 = ListNode(1)
     n2 = ListNode(2)
@@ -380,27 +384,27 @@ def temp():
     print(2)
     kit1.next = kit2
     print(3)
-    assert not hasattr(kit1.next._node , "_node"),"kit1合法赋值"
+    assert not hasattr(kit1.next.raw , "_node"),"kit1合法赋值"
     print(4)
-    kit1.next = kit2._node
+    kit1.next = kit2.raw
     print(5)
-    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值"
+    assert not hasattr(kit1.next.raw , "_node"),"kit1非法赋值"
     print(6)
     kit2.next = kit1.next
     print(7)
-    assert not hasattr(kit2.next._node , "_node"),"kit2非法赋值1"
+    assert not hasattr(kit2.next.raw , "_node"),"kit2非法赋值1"
     print(8)
-    kit1.next._node = kit2._node
+    kit1.next.raw = kit2.raw
     print(9)
-    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值3"
+    assert not hasattr(kit1.next.raw , "_node"),"kit1非法赋值3"
     print(10)
     print(f"kit1.val = {kit1.val}")
     print(11)
     print(f"kit2.val = {kit2.val}")
     print(12)
-    kit1._node.next = kit2
+    kit1.raw.next = kit2
     print(13)
-    assert not hasattr(kit1.next._node , "_node"),"kit1非法赋值4"
+    assert not hasattr(kit1.next.raw , "_node"),"kit1非法赋值4"
     print(14)
 
 if __name__ == "__main__":
