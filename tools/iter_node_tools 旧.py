@@ -36,6 +36,7 @@ T_Node = TypeVar("T_Node")
 class KitBase2(Generic[T_Node]):
     """
     调试增强基类（代理模式），扩展支持哈希和索引存储。
+    子类应实现 __hash__ = id(_node)
     """
 
     def __init__(self, node: KitBase2|T_Node|None):
@@ -97,7 +98,7 @@ class SafeIterBase2(Generic[T_Node]):
     安全迭代器基类（方案二版本）
     - 操作包装节点（KitBase2 实例）
     - 环检测使用包装节点的哈希（基于原生节点内存地址）
-    - 子类需实现 _prepare_next()
+    - 子类需实现 _prepare_next() 和 _clone_from_start()
     """
 
     def __init__(self, node: KitBase2[T_Node] = KitBase2(None), early_stop: bool = False):
@@ -115,11 +116,11 @@ class SafeIterBase2(Generic[T_Node]):
             self._seen[node] = [node]
 
     @classmethod
-    def _getitem(cls,it: Self, index: int ,allowed_null:bool= False) -> KitBase2[T_Node]:
+    def _getitem(cls,it: Self, index: int ,getitem_null_end:bool= False) -> KitBase2[T_Node]:
         """
         根据索引获取节点。
-        - 如果索引>=有效节点数量，当 allowed_null 为假则抛出 IndexError，否则为真则返回 包装类的 None 节点
-        - 如果中途遇到重复节点，仅当 it._early_stop 为真时抛出 IndexError，否则将跳过重复节点（重复节点不计入有效节点数）
+        - 如果遇到重复节点抛出 IndexError
+        - 如果索引越界超过1次或 _getitem_null_end 为假则抛出 IndexError，否则返回 None
         - 其余情况按 iterator 的遍历次序返回节点
         """
         if index < 0:
@@ -129,13 +130,12 @@ class SafeIterBase2(Generic[T_Node]):
         for i,node in enumerate(it):
             if i == index:
                 return node
-            
-        # 如果迭代因环而停止，抛出异常
-        if it._early_stop and it.revisit_nodes:
-            raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0].visit_index}.")
+            # 如果迭代因环而停止，抛出异常
+            if it.revisit_nodes:
+                raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0].visit_index}.")
 
-        # 索引超出范围，若允许 allowed_null 返回空节点
-        if allowed_null:
+        # 索引恰好超出范围，若允许 _getitem_null_end 返回空节点
+        if getitem_null_end and i+1 == index:
             return KitBase2(None)
         else: # 否则报错
             raise IndexError(f"Index: {index} out of range")
@@ -157,26 +157,6 @@ class SafeIterBase2(Generic[T_Node]):
         else:
             self._seen[node] = [node]
             return True
-
-    @classmethod
-    def _flatten(cls, it:SafeIterBase2, max_len: int = -1) -> List[KitBase2[T_Node]]:
-        """
-        安全展开链表，返回包装节点列表。
-        默认 max_len = -1，则不会限制展开节点数量
-        """
-        if 0==max_len: return []
-        nodes: List[KitBase2[T_Node]] = [] # 若 Cython 化，可以设置 max_len（非负时）为最大容量
-        for cur_len,node in enumerate(it,1): 
-            nodes.append(node)
-            if cur_len == max_len: # i 是逐一递增的，若 max_len 非负，则必能生效
-                break
-        return nodes
-        
-    @classmethod
-    def _to_raw_list(cls, kit_nodes: List[KitBase2[T_Node]]) -> List[T_Node]:
-        res = [node.raw for node in kit_nodes if node.raw] # 返回原始值
-        assert len(res) == len(kit_nodes), "Empty node found during unwrapping, design error or data corrupted!"
-        return res
 
     def __iter__(self) -> Iterator[KitBase2[T_Node]]:
         return self
@@ -234,7 +214,7 @@ class IterNext2(SafeIterBase2[T_NEXT]):
 
         super().__init__(node=head if isinstance(head,ListNodeKitBase) else ListNodeKitBase(head),
                         early_stop=True) # 链表不支持跳过，故早停为 True
-        self.allowed_null = getitem_null_end
+        self._getitem_null_end = getitem_null_end
 
     def _prepare_next(self) -> None:
         """移动到下一个节点，自动包装，并进行环检测。"""
@@ -243,25 +223,25 @@ class IterNext2(SafeIterBase2[T_NEXT]):
             self._check_safe(self._cur_node) # 不安全会自动触发早停，无需置 None
 
     @property
-    def circle_index(self) -> int:
-        """获取当前迭代器的环节点索引，若无则返回 -1"""
+    def circle_index(self) -> Optional[int]:
+        """获取当前迭代器的环节点索引，若无则返回 None"""
         if self.revisit_nodes:
             assert 1 == len(self.revisit_nodes), f"链表重复索引理论上不可能超过一次，而实际重复索引数量={len(self.revisit_nodes)}，可能是被非法重置初始节点，重复迭代。"
             return cast(ListNodeKitBase,self.revisit_nodes[0]).visit_index 
-        return -1
+        return None
 
     def copy(self,reset_index = False) -> Self:
         """注意默认 reset_index=False，即默认不重置索引值"""
         node = ListNodeKitBase(self._cur_node) if reset_index else cast(ListNodeKitBase,self._cur_node)
-        return self.__class__(node, self.allowed_null)
+        return self.__class__(node, self._getitem_null_end)
 
     def __getitem__(self, index: int) -> ListNodeKitBase[T_NEXT]:
         """
         根据索引获取节点。
-        - 如果索引越界且 allowed_null=True，返回 None
-        - 如果遇到环且未达到索引，根据 allowed_null 返回 None 或抛出 IndexError
+        - 如果索引越界且 _getitem_null_end=True，返回 None
+        - 如果遇到环且未达到索引，根据 _getitem_null_end 返回 None 或抛出 IndexError
         """
-        return cast( ListNodeKitBase, SafeIterBase2._getitem( self.copy(), index, self.allowed_null ))
+        return cast( ListNodeKitBase, SafeIterBase2._getitem( self.copy(), index, self._getitem_null_end ))
     
     def __next__(self) -> ListNodeKitBase[T_NEXT]:
         return cast(ListNodeKitBase,super().__next__())
@@ -269,21 +249,24 @@ class IterNext2(SafeIterBase2[T_NEXT]):
     def __iter__(self) -> Iterator[ListNodeKitBase[T_NEXT]]:
         return self
 
-    def flatten(self, max_len: int = -1) -> Tuple[List[KitBase2[T_NEXT]], int]:
+    def flatten(self, max_len: Optional[int] = None) -> Tuple[List[T_NEXT], Optional[int]]:
         """
-        安全展开链表，返回节点列表和停止索引。当 max_len 为非负值时，则限制输出的长度不大于 max_len。
-        :params max_len:
-        raw ...
-        :return nodes 注意会受到    
-        self._early_stop 影响，为真时会跳过重复节点继续展开，为假时遇到重复节点就会停止收集和...
-        stop_index < len(nodes) 说明包含重复节点，其下标为 stop_index， 若 因为 max_len 而停止，stop_index = max_len ，否则 stop_index = -1 （包含有效节点恰好为 max_len 个的情况）
+        安全展开链表，返回节点列表和停止索引。
         """
+        assert self._getitem_null_end == False, "flatten 不支持 _getitem_null_end=True"
         it = self.copy()
-        nodes = SafeIterBase2._flatten(it, max_len=max_len)
+        stop_index = None
+        nodes: List[T_NEXT] = []
+        for kit_node in it:
+            if (max_len is None) or (kit_node.visit_index < max_len):
+                assert kit_node.raw is not None, f"设计错误：_getitem_null_end={self._getitem_null_end}, 但是迭代到 None"
+                nodes.append(kit_node.raw)
+            else:
+                stop_index = max_len # 迭代次数达到 max_len，则以 max_len 为停止索引
+                break
 
-        stop_index = it.circle_index # 检测到环，则以环节点索引为停止索引
-        if -1 == stop_index and it._cur_node: # 未检测到环，但是迭代器没有迭代到空节点
-            stop_index = len(nodes) # 说明迭代器因 max_len 限制而停止
+        if it.revisit_nodes: # 检测到环，则以环节点索引为停止索引
+            stop_index = it.circle_index
         return nodes, stop_index
 
 class ListNodeKitBase(KitBase2[T_NEXT]):
@@ -301,23 +284,35 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
     def next(self)->'ListNodeKitBase[T_NEXT]':
         node = self.raw
         if node is None:
-            raise AttributeError("Empty node has no 'next' attribute")
+            raise AttributeError(f"空链表不能使用 next 属性")
         
         # 关键：返回当前类的实例，保持装饰器效果延续
         return self.__class__(node.next, self.visit_index + 1)
     
     @next.setter
     def next(self, value) -> None:
-        raise NotImplementedError("ListNodeKitBase.next.setter should not be called")
+        raise NotImplementedError("ListNodeKitBase.next.setter 本该仅用于声明，但却被调用了")
         
-    def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: int = -1) -> Tuple[List[KitBase2[T_NEXT]], int]:
-        """展开链表（包装节点类），若 max_len 非负则限制展开节点数量不超过 max_len"""
-        return IterNext2[T_NEXT](ListNodeKitBase(self),False).flatten(max_len)
-        
-    def flatten_raw(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: int = -1) -> Tuple[List[T_NEXT], int]:
-        """展开链表（原生节点类），若 max_len 非负则限制展开节点数量不超过 max_len"""
-        kit_nodes,stop_index = IterNext2[T_NEXT](ListNodeKitBase(self),False).flatten(max_len)
-        return SafeIterBase2._to_raw_list(kit_nodes) , stop_index
+    def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: Optional[int] = None) -> Tuple[List[T_NEXT], Optional[int]]:
+        """
+        安全展开链表，返回节点列表和停止索引。
+
+        支持两种调用方式：
+        - 实例调用：`kit.flatten()` 或 `kit.flatten(max_len)`
+        - 类/静态风格：`ListNodeKitBase.flatten(head [,max_len])`
+
+        Args:
+            max_len: 最大收集节点数，超出则提前终止。
+
+        Returns:
+            (nodes, stop_index)
+            - nodes: 节点列表（原始节点对象）。
+            - stop_index:
+                - 检测到环 → 环起始索引
+                - 达到 max_len → max_len
+                - 正常结束 → None
+        """
+        return IterNext2[T_NEXT](ListNodeKitBase(self),False).flatten(max_len=max_len)
 
     def __iter__(self)->IterNext2[T_NEXT]:
         """返回安全链表迭代器"""
@@ -336,14 +331,14 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
         str_lst = []
         
         # 环之前的节点（若无环则全部节点）
-        for i in range(stop_index if -1 != stop_index else len(nodes)):
+        for i in range(stop_index if stop_index else len(nodes)):
             try:
                 str_lst.append(_formatted_string(getattr(nodes[i],prep_property)))
             except:
                 raise Exception(f"len(nodes)={len(nodes)}, stop_index={stop_index}, node={nodes[-1]}")
         
         # 有异常终止索引
-        if stop_index >= 0:
+        if stop_index is not None:
             if stop_index == len(nodes):
                 str_lst.append("...") # 说明链表长度超过最大限制，截断打印
 

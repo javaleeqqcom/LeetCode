@@ -61,9 +61,16 @@ def test_listnode_kit():
     print(f"   bool(kit.next.next): {bool(kit.next.next)}")   # True
     print(f"   bool(kit.next.next.next): {bool(kit.next.next.next)}")  # False
     
-    # 2.6 长链表截断打印测试
-    long_link = ListNodeKit(List2ListNode(list(range(1,101))))
-    print(long_link.to_str(max_len=99))
+    # 2.5 链表长度恰为阶段长度打印测试
+    link = ListNodeKit(List2ListNode(list(range(1,101))))
+    link_str = link.to_str(max_len=100)
+    print(link_str)
+    assert "..." not in link_str,"max_len恰好达到链表截长度时不应包含 ... 标记"
+
+    # 2.6 长链表截断打印测试（恰好溢出）
+    link_str = link.to_str(max_len=99)
+    print(link_str)
+    assert "..." in link_str,"长链表截断打印应包含 ... 标记"
 
     # ---------- 3. 带环链表（使用示例中的构造方式）----------
     print("\n3. 带环链表测试")
