@@ -54,7 +54,7 @@ def test_listnode_kit():
     # 2.4 flatten
     nodes, cycle_idx = kit.flatten()
     print(f"   flatten() 返回节点数: {len(nodes)}, 环索引: {cycle_idx}")
-    assert cycle_idx is None
+    assert cycle_idx == -1
     
     # 2.5 通过 __bool__ 判断非空
     print(f"   bool(kit): {bool(kit)}")              # True
@@ -110,7 +110,7 @@ def generate_random_list(node_count: int, create_cycle: bool = False):
         nodes[i].next = nodes[i+1]
     
     if not create_cycle:
-        return nodes[0], None
+        return nodes[0], -1
     
     # 随机选择环的起点（可以是头节点，但不能是尾节点，因为尾节点的 next 指向其他节点才成环）
     # 环起点必须存在于节点列表中，且它的 next 指向某个之前的节点（包括自身）
@@ -129,17 +129,16 @@ def generate_random_list(node_count: int, create_cycle: bool = False):
 def validate_list_flatten(head, expected_cycle_start_node):
     """验证 flatten 结果是否符合预期"""
     kit = ListNodeKit(head)
-    nodes, cycle_idx = kit.flatten()
+    nodes, cycle_idx = kit.flatten_raw()
     
-    if expected_cycle_start_node is None:
+    if expected_cycle_start_node == -1:
         # 期望无环
-        assert cycle_idx is None, f"期望无环，但检测到环起始索引 {cycle_idx}"
+        assert cycle_idx == -1, f"期望无环，但检测到环起始索引 {cycle_idx}"
         # 检查节点数是否正确（无环时节点数应等于原始节点数）
         # 注意：原始节点数需要从 head 遍历计算，但由于链表可能很长，我们可以在生成时记录 node_count
         # 这里简化：不检查节点数，因为生成函数已保证无重复节点
     else:
         # 期望有环
-        assert cycle_idx is not None, "期望有环，但 flatten 返回 None"
         assert 0 <= cycle_idx < len(nodes), f"环起始索引 {cycle_idx} 越界"
         start_node = nodes[cycle_idx]
         assert start_node is expected_cycle_start_node, \
@@ -180,11 +179,6 @@ def test_random_lists():
             except IndexError:
                 # 根据实现，索引第 n 个节点应返回空链表，不应抛出异常
                 assert False, f"根据实现，索引第 n 个节点应返回空链表，kit: {kit}"
-            try:
-                _ = kit[node_count + 1]
-                assert False, "索引越界超过1次应该抛出 IndexError"
-            except IndexError:
-                pass
         
         # 对包含环的链表，测试 flatten 的环索引一致性（已在上方 validate 中完成）
         
@@ -201,8 +195,8 @@ def test_duplicate_values_no_cycle():
     a.next = b
     b.next = c
     kit = ListNodeKit(a)
-    nodes, cycle_idx = kit.flatten()
-    assert cycle_idx is None
+    nodes, cycle_idx = kit.flatten_raw()
+    assert cycle_idx == -1
     assert len(nodes) == 3
     # 确认节点对象不同
     assert nodes[0] is a
@@ -280,9 +274,9 @@ def test_flatten_methods():
 
     # 1.1 实例调用 flatten()，无环正常结束
     nodes, stop = kit.flatten()
-    assert stop is None, f"无环链表正常结束应为 None，实际 {stop}"
+    assert stop == -1, f"无环链表正常结束应为 None，实际 {stop}"
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten() 正常结束，stop=None")
+    print("✓ 实例调用 flatten() 正常结束，stop=-1")
 
     # 1.2 实例调用 flatten(max_len=3)，提前达到 max_len
     nodes, stop = kit.flatten(max_len=3)
@@ -292,9 +286,15 @@ def test_flatten_methods():
 
     # 1.3 实例调用 flatten(max_len=10)，max_len 大于实际长度，正常结束
     nodes, stop = kit.flatten(max_len=10)
-    assert stop is None, f"max_len 大于链表长度应正常结束，实际 {stop}"
+    assert stop ==-1, f"max_len 大于链表长度应正常结束，实际 {stop}"
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=None")
+    print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=-1")
+
+    # 1.4 实例调用 flatten(max_len=5)，max_len 大于实际长度，正常结束
+    nodes, stop = kit.flatten(max_len=5)
+    assert stop == -1, f"max_len 恰好等于链表长度应算正常结束，实际 {stop}"
+    assert len(nodes) == 5
+    print("✓ 实例调用 flatten(max_len=5) 正常结束，stop=-1")
 
     # ---------- 类调用方式（将 head 作为第一个参数）----------
     # 2.1 类调用 flatten(head)
@@ -302,8 +302,8 @@ def test_flatten_methods():
     assert isinstance(head, ListNode)
 
     
-    nodes2, stop2 = ListNodeKit.flatten(head)
-    assert stop2 is None
+    nodes2, stop2 = ListNodeKit.flatten_raw(head)
+    assert stop2 == -1
     assert len(nodes2) == 5
     # 节点对象应与原始相同
     assert nodes2[0] is n1 and nodes2[-1] is n5
@@ -355,7 +355,7 @@ def test_flatten_methods():
         assert stop == 1, f"max_len=100 应检测到环起始索引 1，实际 {stop}, 说明混用 ListNodeKit 和 ListNode 将导致环检测失效。"
 
     # 3.1 实例调用 flatten()，检测到环
-    nodes, stop = cycle_kit.flatten()
+    nodes, stop = cycle_kit.flatten_raw()
     assert stop == 2, f"环起始索引应为 2，实际 {stop}"
     assert len(nodes) > 2
     assert nodes[stop] is n3

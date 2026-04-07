@@ -340,6 +340,8 @@ results = optimized.run(cases, log_suffix="_optimized")
    - id(node) 改为对包装节点 hash(node)，包装节点类需实现 __hash__
    - self._seen[原生节点哈希] = [包装节点引用,...]    # values[*] 保存包装节点是因为包装节点可能含有类似 assigned_idx 的信息，若存原生节点则丢失信息。
    - self._revisit = [重复访问>1次的 原生节点哈希,...] # 其值必须 in self._seen
+   - 类方法 _getitem：allowed_null 为真则不会因越界而报错，统一返回空包装节点。并且会根据 it._early_stop 决定是否因为有重复节点而报错。
+   - 类方法 _flatten：只设置 max_len 限制输出节点长度，不再返回 stop_index 等信息，调用者可通过代入的 it 迭代器获取。树遍历器若需要限制遍历层数，可通过其迭代器限制，而不是通过 max_len。
 
 2. ** KitBase **
    - 需实现 __hash__ = id(_node) 供 SafeIterBase 确定原生节点哈希
