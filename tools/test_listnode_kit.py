@@ -81,7 +81,7 @@ def test_listnode_kit():
 
     # ---------- 3. 带环链表（使用示例中的构造方式）----------
     print("\n3. 带环链表测试")
-    ring_link = ListNodeKit(val=1)
+    ring_link = ListNodeKit.from_val(val=1)
     b = ListNode(2)
     c = ListNode(3)
     d = ListNode(4)
@@ -102,7 +102,7 @@ def test_listnode_kit():
     
     # ---------- 4. 使用 val 参数构造 ----------
     print("\n4. 使用 val 参数构造")
-    kit_by_val = ListNodeKit(val=5)
+    kit_by_val = ListNodeKit.from_val(val=5)
     print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
     print(f"   kit_by_val.node.val: {kit_by_val.val}")  # 5
     

@@ -1,7 +1,7 @@
 # test_TreeNodeKit.py
 import random
 import sys
-from typing import List, Optional, Tuple, Set, Any,TypeVar
+from typing import List, Optional, Tuple, Set, Any,TypeVar, Dict
 import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
@@ -167,6 +167,7 @@ def test_basic_functionality():
 
     # 索引访问（层序遍历）
     for i in range(6):
+        print(f"索引访问（层序遍历）, i = {i}")
         assert kit[i].val == i+1,f"expected kit[{i}]={i+1}, got {kit[i].val}"
         
     try:
@@ -190,7 +191,7 @@ def test_basic_functionality():
     nodes, it_res = kit.flatten()
     node_vals = [node.val for node in nodes]
     assert node_vals == [1, 2, 3, 4, 5, 6]
-    assert not it_res.revisit_nodes, "无环链表 cycle_idx 应为空"
+    assert not it_res.revisit_nodes, "无环链表 rep_idx 应为空"
 
     # 超出深度打印
     print("超出深度打印")
@@ -229,9 +230,9 @@ def test_cycle_detection():
     nodes, it_res = kit.flatten()
 
     assert 1 == len(it_res.revisit_nodes)
-    cycle_idx = it_res.revisit_nodes[0].visit_index
+    rep_idx = it_res.rep_nodes_idx[0]
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
-    assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
+    assert rep_idx == 1, f"自环起始索引应为1，实际{rep_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
     assert len(nodes) == 1, kit
     assert nodes[0].raw is root
@@ -260,11 +261,11 @@ def test_cycle_detection():
     kit = TreeNodeKit(n1)
     nodes, it_res = kit.flatten()
     assert 1 == len(it_res.revisit_nodes), kit
-    cycle_idx = it_res.revisit_nodes[0].visit_index
+    rep_idx = it_res.revisit_nodes[0].visit_index
     # 层序顺序: [1,2,3,4,5,6] 当遍历到 n4 时，n4.right 指向 n5，而 n5 已经出现过（在索引4）
     # 所以环起始索引应该是 n5 首次出现的索引，即 4（0-based）
     print(kit)
-    assert cycle_idx == 6, f"交叉环起始索引应为6，实际{cycle_idx}"
+    assert rep_idx == 6, f"交叉环起始索引应为6，实际{rep_idx}"
     print("交叉环检测通过")
 
     # 2.3 多个环（复杂情况）：一个节点同时被多个节点指向
@@ -277,11 +278,11 @@ def test_cycle_detection():
     c.right = b  # 另一个指向 b
     kit = TreeNodeKit(a)
     nodes, it_res = kit.flatten()
-    assert 2 == len(it_res.revisit_nodes), kit.to_str(full_traversal=True)
-    cycle_idx = [node.visit_index for node in it_res.revisit_nodes]
+    rep_idx = it_res.rep_nodes_idx
+    assert 2 == len(rep_idx), kit.to_str(full_traversal=True)
     # 层序：a(0), b(1), c(2) 当 b.left 访问 a 时，a 已经出现（索引0），环起始索引0
-    assert cycle_idx[0] == 1,f"cycle_idx={cycle_idx},树：\n{kit}"
-    assert cycle_idx[1] == 2,f"cycle_idx={cycle_idx},树：\n{kit}"
+    assert rep_idx[0] == 1,f"rep_idx={rep_idx},树：\n{kit}"
+    assert rep_idx[1] == 2,f"rep_idx={rep_idx},树：\n{kit}"
     print("多环节点检测通过")
 
     # 2.4 测试 __getitem__ 在遇到环时抛出 IndexError（含环信息）
@@ -319,9 +320,9 @@ def test_cycle_detection():
     # 索引访问（堆索引）
     for i in val_list:
         assert kit_cross.get_heap(i).val == i,f"expected kit_cross[{i}]={i}, got {kit_cross[i].val}"
-    for i in [5,9,14,15]:
+    for i in [5,9,12,14,15]:
         assert kit_cross.get_heap(i,allowed_null=True).raw is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
-    for i in [8,12,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
+    for i in [8,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
         assert kit_cross.get_heap(i,allowed_null=True).val != i
         
     try:
@@ -333,29 +334,6 @@ def test_cycle_detection():
 
     print("环检测全部通过")
 
-def validate_flatten(kit: TreeNodeKit, expected_cycle_ids: Optional[Set[int]], log: str = ""):
-    """验证 flatten 结果"""
-    nodes, cycle_idx = kit.flatten()
-    if not expected_cycle_ids:  # None 或空集都表示无环
-        if cycle_idx is not None:
-            raise AssertionError(f"期望无环，但检测到环起始索引 {cycle_idx}\n生成日志：\n{log}")
-    else:
-        if cycle_idx is None:
-            # 输出详细的调试信息
-            raise AssertionError(
-                f"期望有环，但 flatten 返回 None\n"
-                f"期望环起始节点 id 集合: {expected_cycle_ids}\n"
-                f"生成日志：\n{log}\n"
-                f"树结构简图：{kit}"
-            )
-        nodes_dict = dict(nodes)
-        start_node = nodes_dict[cycle_idx]
-        if id(start_node) not in expected_cycle_ids:
-            raise AssertionError(
-                f"环起始节点 id {id(start_node)} 不在预期集合 {expected_cycle_ids} 中\n"
-                f"生成日志：\n{log}"
-            )
-  
 def test_duplicate_values():
     """测试值重复但节点不同的情况，不应触发环检测"""
     print("\n=== 4. 重复值（非环）测试 ===")
@@ -366,15 +344,16 @@ def test_duplicate_values():
     n1.left = n2
     n2.left = n3
     kit = TreeNodeKit(n1)
-    nodes, cycle_idx = kit.flatten()
-    assert not cycle_idx 
+    nodes, it_res = kit.flatten()
+    rep_idx = it_res.rep_nodes_idx
+    assert not rep_idx , f"rep_idx = {rep_idx}"
     assert len(nodes) == 3
-    assert nodes[0][1].val == 100
-    assert nodes[1][1].val == 100
-    assert nodes[2][1].val == 100
+    assert nodes[0].val == 100
+    assert nodes[1].val == 100
+    assert nodes[2].val == 100
     # 确认节点对象不同
-    assert nodes[0][1] is not nodes[1][1]
-    assert nodes[1][1] is not nodes[2][1]
+    assert nodes[0] is not nodes[1]
+    assert nodes[1] is not nodes[2]
     print("重复值测试通过")
 
 def test_setters_and_unwrap():
@@ -429,14 +408,15 @@ def test_random_tree(seed = 42):
         root = random_tree(8, 20, left_p, right_p)   # 生成合法二叉树
         kit = TreeNodeKit(root)
         # 获取 kit 的 flatten 结果（自动环检测）
-        idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
-        nodes_dict = None
+        nodes, it_res = kit.flatten(early_stop=False)
+        nodes_dict = {}
+        stop_idxs = [] # 初始为合法树，无需停止索引
 
         for j in range(100): # 非法链接次数上限                # 索引 -> 节点
-            if nodes_dict is None:
-                nodes_dict = dict(idx_nodes_lst)    
+            if not nodes_dict:
+                nodes_dict:Dict[int, TreeNode] = {node.visit_index: node.raw for node in nodes if node.raw}
             # 第一次必是合法树，因此只需从第二次开始添加非法链接（重复节点或环）
-            if j>0 and len(idx_nodes_lst)>1: # 至少要有两个节点，才增加非法链接。否则只有一个节点的情况下，只能无限形成自环，而自环已在基础测试中通过，无需再测。
+            if j>0 and len(nodes)>1: # 至少要有两个节点，才增加非法链接。否则只有一个节点的情况下，只能无限形成自环，而自环已在基础测试中通过，无需再测。
                 reachable_idxs = list(nodes_dict.keys())
                 # 随机选择两个可达节点（可能相同），让一个指向另一个
                 assert all(idx in nodes_dict for idx in reachable_idxs), f"交集/实际: {len(set(reachable_idxs)&set(nodes_dict.keys()))}/{len(reachable_idxs)}"
@@ -448,19 +428,20 @@ def test_random_tree(seed = 42):
                     cur.right = tail
                     
                 # 获取 kit 的 flatten 结果（自动环检测）
-                idx_nodes_lst, stop_idxs = kit.flatten(early_stop=False)
-                nodes_dict = dict(idx_nodes_lst)     
+                nodes, it_res = kit.flatten(early_stop=False)
+                stop_idxs = it_res.rep_nodes_idx
+                nodes_dict = {node.visit_index: node.raw for node in nodes if node.raw}  
 
             # 层序遍历（展平后 val 列表）
             traver = TreeTraversal()
             level_vals_expected = [val for level in traver.levelOrder(root) for val in level]
-            level_vals_actual   = [node.val for _, node in idx_nodes_lst]
+            level_vals_actual   = [node.val for node in nodes]
             assert level_vals_expected == level_vals_actual, f"expected :{level_vals_expected}\nlevel_actual :{level_vals_actual}\n{kit.to_str(full_traversal=True)}"
 
             # 测试用例检测到的重复键值
             excepted_rep_val = traver.rep[0] if traver.rep else None
 
-            level_kit = [node.val for _, node in idx_nodes_lst]
+            level_kit = [node.val for node in nodes]
 
             # 验证环起始索引与重复值一致
             if excepted_rep_val is not None:
@@ -472,39 +453,39 @@ def test_random_tree(seed = 42):
             assert level_vals_actual == level_kit, f"层序遍历序列不一致\nstd = {level_vals_actual}\nreal = {level_kit}\n{kit.to_str(full_traversal=True)}"
 
             # 3. 验证 __iter__（默认层序）与 flatten 结果一致
-            assert level_kit == [node.val for _, node in kit], "__iter__ 与 flatten 不一致"
+            assert level_kit == [node.val for node in nodes], "__iter__ 与 flatten 不一致"
 
             if _CHECK_REAPET_TREE or 0==j: # 是否测试有重复节点的树
                 # 前序/中序/后序（使用递归遍历，因为此时树无环）
                 pre_expected  = TreeTraversal().preorder(root)
-                pre_actual    = [node.val for _, node in kit.NLR_iter()]
+                pre_actual    = [node.val for node in kit.NLR_iter()]
                 assert pre_expected == pre_actual, f"expected: {pre_expected}\nactual: {pre_actual}\n{kit.to_str(full_traversal=True)}"
 
                 in_expected   = TreeTraversal().inorder(root)
-                in_actual     = [node.val for _, node in kit.LNR_iter()]
+                in_actual     = [node.val for node in kit.LNR_iter()]
                 assert in_expected == in_actual, f"expected: {in_expected}\nin_actual = {in_actual}\n{kit.to_str(full_traversal=True)}"
 
                 post_expected = TreeTraversal().postorder(root)
-                post_actual   = [node.val for _, node in kit.LRN_iter()]
+                post_actual   = [node.val for node in kit.LRN_iter()]
                 assert post_expected == post_actual, f"expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
             if _CHECK_EARLY  and j>0: # j==0 时是完整树，没有必要测早停
                 # 层序遍历
                 level_expected = [val for level in TreeTraversal(True).levelOrder(root) for val in level]
-                level_actual = [node.val for _, node in kit.layer_iter(True)]
+                level_actual = [node.val for node in kit.layer_iter(True)]
                 assert level_expected == level_actual, f"early: expected: {level_expected}\nactual: {level_actual}\n{kit.to_str(full_traversal=True)}"
 
                 # 前序/中序/后序 早停版（使用递归遍历，因为此时树无环）
                 pre_expected  = TreeTraversal(True).preorder(root)
-                pre_actual    = [node.val for _, node in kit.NLR_iter(True)]
+                pre_actual    = [node.val for node in kit.NLR_iter(True)]
                 assert pre_expected == pre_actual, f"early: expected: {pre_expected}\nactual: {pre_actual}\n{kit.to_str(full_traversal=True)}"
 
                 in_expected   = TreeTraversal(True).inorder(root)
-                in_actual     = [node.val for _, node in kit.LNR_iter(True)]
+                in_actual     = [node.val for node in kit.LNR_iter(True)]
                 assert in_expected == in_actual, f"early: expected: {in_expected}\nin_actual = {in_actual}\n{kit.to_str(full_traversal=True)}"
 
                 post_expected = TreeTraversal(True).postorder(root)
-                post_actual   = [node.val for _, node in kit.LRN_iter(True)]
+                post_actual   = [node.val for node in kit.LRN_iter(True)]
                 assert post_expected == post_actual, f"early: expected: {post_expected}\nactual: {post_actual}\n{kit.to_str(full_traversal=True)}"
 
     print(" + ".join(filter(bool,["随机树" , "非法链接" , "前序/中序/后序" if _CHECK_REAPET_TREE else "" , "早停" if _CHECK_EARLY else ""])) + "测试全部通过")

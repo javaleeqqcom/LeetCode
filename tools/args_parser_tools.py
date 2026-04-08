@@ -155,20 +155,29 @@ class KitBase(Generic[T]): # 泛型
     def __ne__(self, other: Any) -> bool:
         return id(self._node) != id(self.unwrap(other))
    
-def ReprDecorator(prep_property: str = "val"):
-    """
-    类装饰器：为 ToStringClass 注入指定的打印属性，调用 to_string(self,prep_property) 实现默认打印行为。
-    用法: 
-    @ReprDecorator("value")
-    class HasReprClass(ToStringClass): pass
-    """
-    def wrapper(cls):
-        # 在被装饰的类中定义 __repr__，利用闭包捕获 prep_property
-        def __repr__(self):
-            # 直接调用类方法 to_string，传入捕获的属性名
-            return self._to_string(self._node, prep_property)
-        
-        cls.__repr__ = __repr__
+import functools
+import inspect
 
+def ReprDecorator(prep_property: str = "val"):
+    def wrapper(cls):
+        # 获取父类 _to_string 的签名
+        orig_method = cls._to_string
+        sig = inspect.signature(orig_method)
+        
+        @functools.wraps(orig_method)
+        def to_str(self, *args, **kwargs):
+            # 自动注入 prep_property，其余参数透传
+            bound = sig.bind_partial(self, *args, **kwargs)
+            return orig_method(
+                self, 
+                prep_property=prep_property, 
+                **{k: v for k, v in bound.arguments.items() if k != 'root'}
+            )
+        
+        def _repr(self):
+            return self.to_str()
+        
+        cls.to_str = to_str
+        cls.__repr__ = _repr
         return cls
     return wrapper

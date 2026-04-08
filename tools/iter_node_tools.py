@@ -3,8 +3,7 @@ iter_node_tool.py - 链表调试增强工具（方案二：操作包装节点）
 用于 LeetCode 本地自动化测试框架，支持环检测、安全遍历、美观打印。
 纯 Python 实现，便于后续转换为 Cython。
 """
-__DEBUG__ = False
-MAX_LEN = 100
+__DEBUG__ = True
 
 from typing import (
     Any, Dict, List, Optional, Iterator, Tuple, TypeVar, Generic, Protocol,
@@ -71,10 +70,8 @@ class KitBase2(Generic[T_Node]):
     
     def __getattr__(self, name: str) -> Any:
         """代理属性访问到原生节点"""
-        cls = type(self)
-
         # 1️⃣ 先查类属性
-        attr = getattr(cls, name, None)
+        attr = getattr(type(self), name, None)
 
         # 2️⃣ 如果是 data descriptor（有 __set__）
         if hasattr(attr, "__get__"):
@@ -86,10 +83,8 @@ class KitBase2(Generic[T_Node]):
         return getattr(node, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        cls = type(self)
-
         # 1️⃣ 先查类属性
-        attr = getattr(cls, name, None)
+        attr = getattr(type(self), name, None)
 
         # 2️⃣ 如果是 data descriptor（有 __set__）
         if hasattr(attr, "__set__"):
@@ -134,7 +129,7 @@ class SafeIterBase2(Generic[T_Node]):
         self._revisit: List[KitBase2[T_Node]] = []
         self._cur_node: KitBase2[T_Node] = node if isinstance(node,KitBase2) else KitBase2(node) # 必须代入包装类节点
         self._early_stop = early_stop
-        self._head_class = self._cur_node.__class__
+        self._kit_cls = type(self._cur_node) # 类型“向下保持”
 
         if node:
             self._seen[node] = [node]
@@ -161,7 +156,7 @@ class SafeIterBase2(Generic[T_Node]):
 
         # 索引超出范围，若允许 allowed_null 返回空节点
         if allowed_null:
-            return it._head_class(None)  # ✅ 保持子类类型
+            return it._kit_cls(None)  # ✅ 保持子类类型
         else: # 否则报错
             raise IndexError(f"Index: {index} out of range")
 
@@ -271,7 +266,9 @@ class IterNext2(SafeIterBase2[T_NEXT]):
 
     def copy(self,reset_index = False) -> IterNext2[T_NEXT]:
         """注意默认 reset_index=False，即默认不重置索引值"""
-        node = ListNodeKitBase(self._cur_node) if reset_index else cast(ListNodeKitBase,self._cur_node)
+        
+        node = cast(ListNodeKitBase ,self._kit_cls(self._cur_node) 
+                    if reset_index else self._cur_node)
         return IterNext2(node, self.allowed_null)
 
     def __getitem__(self, index: int) -> ListNodeKitBase[T_NEXT]:
@@ -280,18 +277,17 @@ class IterNext2(SafeIterBase2[T_NEXT]):
         - 如果索引越界且 allowed_null=True，返回 None
         - 如果遇到环且未达到索引，根据 allowed_null 返回 None 或抛出 IndexError
         """
-        return ListNodeKitBase(
-            node= SafeIterBase2._getitem( self.copy(), index, self.allowed_null ),
-            visit_index= index
-        )
+        return cast(ListNodeKitBase,
+                    self._kit_cls(SafeIterBase2._getitem( self.copy(), index, self.allowed_null ))
+                    )
     
-    def __next__(self) -> ListNodeKitBase[T_NEXT]:
-        return cast(ListNodeKitBase,super().__next__())
+    # def __next__(self) -> ListNodeKitBase[T_NEXT]:
+    #     return cast(ListNodeKitBase,super().__next__())
     
-    def __iter__(self) -> Iterator[ListNodeKitBase[T_NEXT]]:
-        return self
+    # def __iter__(self) -> Iterator[KitBase2[T_NEXT]]:
+    #     return self
 
-    def flatten(self, max_len: int = -1) -> Tuple[List[KitBase2[T_NEXT]], int]:
+    def flatten(self, max_len: int = -1) -> Tuple[List[ListNodeKitBase[T_NEXT]], int]:
         """
         安全展开链表，返回节点列表和停止索引。当 max_len 为非负值时，则限制输出的长度不大于 max_len。
         :params max_len:
@@ -309,7 +305,7 @@ class IterNext2(SafeIterBase2[T_NEXT]):
         return nodes, stop_index
 
 class ListNodeKitBase(KitBase2[T_NEXT]):
-    """ 链表调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
+    """ 调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
     def __init__(self, node: KitBase2 | T_NEXT | None , visit_index:int = 0):
         super().__init__(node)
         object.__setattr__(self, '_visit_index', visit_index)
@@ -326,13 +322,16 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
             raise AttributeError("Empty node has no 'next' attribute")
         
         # 关键：返回当前类的实例，保持装饰器效果延续
-        return ListNodeKitBase(node.next, self.visit_index + 1)
+        return self.__class__(node = node.next, visit_index = self.visit_index + 1)
     
     @next.setter
     def next(self, value) -> None:
-        raise NotImplementedError("ListNodeKitBase.next.setter should not be called")
+        node = self.raw # 提取原生节点
+        if node is None:
+            raise AttributeError("Empty node has no 'next' attribute")
+        node.next = self.unwrap(value) # 对原生节点赋值需要去包装
         
-    def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: int = -1) -> Tuple[List[KitBase2[T_NEXT]], int]:
+    def flatten(self: 'ListNodeKitBase[T_NEXT] | T_NEXT | None', max_len: int = -1) -> Tuple[List[ListNodeKitBase[T_NEXT]], int]:
         """展开链表（包装节点类），若 max_len 非负则限制展开节点数量不超过 max_len"""
         return IterNext2[T_NEXT](ListNodeKitBase(self),False).flatten(max_len)
         
@@ -350,10 +349,10 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
         return ListNodeKitBase(IterNext2[T_NEXT](ListNodeKitBase(self,0),True)[key]) # 用 ListNodeKitBase 同理（见 __iter__）
     
     @classmethod
-    def _to_string(cls, head: Optional[T_NEXT], prep_property: str = "val" , max_len:int = MAX_LEN) -> str:
+    def _to_string(cls, head: ListNodeKitBase|T_NEXT|None, prep_property: str = "val" , max_len:int = -1) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
         # 注意要用 unwrap 去包装节点
-        nodes, stop_index = ListNodeKitBase(head).flatten( max_len = max_len)       
+        nodes, stop_index = (head if isinstance(head,ListNodeKitBase) else ListNodeKitBase(head)).flatten( max_len = max_len)       
 
         str_lst = []
         
@@ -413,7 +412,7 @@ class TreeBase(KitBase2[T_LR]):
     def left(self) -> 'TreeBase[T_LR]':
         if self.raw is None:
             raise AttributeError("空树节点不能使用 left 属性")
-        return TreeBase(self.raw.left, self.visit_index * 2)
+        return self.__class__(self.raw.left if self.raw else None, self.visit_index * 2)
 
     @left.setter
     def left(self, value: 'TreeBase[T_LR] | T_LR | None'):
@@ -425,14 +424,13 @@ class TreeBase(KitBase2[T_LR]):
     def right(self) -> 'TreeBase[T_LR]':
         if self.raw is None:
             raise AttributeError("空树节点不能使用 right 属性")
-        return TreeBase(self.raw.right, self.visit_index * 2 + 1)
+        return self.__class__(self.raw.right if self.raw else None, self.visit_index * 2 + 1)
 
     @right.setter
     def right(self, value: 'TreeBase[T_LR] | T_LR | None'):
         if self.raw is None:
             raise AttributeError("空树节点不能设置 right 属性")
         self.raw.right = self.unwrap(value)
-
 
 class TreeIter(SafeIterBase2[T_LR]):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
@@ -445,7 +443,9 @@ class TreeIter(SafeIterBase2[T_LR]):
         max_depth: int = -1
     ):
         super().__init__(TreeBase(None), early_stop)
-        self._root = TreeBase(root) if root is not None else TreeBase(None)
+        self._kit_cls = type(root) if isinstance(root, TreeBase) else TreeBase # 用于类型向下兼容
+        
+        self._root = root if isinstance(root,TreeBase) else TreeBase(root) # 类型下限 TreeBase，尽可能保持子类
         self._operation = operation.lower()
         self._instant_updates = 'u' in self._operation
         self._max_depth = max_depth
@@ -503,9 +503,9 @@ class TreeIter(SafeIterBase2[T_LR]):
                     return
             elif self._early_stop:
                 break
-        self._cur_node = None
+        self._cur_node = self._kit_cls(None)
 
-    def copy(self) -> 'TreeIter[T_LR]':
+    def clone_init(self) -> 'TreeIter[T_LR]':
         """返回从头开始的新迭代器（用于索引访问）"""
         return TreeIter(
             self._root,
@@ -515,23 +515,32 @@ class TreeIter(SafeIterBase2[T_LR]):
             max_depth=self._max_depth
         )
 
-    def flatten(self, max_len: int = -1, raw: bool = False):
+    def flatten(self, max_len: int = -1, raw: bool = False)->Tuple[List[TreeBase[T_LR]] | List[T_LR], TreeIter[T_LR]]:
         """
         展平遍历结果。
         :param max_len: 最大节点数限制，-1表示无限制
         :param raw: 若为True返回原生节点列表，否则返回包装节点列表
         :return: (节点列表, 迭代器自身)
         """
-        it = self.copy()
+        it = self.clone_init()
         nodes = SafeIterBase2._flatten(it, max_len)
         if raw:
             nodes = [n.raw for n in nodes if n.raw]
+        else:
+            nodes = [it._kit_cls(n,n.visit_index) for n in nodes] # 保持与初始节点类型一致
         return nodes, it
     
+    @property
+    def rep_nodes_idx(self) -> List[int]: # 注意是大整数类
+        return [node.visit_index for node in self.revisit_nodes]
+    
 class HeapIter(SafeIterBase2[T_LR]):
-    """沿堆索引路径的安全迭代器，用于 get_heap"""
+    """
+    沿堆索引路径的安全迭代器，用于 get_heap
+    root  必须是 TreeBase 的（后继）类型
+    """
     def __init__(self, root: TreeBase[T_LR] | T_LR, heap_index: int):
-        super().__init__(TreeBase(root), early_stop=True)
+        super().__init__(root if isinstance(root, TreeBase) else TreeBase(root), early_stop=True)
         self.visit_index = heap_index
         # 将 heap_index 转为左右路径列表：True=右，False=左
         bits = bin(heap_index)[3:]  # 去掉 '0b1'
@@ -550,8 +559,8 @@ class HeapIter(SafeIterBase2[T_LR]):
                 self._cur_node = TreeBase(None)
 
     def copy(self) -> 'HeapIter[T_LR]':
-        return HeapIter(TreeBase(self._cur_node), self.visit_index)
-
+        assert isinstance(self._cur_node,TreeBase), "HeapIter 仅支持 TreeBase 极其后继类型作为 _cur_node"
+        return HeapIter(self._cur_node, self.visit_index)
 
 class TreeNodeKitBase(TreeBase[T_LR]):
     """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
@@ -562,23 +571,32 @@ class TreeNodeKitBase(TreeBase[T_LR]):
             raise IndexError("堆索引不能小于1")        
         it = HeapIter(self, heap_index)
         node = SafeIterBase2._getitem(it, len(it._route), allowed_null=allowed_null)
-        return TreeNodeKitBase( node, heap_index )
+        assert isinstance(node, TreeNodeKitBase), f"设计错误：SafeIterBase2._getitem 丢失了节点包装类型的保持状态, 实际类型为 {type(node)}"
+        return node
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase[T_LR]':
         """按层序遍历顺序索引（从0开始），返回包装节点"""
         it = self.layer_iter(early_stop=False)
-        return cast(TreeNodeKitBase,SafeIterBase2._getitem(it,index,False)) # 不能用 TreeNodeKitBase.__init__ 否则会丢失 visit_index
+        node = SafeIterBase2._getitem(it,index,False)
+        assert isinstance(node, TreeNodeKitBase), f"设计错误：SafeIterBase2._getitem 丢失了节点包装类型的保持状态, 实际类型为 {type(node)}"
+        return node
 
-    def flatten(self ,early_stop: bool = False, max_depth: int = -1 ,max_len:int = -1)->Tuple[List[TreeNodeKitBase[T_LR]], TreeIter[T_LR]]:
+    def flatten(self ,early_stop: bool = False, max_depth: int = -1 ,max_len:int = -1)->Tuple[List[TreeNodeKitBase[T_LR]], TreeIter[Self]]:
         """
         层序遍历树，返回 (索引, 原生节点) 列表 和 重复索引列表。
         :param max_depth: 最大深度限制（包含）
         :param early_stop: 遇到重复节点是否停止
         """
-        it = TreeIter(self.raw, "ULR", True, early_stop=early_stop, max_depth=max_depth)
+        it = TreeIter(self, "ULR", True, early_stop=early_stop, max_depth=max_depth)
         nodes = SafeIterBase2._flatten(it,max_len)
-        cast_nodes = [TreeNodeKitBase(node,node.visit_index) for node in nodes]
-        return cast_nodes,it
+        if __DEBUG__:
+            cast_nodes = [TreeNodeKitBase(None)] * len(nodes)
+            for i,n in enumerate(nodes):
+                assert isinstance(n, TreeNodeKitBase), f"设计错误：SafeIterBase2._flatten 丢失了节点包装类型的保持状态, 实际类型为 {type(n)}"
+                cast_nodes[i] = n
+            return cast_nodes,it
+        else:
+            return nodes,it  # pyright: ignore[reportReturnType]
 
     def flatten_raw(self ,early_stop: bool = False, max_depth: int = -1 ,max_len:int = -1)->Tuple[List[T_LR], TreeIter[T_LR]]:
         """
@@ -626,11 +644,12 @@ class TreeNodeKitBase(TreeBase[T_LR]):
         :param max_node_len: 最多显示节点数（-1无限制）
         :param full_traversal: True则遍历所有节点（跳过重复），False则遇重复停止
         """
-        node = cls.unwrap(root)
-        if node is None:
+        # 因为 _to_string 是类方法，不能依赖 TreeNodeKitBase 对象，最低只需依赖基类 TreeBase
+        node:TreeBase = root if isinstance(root, TreeBase) else TreeBase(root)
+        if not node:
             return "<class 'TreeNodeKit'>: empty"
 
-        it = TreeIter(TreeBase(node), "ULR", True,
+        it = TreeIter(node, "ULR", True,
                       early_stop=not full_traversal,
                       max_depth=max_depth)
         kit_nodes, it = it.flatten(max_len=max_node_len, raw=False)
@@ -687,3 +706,4 @@ class TreeNodeKitBase(TreeBase[T_LR]):
 
         body = ",\n".join(parts)
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
+

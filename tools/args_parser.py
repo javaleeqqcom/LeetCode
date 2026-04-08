@@ -53,7 +53,6 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur = cur.next
     return head
 
-@ReprDecorator(prep_property="val") # 装饰器用于实现 __repr__ 默认打印
 class ListNodeKit(ListNodeKitBase[ListNode]):
     """链表调试增强工具，提供安全的扁平化、环检测和打印功能。
 
@@ -69,74 +68,23 @@ class ListNodeKit(ListNodeKitBase[ListNode]):
         - 提取原生节点：`link.node` 返回原生节点 ListNode 对象。
 
     示例:
-        >>> from args_parser import ListNode, ListNodeKit
-        >>>
-        >>> # 1. 空链表
-        >>> empty = ListNodeKit(None)
-        >>> print(empty)
-        <ListNodeKit>:[] 
-        >>> bool(empty)
-        False
-        >>> # empty.next  # 抛出 AttributeError
-        >>>
-        >>> # 2. 无环链表
-        >>> n1 = ListNode(1)
-        >>> n2 = ListNode(2)
-        >>> n3 = ListNode(3)
-        >>> n1.next = n2
-        >>> n2.next = n3
-        >>> kit = ListNodeKit(n1)
-        >>> print(kit)
-        <ListNodeKit>:[1,2,3]
-        >>> kit.val
-        1
-        >>> kit.next.val
-        2
-        >>> kit.next.next.val
-        3
-        >>> kit.node is n1
-        True
-        >>> kit[1].val
-        2
-        >>> bool(kit[3]) # 长度为n的链表，索引第 n 个节点，返回空链表
-        False
-        >>> # kit[4]  # 抛出 IndexError
-        >>> nodes, idx = kit.flatten()
-        >>> len(nodes)
-        3
-        >>> idx
-        None
-        >>>
-        >>> # 3. 带环链表
-        >>> ring_link = ListNodeKit(val=1) # 允许显式指定val参数，直接构造包装类
-        >>> b = ListNode(2)
-        >>> c = ListNode(3)
-        >>> d = ListNode(4)
-        >>> ring_link.next = b # 包装类的 next 映射为原生类的 next
-        >>> b.next = c
-        >>> c.next = d
-        >>> d.next = b  # 环起点为 b
-        >>> print(ring_link)
-        <ListNodeKit>:[1,>,2,3,4,^]
-        >>> nodes, idx = ring_link.flatten()
-        >>> idx # 首个环节点下标
-        1
-        >>> nodes[idx].val
-        2
-
+    （待添加实例）
     注意:
         - 空链表 (`ListNodeKit(None)`) 无法使用 `next` 属性，访问会抛出 AttributeError。
         - 若链表存在环，索引 n 会迭代 n 次，请优先使用 flatten 检测环。
     """
-    def __init__(self, node: ListNode | None = None, val:_BASE_TYPE = None):
-        if (node is None) and (val is not None):
-            node = ListNode(val)
-        super().__init__(node)
-        
-    def to_str(self,max_len=10**5):
-        return self._to_string(self._node, "val", max_len)
+    @classmethod
+    def from_val(cls, val: _BASE_TYPE) -> 'ListNodeKit':
+        """创建单节点树，并设置节点值为 val"""
+        return cls(ListNode(val))
     
+    def to_str(self, max_len=-1):
+        return self._to_string(self, "val", max_len)
 
+    def __repr__(self):
+        return self._to_string(self, "val")
+    
+    
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
     nodes,circle = ListNodeKit(node).flatten()
@@ -151,31 +99,29 @@ class TreeNode:
         self.right = right
 
 # 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
-@ReprDecorator(prep_property="val")
 class TreeNodeKit(TreeNodeKitBase[TreeNode]):
     """
     二叉树调试增强工具，提供安全的层序遍历、环检测和索引访问。
     用法与 ListNodeKit 类似，支持从原始节点或从层序列表构造。
     """
-    def __init__(self, root: Optional[TreeNode] = None, val: _BASE_TYPE = None, level_order: Optional[List[_BASE_TYPE]] = None):
-        """
-        多种构造方式：
-        - TreeNodeKit(node)            : 包装已有 TreeNode
-        - TreeNodeKit(val=1)           : 创建单节点树
-        - TreeNodeKit(level_order=[1,2,3]) : 从层序列表构建树
-        """
-        if level_order is not None:
-            from .args_parser import List2TreeNode  # 延迟导入避免循环
-            node = List2TreeNode(level_order)
-        elif val is not None:
-            node = TreeNode(val)
-        else:
-            node = root
-        super().__init__(node)
-    
-    def to_str(self, max_depth=10, full_traversal=False):
-        return self._to_string(self._node, "val", max_depth, full_traversal)
+    @classmethod
+    def from_level_order(cls, level_order: List[_BASE_TYPE]) -> 'TreeNodeKit':
+        """TreeNodeKit.from_level_order(level_order=[1,2,3]) : 从层序列表构建树"""
+        from .args_parser import List2TreeNode
+        root = List2TreeNode(level_order)
+        return cls(root)
 
+    @classmethod
+    def from_val(cls, val: _BASE_TYPE) -> 'TreeNodeKit':
+        """创建单节点树，并设置节点值为 val"""
+        return cls(TreeNode(val))
+    
+    def to_str(self, max_depth=10, max_node_len=-1, full_traversal=False):
+        return self._to_string(self, "val", max_depth, max_node_len, full_traversal)
+
+    def __repr__(self):
+        return self._to_string(self, "val")
+    
 def TreeNode2List(root: Optional[TreeNode]) -> List[_BASE_TYPE]:
     """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）"""
     if not root:
