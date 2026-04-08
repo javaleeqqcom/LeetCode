@@ -161,7 +161,7 @@ def test_basic_functionality():
     assert kit.val == 1
     assert kit.left.val == 2
     assert kit.right.val == 3
-    assert kit.left.left.val == 4
+    assert kit.left.left.val == 4, f"\tkit.left.left.val = {kit.left.left.val}"
     assert kit.left.right.val == 5
     assert kit.right.left.val == 6
 
@@ -173,24 +173,24 @@ def test_basic_functionality():
         _ = kit[6]
         assert False, "应该抛出 IndexError"
     except IndexError as e:
-        assert "超出" in str(e)
+        assert "out of range" in str(e),e
 
     # 索引访问（堆索引）
     for i in range(1,7):
         assert kit.get_heap(i).val == i,f"expected kit[{i}]={i}, got {kit[i].val}"
     for i in range(7,14):
-        assert kit.get_heap(i)._node is None,f"expected kit[{i}] is null node, got .val={kit[i].val}"
-    try:
-        _ = kit.get_heap(14)
-        assert False, "应该抛出 IndexError"
-    except IndexError as e:
-        assert "超出" in str(e)
+        assert kit.get_heap(i,True).raw is None,f"expected kit[{i}] is null node, got .val={kit[i].val}"
+        try:
+            _ = kit.get_heap(i,False)
+            assert False, "应该抛出 IndexError"
+        except IndexError as e:
+            assert "out of range" in str(e)
 
     # flatten
-    nodes, cycle_idx = kit.flatten()
-    node_vals = [node.val for _, node in nodes]
+    nodes, it_res = kit.flatten()
+    node_vals = [node.val for node in nodes]
     assert node_vals == [1, 2, 3, 4, 5, 6]
-    assert not cycle_idx, "无环链表 cycle_idx 应为空"
+    assert not it_res.revisit_nodes, "无环链表 cycle_idx 应为空"
 
     # 超出深度打印
     print("超出深度打印")
@@ -226,22 +226,15 @@ def test_cycle_detection():
     root = TreeNode(1)
     root.right = root
     kit = TreeNodeKit(root)
-    nodes, cycle_idx = kit.flatten()
-    if cycle_idx != 1:
-        it = kit.layer_iter()
-        try:
-            while True:
-                idx,node = next(it)
-                print(f"val={node.val}, idx={idx} , queue.len = {len(it._container)}")
-        except:
-            print(f"it.seen={it._seen}")
+    nodes, it_res = kit.flatten()
 
-
+    assert 1 == len(it_res.revisit_nodes)
+    cycle_idx = it_res.revisit_nodes[0].visit_index
     # 层序遍历: 根(1) -> 右子(根本身) 形成环
-    assert cycle_idx == [1], f"自环起始索引应为1，实际{cycle_idx}"
+    assert cycle_idx == 1, f"自环起始索引应为1，实际{cycle_idx}"
     # 节点列表应该只有根节点（因为第二次遇到根时检测到环）
     assert len(nodes) == 1, kit
-    assert nodes[0][1] is root
+    assert nodes[0].raw is root
     print("自环检测通过")
 
     # 2.2 交叉环：左子树指向右子树的一个节点（以堆1-index命名）
@@ -265,11 +258,13 @@ def test_cycle_detection():
     n4.right = n6  # 形成环，n6 同时被 n3.left 和 n4.right 引用
 
     kit = TreeNodeKit(n1)
-    nodes, cycle_idx = kit.flatten()
+    nodes, it_res = kit.flatten()
+    assert 1 == len(it_res.revisit_nodes), kit
+    cycle_idx = it_res.revisit_nodes[0].visit_index
     # 层序顺序: [1,2,3,4,5,6] 当遍历到 n4 时，n4.right 指向 n5，而 n5 已经出现过（在索引4）
     # 所以环起始索引应该是 n5 首次出现的索引，即 4（0-based）
     print(kit)
-    assert cycle_idx == [6], f"交叉环起始索引应为6，实际{cycle_idx}"
+    assert cycle_idx == 6, f"交叉环起始索引应为6，实际{cycle_idx}"
     print("交叉环检测通过")
 
     # 2.3 多个环（复杂情况）：一个节点同时被多个节点指向
@@ -281,10 +276,12 @@ def test_cycle_detection():
     b.left = a  # 指向根，形成环
     c.right = b  # 另一个指向 b
     kit = TreeNodeKit(a)
-    nodes, cycle_idx = kit.flatten()
+    nodes, it_res = kit.flatten()
+    assert 2 == len(it_res.revisit_nodes), kit.to_str(full_traversal=True)
+    cycle_idx = [node.visit_index for node in it_res.revisit_nodes]
     # 层序：a(0), b(1), c(2) 当 b.left 访问 a 时，a 已经出现（索引0），环起始索引0
     assert cycle_idx[0] == 1,f"cycle_idx={cycle_idx},树：\n{kit}"
-    # 注意：当 c.right 访问 b 时，b 也已经出现，但此时环已经被检测到，不会再记录
+    assert cycle_idx[1] == 2,f"cycle_idx={cycle_idx},树：\n{kit}"
     print("多环节点检测通过")
 
     # 2.4 测试 __getitem__ 在遇到环时抛出 IndexError（含环信息）
@@ -293,7 +290,7 @@ def test_cycle_detection():
     root = TreeNode(100)
     root.right = root
     kit_self_cycle = TreeNodeKit(root)
-    assert kit_self_cycle.get_heap(2)._node is None
+    assert kit_self_cycle.get_heap(2,allowed_null=True).raw is None
     try:
         kit_self_cycle.get_heap(3)
         assert False, f"检测到重复节点时，应当停止遍历并抛出 IndexError, kit_self_cycle:\n{kit_self_cycle}"
@@ -305,11 +302,11 @@ def test_cycle_detection():
     
     val_list = [1,2,3,4,None,6,7]
     head = List2TreeNode(val_list) # n1,n2,n3,n4,  n6,n7
-    nodes = dict(TreeNodeKit(head).flatten()[0])
+    nodes,_ = TreeNodeKit(head).flatten()
 
     # 构造 n4->n3->n6->n2->n4 的交叉环
-    nodes[4].left = nodes[3] # n4 指向 n3
-    nodes[6].right = nodes[2] # n6 指向 n2
+    nodes[3].left = nodes[2] # n4 指向 n3
+    nodes[4].right = nodes[1] # n6 指向 n2
 
     kit_cross = TreeNodeKit(head)
     val_list = list(filter(bool,val_list))
@@ -322,10 +319,10 @@ def test_cycle_detection():
     # 索引访问（堆索引）
     for i in val_list:
         assert kit_cross.get_heap(i).val == i,f"expected kit_cross[{i}]={i}, got {kit_cross[i].val}"
-    for i in [5,9,12,14,15]:
-        assert kit_cross.get_heap(i)._node is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
-    for i in [8,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
-        assert kit_cross.get_heap(i).val != i
+    for i in [5,9,14,15]:
+        assert kit_cross.get_heap(i,allowed_null=True).raw is None,f"expected kit_cross[{i}] is null node, got .val={kit_cross.get_heap(i).val} ,kit_cross:\n{kit_cross}"
+    for i in [8,12,13]: # 在层序遍历中这些索引虽然是导向重复节点，但是由于不是其祖先节点，堆索引过程中未遍历，因此不会报错
+        assert kit_cross.get_heap(i,allowed_null=True).val != i
         
     try:
         for i in [10,11,16]:

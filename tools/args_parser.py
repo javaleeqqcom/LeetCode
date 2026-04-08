@@ -2,13 +2,13 @@ from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
 try:
     from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-    from tools.tree_node_kit import TreeNodeKitBase
+    # from tools.tree_node_kit import TreeNodeKitBase
     # from tools.list_node_kit import ListNodeKitBase
-    from tools.iter_node_tools import ListNodeKitBase
+    from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
 except:
     from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-    from tree_node_kit import TreeNodeKitBase
-    from iter_node_tools import ListNodeKitBase
+    # from tree_node_kit import TreeNodeKitBase
+    from iter_node_tools import ListNodeKitBase,TreeNodeKitBase
     # from list_node_kit import ListNodeKitBase
 from collections import deque
 import inspect
@@ -157,7 +157,7 @@ class TreeNodeKit(TreeNodeKitBase[TreeNode]):
     二叉树调试增强工具，提供安全的层序遍历、环检测和索引访问。
     用法与 ListNodeKit 类似，支持从原始节点或从层序列表构造。
     """
-    def __init__(self, root: Optional[TreeNode] = None, val: _BASE_TYPE = None, level_order: List[_BASE_TYPE] = None):
+    def __init__(self, root: Optional[TreeNode] = None, val: _BASE_TYPE = None, level_order: Optional[List[_BASE_TYPE]] = None):
         """
         多种构造方式：
         - TreeNodeKit(node)            : 包装已有 TreeNode
