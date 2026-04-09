@@ -1,5 +1,5 @@
 # 📘 LeetCode 本地自动化测试框架（Python）—— README 更新版
-- 版本：0.6.5
+- 版本：0.6.6
 
 ## 🌟 核心价值
 **学生零配置调试 LeetCode 题目**：无需修改学生代码、无需处理编码问题、无需担心类型冲突，完全模拟 LeetCode 在线环境执行逻辑。
@@ -41,18 +41,21 @@
 > - `list_node_kit.py`：链表调试增强工具 `ListNodeKit`。
 > - `tree_node_kit.py`：二叉树调试增强工具 `TreeNodeKit`，并包含一个**极其精简且巧妙**的统一遍历器 `TreeIter`。
 
-### 🔷 基础工具（`args_parser_tools.py`）
-- `KitBase`：泛型代理基类，统一处理包装类与原生节点的互转（`unwrap`），避免重复包装。
-- `SafeIterBase`：带环检测的安全迭代器基类，自动记录重复节点索引，支持提前停止或跳过重复节点。
-- `input_parser_registry`：类型转换注册表（如 `List[int] → ListNode`）。
-- 预导入常用类型：`Optional`, `List`, `Dict`。
-
-### 🔷 链表调试（`list_node_kit.py`）
 - **`ListNodeKit`**：包装原生 `ListNode`，提供安全扁平化、环检测、可视化打印。
-  - `flatten()`：返回节点列表和环起始索引（无环为 `None`）。
+   - `flatten(max_len=None)`
+   - 返回 `(nodes, stop_index)`
+   - `nodes`：展开得到的节点列表（原生节点）
+   - `stop_index` 含义：
+      - `-1`：正常结束（无环）
+      - `>= 0`：检测到环，值为**环起始索引**
+      - `== max_len`：因长度限制提前终止
   - `__repr__`：打印格式 `<class 'ListNodeKit'>: [1,2,>3,4,^]`（`>` 标记环起点，`^` 标记环尾）。
-  - `__getitem__`：按索引访问节点，自动处理环。
-
+  - `__getitem__(idx)`：索引访问（安全版）
+    - 支持链表随机访问
+    - 自动处理环
+    - kit[n]：
+      - 若刚好越界 → 返回空节点（False）
+      - 若超出 → 抛 IndexError
 ```python
 # 使用示例
 head = List2ListNode([1,2,3,4,5])
@@ -68,8 +71,24 @@ after_nodes, _ = ListNodeKit(student_result).flatten()
 assert after_nodes == nodes  # 确保学生未修改链表结构
 ```
 
-明白了。根据实际代码，`TreeIter` 的精妙之处在于使用**操作字符串**驱动遍历，但字符含义与 README 之前的描述完全不同。以下是**完全基于代码**的准确说明，可直接替换 README 中 `### 🧱 tools/args_parser.py` 小节内关于 `TreeIter` 的描述部分。
+### 🔷 基础工具（`args_parser_tools.py`）
 
+- `input_parser_registry`：类型转换注册表（如 `List[int] → ListNode`）。
+- 预导入常用类型：`Optional`, `List`, `Dict`。
+
+### 🔷 节点调试增强工具（`iter_node_tools.py`）
+
+#### `KitBase`：
+- 泛型代理基类，统一处理包装类与原生节点的互转（`unwrap`），避免重复包装。
+#### `SafeIterBase`：
+- 带环检测的安全迭代器基类，自动记录重复节点索引，支持提前停止或跳过重复节点。
+  - 安全性设计（核心价值）
+  - 1. 防止死循环（遇到重复节点自动停止）
+  - 2. 区分“值相同”和“节点相同”（✔ 使用 **节点 identity（id）判断**，不是 val）
+```python
+# 不会误判为环
+100 -> 100 -> 100
+```
 ---
 
 ### 🔷 二叉树调试 —— **✨ 精妙设计：一个 `TreeIter` 搞定所有遍历 ✨**（`tree_node_kit.py`）
@@ -336,12 +355,8 @@ results = optimized.run(cases, log_suffix="_optimized")
 
 1. ** SafeIterBase 采用 Cython 加速**
    - 操作对象从原生节点改为包装节点
-   - 将原 assigned_idx 替换为包装节点引用，而其职能下放到包装节点实现
-   - id(node) 改为对包装节点 hash(node)，包装节点类需实现 __hash__
    - self._seen[原生节点哈希] = [包装节点引用,...]    # values[*] 保存包装节点是因为包装节点可能含有类似 assigned_idx 的信息，若存原生节点则丢失信息。
-   - self._revisit = [重复访问>1次的 原生节点哈希,...] # 其值必须 in self._seen
-   - 类方法 _getitem：allowed_null 为真则不会因越界而报错，统一返回空包装节点。并且会根据 it._early_stop 决定是否因为有重复节点而报错。
-   - 类方法 _flatten：只设置 max_len 限制输出节点长度，不再返回 stop_index 等信息，调用者可通过代入的 it 迭代器获取。树遍历器若需要限制遍历层数，可通过其迭代器限制，而不是通过 max_len。
+   - self._revisit_index = [重复访问>1次的 原生节点哈希,...] # 其值必须 in self._seen
 
 2. ** KitBase **
    - 需实现 __hash__ = id(_node) 供 SafeIterBase 确定原生节点哈希

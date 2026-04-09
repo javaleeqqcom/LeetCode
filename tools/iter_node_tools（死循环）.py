@@ -66,7 +66,7 @@ class KitBase2(Generic[T_Node]):
     @property
     def visit_index(self)->Any:
         """ 访问节点索引编号，子类需覆盖此属性以返回特定类型 """
-        return None
+        raise NotImplementedError("Subclasses must implement visit_index")
     
     def __getattr__(self, name: str) -> Any:
         """代理属性访问到原生节点"""
@@ -109,14 +109,6 @@ class KitBase2(Generic[T_Node]):
 
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
-    
-    def __repr__(self) -> str:
-        vid = self.self.visit_index
-        return "<%s>{%s, %s}"%(
-            str(self.__class__),
-            "raw.id: 0x{id(self.raw):x}" if self.raw else "raw: None",
-            "visit.id: " + (f"0x{vid:x}" if vid and vid >= 2**16 else str(vid))
-            )
 
 # ---------- SafeIterBase2 ----------
 class SafeIterBase2(Generic[T_Node]):
@@ -389,9 +381,6 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
 
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
     
-    def __repr__(self) -> str:
-        return super().__repr__()
-    
 # -------------------------- 待修改的代码 ------------------------------
 
 @runtime_checkable
@@ -447,9 +436,6 @@ class TreeBase(KitBase2[T_LR]):
             raise AttributeError("空树节点不能设置 right 属性")
         node.right = self.unwrap(value)
 
-    def __repr__(self) -> str:
-        return super().__repr__()
-
 class TreeIter(SafeIterBase2[T_LR]):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     def __init__(
@@ -497,8 +483,8 @@ class TreeIter(SafeIterBase2[T_LR]):
                         else: self._push(node, True)
                     if not self._instant_updates: # 非即时更新当前节点，继续 POP
                         continue
-                elif self._early_stop: break # 不安全且早停，置为空节点
-                else: continue # 不安全，继续 POP
+                elif self._early_stop: # 不安全且早停，置为空节点
+                    break
             # 已检查安全，或即时更新，设置 POP 节点为当前节点，跳出循环
             self._cur_node = self.assert_TreeBase(node)
             return
@@ -538,7 +524,6 @@ class TreeIter(SafeIterBase2[T_LR]):
     @property
     def rep_nodes_idx(self) -> List[int]: # 注意是大整数类
         return [node.visit_index for node in self.revisit_nodes]
-    
     
 class HeapIter(SafeIterBase2[T_LR]):
     """
