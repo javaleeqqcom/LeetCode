@@ -6,7 +6,7 @@ iter_node_tool.py - 链表调试增强工具（方案二：操作包装节点）
 __DEBUG__ = True
 
 from typing import (
-    Any, Dict, List, Optional, Iterator, Tuple, TypeVar, Generic, Protocol,
+    Any, Dict, List, Optional, Iterator, Tuple, TypeVar, Generic, Protocol,Hashable,
     cast,runtime_checkable
 )
 from collections import deque
@@ -31,7 +31,7 @@ def _formatted_string(val: Any) -> str:
         return str(val)
 
 
-T_Node = TypeVar("T_Node")
+T_Node = TypeVar("T_Node",bound=Hashable)
 
 # ---------- KitBase2 ----------
 class KitBase2(Generic[T_Node]):
@@ -98,14 +98,10 @@ class KitBase2(Generic[T_Node]):
 
         setattr(node, name, KitBase2.unwrap(value))
 
-    def __hash__(self) -> int:
-        """基于原生节点内存地址的哈希，用于环检测"""
-        return id(self.raw)
-
     def __eq__(self, other: Any) -> bool:
-        """比较两个包装节点是否包装同一个原生节点"""
-        other_raw = KitBase2.unwrap(other)
-        return self.raw is other_raw
+        """比较两个包装节点是否包装同一个原生节点，并且 visit_index 相同"""
+        if not isinstance(other,KitBase2): return False
+        return self.raw is other.raw and self.visit_index == other.visit_index
 
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
@@ -133,14 +129,27 @@ class SafeIterBase2(Generic[T_Node]):
             init_node: 起始包装节点（可为 None）
             early_stop: 遇到重复节点时是否立即停止迭代（环检测时强制停止）
         """
-        self._seen: Dict[KitBase2[T_Node], List[KitBase2[T_Node]]] = {}
-        self._revisit: List[KitBase2[T_Node]] = []
         self._cur_node: KitBase2[T_Node] = node if isinstance(node,KitBase2) else KitBase2(node) # 必须代入包装类节点
         self._early_stop = early_stop
         self._kit_cls = type(self._cur_node) # 类型“向下保持”
 
+        # 重复节点识别字典： raw.id -> rv_idx
+        self._seen: Dict[int,int] = {} 
+        # self._revisit[rv_idx] = (并查下标 , node) : 
+        #   并查下标：
+        #       当为 -1 时表示非重复节点；
+        #       当为 rv_idx 表示并查集所指向的重复节点下标；
+        # 特别地 ._revisit[rv_idx]=(rv_idx,node) 时说明 node 是重复节点
+        self._revisit: List[Tuple[int,KitBase2[T_Node]]] = [] 
+        self._repeat_num: int = 0 # 重复节点数量
+
         if node:
-            self._seen[node] = [node]
+            self._seen[id(node.raw)] = 0    # 首个 rv_idx = 0
+            self._revisit.append((-1,node)) # 首次出现，并查下标为 -1
+
+    @property
+    def repeat_num(self):
+        return self._repeat_num
 
     @classmethod
     def _getitem(cls,it: Self, index: int ,allowed_null:bool= False) -> KitBase2[T_Node]:
@@ -176,14 +185,23 @@ class SafeIterBase2(Generic[T_Node]):
             False: 不可访问（空节点或节点已出现过）
         """
         if not node: return False # 空节点不可访问
-        if node in self._seen:
-            visitor_list = self._seen[node] # 重复访问 node 的历次包装节点
-            if len(visitor_list) == 1:
-                self._revisit.append(visitor_list[0]) # 易错，_revisit 记录的必须是首次访问的包装节点，因此不能赋值 node，而是赋值 visitor_list[0]
-            visitor_list.append(node)
+
+        raw_id = id(node.raw)
+        if raw_id in self._seen:
+            # 原生节点id 为 raw_id 的首个包装节点存于 self._revisit[rv_idx]
+            rv_idx = self._seen[raw_id]    
+            self._revisit.append((rv_idx, node))
+            # self._revisit2[rv_idx] = (并查索引, 包装节点)
+            if -1 == self._revisit[rv_idx][0]: # 若首次记录为重复访问节点，需更新并查索引为 rv_idx
+                self._revisit[rv_idx] = (rv_idx, self._revisit[rv_idx][1])
+                self._repeat_num += 1
+
             return False
         else:
-            self._seen[node] = [node]
+            rv_idx = len(self._revisit)
+            self._seen[raw_id] = rv_idx
+            self._revisit.append((-1, node)) # 首次出现节点的并查索引为 -1
+
             return True
 
     @classmethod
@@ -211,7 +229,7 @@ class SafeIterBase2(Generic[T_Node]):
         self._prepare_next()
 
         # 早停：一旦检测到重复节点就停止（环已出现）
-        if self._early_stop and self._revisit:
+        if self._early_stop and self.repeat_num > 0:
             self._cur_node = KitBase2(None) 
         # 注意 result 是有效结果，触发早停的是 result 的后继节点，因此不能在此 StopIteration，而应修改为空节点，待下一轮迭代 StopIteration
         return result
@@ -223,12 +241,8 @@ class SafeIterBase2(Generic[T_Node]):
     @property
     def revisit_nodes(self) -> List[KitBase2[T_Node]]:
         """返回所有重复访问的节点（按发现顺序）"""
-        return self._revisit # 若改为 Cython 需只读
-    
-    @property
-    def seen_nodes_dict(self)-> Dict[KitBase2[T_Node], List[KitBase2[T_Node]]]:
-        return self._seen # 若改为 Cython 需只读（字典不可修改，不过提取的节点可以修改）
-
+        return [node for i,(p,node) in enumerate(self._revisit) if i==p]
+        
 # 定义原生节点协议（必须包含 .next 属性）
 @runtime_checkable
 class HasNext(Protocol):
@@ -267,8 +281,8 @@ class IterNext2(SafeIterBase2[T_NEXT]):
     @property
     def circle_index(self) -> int:
         """获取当前迭代器的环节点索引，若无则返回 -1"""
-        if self.revisit_nodes:
-            assert 1 == len(self.revisit_nodes), f"链表重复索引理论上不可能超过一次，而实际重复索引数量={len(self.revisit_nodes)}，可能是被非法重置初始节点，重复迭代。"
+        if self.repeat_num > 0:
+            assert 1 == self.repeat_num, f"链表重复索引理论上不可能超过一次，而实际重复索引数量={self.repeat_num}，可能是被非法重置初始节点，重复迭代。"
             return self.revisit_nodes[0].visit_index 
         return -1
 
@@ -289,12 +303,6 @@ class IterNext2(SafeIterBase2[T_NEXT]):
                     self._kit_cls(SafeIterBase2._getitem( self.copy(), index, self.allowed_null ))
                     )
     
-    # def __next__(self) -> ListNodeKitBase[T_NEXT]:
-    #     return cast(ListNodeKitBase,super().__next__())
-    
-    # def __iter__(self) -> Iterator[KitBase2[T_NEXT]]:
-    #     return self
-
     def flatten(self, max_len: int = -1) -> Tuple[List[ListNodeKitBase[T_NEXT]], int]:
         """
         安全展开链表，返回节点列表和停止索引。当 max_len 为非负值时，则限制输出的长度不大于 max_len。
@@ -357,7 +365,7 @@ class ListNodeKitBase(KitBase2[T_NEXT]):
         return ListNodeKitBase(IterNext2[T_NEXT](ListNodeKitBase(self,0),True)[key]) # 用 ListNodeKitBase 同理（见 __iter__）
     
     @classmethod
-    def _to_string(cls, head: ListNodeKitBase|T_NEXT|None, prep_property: str = "val" , max_len:int = -1) -> str:
+    def _to_string(cls, head: ListNodeKitBase[T_NEXT]|T_NEXT|None, prep_property: str = "val" , max_len:int = -1) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
         # 注意要用 unwrap 去包装节点
         nodes, stop_index = (head if isinstance(head,ListNodeKitBase) else ListNodeKitBase(head)).flatten( max_len = max_len)       
@@ -460,8 +468,8 @@ class TreeIter(SafeIterBase2[T_LR]):
         early_stop: bool = False,
         max_depth: int = -1
     ):
-        super().__init__(TreeBase(None), early_stop)
-        self._kit_cls = type(root) if isinstance(root, TreeBase) else TreeBase # 用于类型向下兼容
+        super().__init__(TreeBase[T_LR](None), early_stop)
+        self._kit_cls = type(root) if isinstance(root, TreeBase) else TreeBase[T_LR] # 用于类型向下兼容
         
         self._root = root if isinstance(root,TreeBase) else TreeBase(root) # 类型必须是 TreeBase 及其子类，尽可能保持子类
         self._operation = operation.lower()
@@ -520,7 +528,7 @@ class TreeIter(SafeIterBase2[T_LR]):
         assert isinstance(node,TreeBase), "设计错误，传入的节点类型应当保持 TreeBase 类及其继承"
         return node
 
-    def flatten(self, max_len: int = -1, raw: bool = False)->Tuple[List[TreeBase[T_LR]] | List[T_LR], TreeIter[TreeBase]]:
+    def flatten(self, max_len: int = -1, raw: bool = False)->Tuple[List[TreeBase[T_LR]] | List[T_LR], TreeIter[TreeBase[T_LR]]]:
         """
         展平遍历结果。
         :param max_len: 最大节点数限制，-1表示无限制
@@ -660,22 +668,20 @@ class TreeNodeKitBase(TreeBase[T_LR]):
         if not node:
             return "<class 'TreeNodeKit'>: empty"
 
-        it = TreeIter(node, "ULR", use_queue = True,
-                      early_stop=not full_traversal,
-                      max_depth=max_depth)
-        kit_nodes, it = it.flatten(max_len=max_node_len, raw=False)
+        kit_nodes, it_res = TreeIter(
+            node, "ULR", use_queue = True,
+            early_stop=not full_traversal,
+            max_depth=max_depth
+        ).flatten(max_len=max_node_len, raw=False)
 
         # 构建重复索引标注
         repeat_mark = {}
-        for rep_node in it.revisit_nodes:
-            occurrences = it.seen_nodes_dict.get(rep_node, [])
-            if len(occurrences) < 2:
-                continue
-            first = occurrences[0].visit_index
-            for occ in occurrences[1:]:
-                repeat_mark[occ.visit_index] = f"^{first}"
-            repeat_mark[first] = f"*{first}"
-
+        for i,(p,kn) in enumerate(it_res._revisit):
+            if i == p: # 是重复节点
+                repeat_mark[kn.visit_index] = f"*{kn.visit_index}"
+            elif -1 != p:
+                repeat_mark[kn.visit_index] = f"^{it_res._revisit[p][1].visit_index}"
+        
         # 收集索引 -> 值
         idx_val = {kn.visit_index: getattr(kn.raw, prep_property) for kn in kit_nodes}
 
@@ -699,7 +705,7 @@ class TreeNodeKitBase(TreeBase[T_LR]):
             tree_str = "Error: binarytree build failed"
 
         parts = []
-        repeat_idxs = [n.visit_index for n in it.revisit_nodes]
+        repeat_idxs = [n.visit_index for n in it_res.revisit_nodes]
         if full_traversal:
             if repeat_idxs:
                 parts.append(f'  "warning_duplicate_idx": {repeat_idxs}')
@@ -710,7 +716,7 @@ class TreeNodeKitBase(TreeBase[T_LR]):
 
         tree_part = '  "tree_by_idx": """{}{}"""'.format(
             tree_str,
-            '...\n' if (it._depth_exceeded or it._cur_node) else ''
+            '...\n' if (it_res._depth_exceeded or it_res._cur_node) else ''
         )
         parts.append(tree_part)
         parts.append(f'  "idx:val": {idx_val}')

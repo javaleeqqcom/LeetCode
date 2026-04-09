@@ -167,7 +167,6 @@ def test_basic_functionality():
 
     # 索引访问（层序遍历）
     for i in range(6):
-        print(f"索引访问（层序遍历）, i = {i}")
         assert kit[i].val == i+1,f"expected kit[{i}]={i+1}, got {kit[i].val}"
         
     try:
@@ -175,6 +174,8 @@ def test_basic_functionality():
         assert False, "应该抛出 IndexError"
     except IndexError as e:
         assert "out of range" in str(e),e
+
+    print(kit.to_str(full_traversal=True))
 
     # 索引访问（堆索引）
     for i in range(1,7):
@@ -372,9 +373,8 @@ def test_setters_and_unwrap():
     kit_a.right = b
     assert a.right is b
 
-    # 测试 unwrap（通过 __eq__ 间接使用）
-    assert kit_a == a
-    assert kit_a != b
+    # 测试 unwrap
+    assert TreeNodeKit.unwrap(kit_a) == a
 
     # 测试设置 None
     kit_a.left = None
@@ -410,7 +410,7 @@ def test_random_tree(seed = 42):
         # 获取 kit 的 flatten 结果（自动环检测）
         nodes, it_res = kit.flatten(early_stop=False)
         nodes_dict = {}
-        stop_idxs = [] # 初始为合法树，无需停止索引
+        rep_nodes = [] # 初始为合法树，无需停止索引
 
         for j in range(100): # 非法链接次数上限                # 索引 -> 节点
             if not nodes_dict:
@@ -429,7 +429,7 @@ def test_random_tree(seed = 42):
                     
                 # 获取 kit 的 flatten 结果（自动环检测）
                 nodes, it_res = kit.flatten(early_stop=False)
-                stop_idxs = it_res.rep_nodes_idx
+                rep_nodes = it_res.revisit_nodes
                 nodes_dict = {node.visit_index: node.raw for node in nodes if node.raw}  
 
             # 层序遍历（展平后 val 列表）
@@ -445,10 +445,10 @@ def test_random_tree(seed = 42):
 
             # 验证环起始索引与重复值一致
             if excepted_rep_val is not None:
-                assert stop_idxs, "应有环但 flatten 未检测到"
-                assert excepted_rep_val == nodes_dict[stop_idxs[0]].val, f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit.to_str(full_traversal=True)}"
+                assert rep_nodes, "应有环但 flatten 未检测到"
+                assert excepted_rep_val in set(node.val for node in rep_nodes), f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit.to_str(full_traversal=True)}"
             else:
-                assert not stop_idxs, f"无环但 flatten 报告有环, stop_idx={stop_idxs}\n{kit.to_str(full_traversal=True)}"
+                assert not rep_nodes, f"无环但 flatten 报告有环, stop_idx={[node.visit_index for node in rep_nodes]}\n{kit.to_str(full_traversal=True)}"
 
             assert level_vals_actual == level_kit, f"层序遍历序列不一致\nstd = {level_vals_actual}\nreal = {level_kit}\n{kit.to_str(full_traversal=True)}"
 
