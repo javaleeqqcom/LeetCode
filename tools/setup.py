@@ -2,8 +2,8 @@ from setuptools import setup, Extension
 from Cython.Build import cythonize
 
 ext = Extension(
-    name="tools.safe_iter_base", # 強制名稱，不含 LeetCode.tools
-    sources=["tools/safe_iter_base.pyx"]
+    name="tools.listkit", # 強制名稱，不含 LeetCode.tools
+    sources=["tools/listkit.pyx"]
 )
 
 setup(
