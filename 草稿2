@@ -1,0 +1,13 @@
+2. 实现包装类：
+```
+cdef class ListNodeKitBase:
+
+    @property
+    def raw(self):
+
+    def __bool__(self):
+
+    cpdef tuple flatten_raw(self, Py_ssize_t max_len=-1):
+
+    cpdef tuple flatten(self, Py_ssize_t max_len=-1):
+```

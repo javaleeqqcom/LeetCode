@@ -4,7 +4,9 @@
 
 from cpython.ref cimport PyObject
 from libc.stdint cimport uintptr_t
-
+from cpython.object cimport PyObject_GetAttrString
+from libc.stdlib cimport malloc, free, realloc
+from libc.string cimport memcpy
 
 # =========================
 # Struct 定义
@@ -27,17 +29,12 @@ cdef struct LinkIterStruct:
 cdef inline uintptr_t get_ptr(PyObject* obj):
     return <uintptr_t>obj
 
-
-cdef inline PyObject* get_next_obj(PyObject* obj):
-    """
-    等价于 obj.next
-    ⚠️ fallback 版本（通用）
-    后续可替换为 struct 直取
-    """
+cdef PyObject* get_next_obj(PyObject* obj):
     if obj == NULL:
         return NULL
-    return PyObject_GetAttrString(obj, "next")
 
+    cdef object tmp = PyObject_GetAttrString(<object>obj, "next")
+    return <PyObject*>tmp
 
 cdef inline LinkIterStruct make_null():
     cdef LinkIterStruct s
@@ -67,7 +64,6 @@ cdef inline LinkIterStruct get_next(LinkIterStruct cur):
 
     return nxt
 
-
 # =========================
 # SafeIterBase (Cython)
 # =========================
@@ -75,16 +71,21 @@ cdef inline LinkIterStruct get_next(LinkIterStruct cur):
 cdef class SafeIterBase:
 
     cdef dict seen              # uintptr_t -> index
-    cdef list revisit           # 存 LinkIterStruct
-    cdef Py_ssize_t repeat_num
+    cdef LinkIterStruct* revisit
+    cdef Py_ssize_t revisit_size
+    cdef Py_ssize_t revisit_cap
+    cdef Py_ssize_t repeat_num # 注意与 revisit_cap 不等价，仅算 revisit[p] 中 revisit_idx == p 的数量
 
     cdef LinkIterStruct cur
 
 
     def __cinit__(self, object head):
         self.seen = {}
-        self.revisit = []
         self.repeat_num = 0
+
+        self.revisit_cap = 16
+        self.revisit_size = 0
+        self.revisit = <LinkIterStruct*>malloc(self.revisit_cap * sizeof(LinkIterStruct))
 
         if head is None:
             self.cur = make_null()
@@ -94,8 +95,19 @@ cdef class SafeIterBase:
 
         cdef uintptr_t rid = get_ptr(self.cur.base.raw)
         self.seen[rid] = 0
-        self.revisit.append(self.cur)
 
+        self._revisit_append(self.cur)
+
+    cdef void _revisit_append(self, LinkIterStruct node):
+        if self.revisit_size >= self.revisit_cap:
+            self.revisit_cap *= 2
+            self.revisit = <LinkIterStruct*>realloc(
+                self.revisit,
+                self.revisit_cap * sizeof(LinkIterStruct)
+            )
+
+        self.revisit[self.revisit_size] = node
+        self.revisit_size += 1
 
     cdef bint _check_safe(self, LinkIterStruct* node):
         cdef uintptr_t rid
@@ -111,10 +123,13 @@ cdef class SafeIterBase:
             return False
         else:
             node.base.revisit_idx = -1
-            self.seen[rid] = len(self.revisit)
-            self.revisit.append(node[0])
+            self.seen[rid] = self.revisit_size
+            self._revisit_append(node[0])
             return True
 
+    def __dealloc__(self):
+        if self.revisit != NULL:
+            free(self.revisit)
 
     cpdef tuple flatten_raw(self, Py_ssize_t max_len=-1):
         """
@@ -148,3 +163,117 @@ cdef class SafeIterBase:
             i += 1
 
         return result, -1
+
+# =========================
+# Python 包装层
+# =========================
+
+cdef class ListNodeKitBase:
+
+    cdef object _raw   # 原生 ListNode
+
+    def __cinit__(self, object head):
+        self._raw = head
+
+    @property
+    def raw(self):
+        return self._raw
+
+    def __bool__(self):
+        return self._raw is not None
+
+    # =========================
+    # flatten（核心接口）
+    # =========================
+    cpdef tuple flatten_raw(self, Py_ssize_t max_len=-1):
+        """
+        直接返回 raw 节点列表（最快路径）
+        """
+        cdef SafeIterBase it = SafeIterBase(self._raw)
+        return it.flatten_raw(max_len)
+
+    cpdef tuple flatten(self, Py_ssize_t max_len=-1):
+        """
+        返回 Python 包装节点（兼容旧接口）
+        """
+        cdef list raws
+        cdef Py_ssize_t stop
+
+        raws, stop = self.flatten_raw(max_len)
+
+        # 包装为 Python 对象（只有这里有开销）
+        return [ListNodeKitBase(node) for node in raws], stop
+
+    # =========================
+    # 索引访问（安全）
+    # =========================
+    def __getitem__(self, Py_ssize_t idx):
+        if idx < 0:
+            raise IndexError("negative index not supported")
+
+        cdef SafeIterBase it = SafeIterBase(self._raw)
+        cdef list raws
+        cdef Py_ssize_t stop
+
+        raws, stop = it.flatten_raw(idx + 1)
+
+        if idx < len(raws):
+            return ListNodeKitBase(raws[idx])
+
+        # idx == len(raws) → 返回空节点（你原语义）
+        if idx == len(raws):
+            return ListNodeKitBase(None)
+
+        raise IndexError("index out of range")
+
+    # =========================
+    # next（关键：必须保持 raw 语义）
+    # =========================
+    @property
+    def next(self):
+        if self._raw is None:
+            raise AttributeError("None has no next")
+
+        cdef object nxt = (<object>self._raw).next
+        return ListNodeKitBase(nxt)
+
+    @next.setter
+    def next(self, value):
+        if self._raw is None:
+            raise AttributeError("None has no next")
+
+        # 允许传 raw 或 kit
+        if isinstance(value, ListNodeKitBase):
+            (<object>self._raw).next = value._raw
+        else:
+            (<object>self._raw).next = value
+
+    # =========================
+    # val
+    # =========================
+    @property
+    def val(self):
+        if self._raw is None:
+            raise AttributeError("None has no val")
+        return (<object>self._raw).val
+
+    @val.setter
+    def val(self, v):
+        if self._raw is None:
+            raise AttributeError("None has no val")
+        (<object>self._raw).val = v
+
+    # =========================
+    # repr（可选）
+    # =========================
+    def __repr__(self):
+        cdef list raws
+        cdef Py_ssize_t stop
+
+        raws, stop = self.flatten_raw(20)
+
+        cdef list vals = []
+        for node in raws:
+            vals.append((<object>node).val)
+
+        return f"<ListNodeKitBase>: {vals}"

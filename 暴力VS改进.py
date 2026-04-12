@@ -10,7 +10,7 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题目录 = Path(r"2840. Check if Strings Can be Made Equal With Operations II")
+问题目录 = Path(r"1320. Minimum Distance to Type a Word Using Two Fingers")
 sys.path.insert(1, str(问题目录))
 from bt0 import Solution
 
@@ -37,22 +37,27 @@ if cases_path.exists():
 else:
     from test_cases_generator import test_cases_generator
     
-    cases = test_cases_generator(random_case_num = 100, max_n = 100)
+    cases = test_cases_generator(random_case_num = 100, max_length = 10)
     # print(cases[0])
     # print(cases[10])
     # exit(0)
 
+    print("cases num:",len(cases))
+
     if len(cases) == 0:
         raise ValueError("没有生成测试用例！")
     if isinstance(cases[0],dict):
+        cases = 暴力算法.run(cases)
+        cases = 暴力算法.get_expected_cases(cases)
+        print(cases)
         暴力算法.save_test_cases(cases , cases_path)
 
 print("expected_results[0]=", cases[0])
 print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "w1.py")
+改进算法 = SolutionRunner(问题目录 / "V3.py")
 
 # 多线程
 print("=== 多线程 ===")
 print(f"改进算法 是否有 custom_caller ：{改进算法.has_custom_caller}")
-results_multi = 改进算法.run(cases, thread=4, timeout_s=60,summary=True)
+results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True)

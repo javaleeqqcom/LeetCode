@@ -351,9 +351,10 @@ class SolutionRunner:
             conversion_path = _TOOLS_DIR/"def_conversion.py"
 
         # 2.1 读取预执行代码
+        self.student_code = self._read_code(solution_file)
         self.source_code_lst = [
             self._read_code(_TOOLS_DIR/"args_parser.py"),
-            self._read_code(solution_file),
+            self.student_code,
             self._read_code(conversion_path),
         ]
         # 2.2 若创建了 conversion.py 则纳入，覆盖原有代码
@@ -662,7 +663,7 @@ class SolutionRunner:
             return wrong_count >= early_stop
 
 
-    def get_expected_cases(self, run_results: List[_RESULT]) -> List[_RESULT]:
+    def get_expected_cases(self, run_results: List[_RESULT]) -> List[_CASE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
         case_id = 0

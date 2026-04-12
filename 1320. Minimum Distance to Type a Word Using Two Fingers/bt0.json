@@ -1,0 +1,512 @@
+[
+  {
+    "input": ["CAKE"],
+    "cid": "#1320_1",
+    "expected": 3
+  },
+  {
+    "input": ["HAPPY"],
+    "cid": "#1320_2",
+    "expected": 6
+  },
+  {
+    "input": ["CK"],
+    "cid": "#1320_3",
+    "expected": 0
+  },
+  {
+    "input": ["MT"],
+    "cid": "#1320_4",
+    "expected": 0
+  },
+  {
+    "input": ["FGJWII"],
+    "cid": "#1320_5",
+    "expected": 8
+  },
+  {
+    "input": ["FSZG"],
+    "cid": "#1320_6",
+    "expected": 6
+  },
+  {
+    "input": ["THEX"],
+    "cid": "#1320_7",
+    "expected": 6
+  },
+  {
+    "input": ["OR"],
+    "cid": "#1320_8",
+    "expected": 0
+  },
+  {
+    "input": ["AZBEJZ"],
+    "cid": "#1320_9",
+    "expected": 6
+  },
+  {
+    "input": ["URS"],
+    "cid": "#1320_10",
+    "expected": 2
+  },
+  {
+    "input": ["JOQFQZC"],
+    "cid": "#1320_11",
+    "expected": 12
+  },
+  {
+    "input": ["QRKQX"],
+    "cid": "#1320_12",
+    "expected": 3
+  },
+  {
+    "input": ["XXCDTQRU"],
+    "cid": "#1320_13",
+    "expected": 10
+  },
+  {
+    "input": ["AQDNWZ"],
+    "cid": "#1320_14",
+    "expected": 10
+  },
+  {
+    "input": ["JFAYS"],
+    "cid": "#1320_15",
+    "expected": 8
+  },
+  {
+    "input": ["SKPEQXV"],
+    "cid": "#1320_16",
+    "expected": 10
+  },
+  {
+    "input": ["OGPULBAN"],
+    "cid": "#1320_17",
+    "expected": 14
+  },
+  {
+    "input": ["OZAOZ"],
+    "cid": "#1320_18",
+    "expected": 7
+  },
+  {
+    "input": ["TNFKWX"],
+    "cid": "#1320_19",
+    "expected": 6
+  },
+  {
+    "input": ["EXHVC"],
+    "cid": "#1320_20",
+    "expected": 8
+  },
+  {
+    "input": ["KWQAH"],
+    "cid": "#1320_21",
+    "expected": 5
+  },
+  {
+    "input": ["RUUCRG"],
+    "cid": "#1320_22",
+    "expected": 6
+  },
+  {
+    "input": ["FLMCMEUT"],
+    "cid": "#1320_23",
+    "expected": 11
+  },
+  {
+    "input": ["BS"],
+    "cid": "#1320_24",
+    "expected": 0
+  },
+  {
+    "input": ["HAYN"],
+    "cid": "#1320_25",
+    "expected": 5
+  },
+  {
+    "input": ["GJHKXWKF"],
+    "cid": "#1320_26",
+    "expected": 10
+  },
+  {
+    "input": ["XAE"],
+    "cid": "#1320_27",
+    "expected": 4
+  },
+  {
+    "input": ["ZVKWHPDQ"],
+    "cid": "#1320_28",
+    "expected": 13
+  },
+  {
+    "input": ["FYYQG"],
+    "cid": "#1320_29",
+    "expected": 6
+  },
+  {
+    "input": ["JP"],
+    "cid": "#1320_30",
+    "expected": 0
+  },
+  {
+    "input": ["YOAX"],
+    "cid": "#1320_31",
+    "expected": 8
+  },
+  {
+    "input": ["RRM"],
+    "cid": "#1320_32",
+    "expected": 0
+  },
+  {
+    "input": ["FWRE"],
+    "cid": "#1320_33",
+    "expected": 3
+  },
+  {
+    "input": ["KBLT"],
+    "cid": "#1320_34",
+    "expected": 4
+  },
+  {
+    "input": ["OKIZJD"],
+    "cid": "#1320_35",
+    "expected": 7
+  },
+  {
+    "input": ["WCPYRMU"],
+    "cid": "#1320_36",
+    "expected": 15
+  },
+  {
+    "input": ["QMEUHAD"],
+    "cid": "#1320_37",
+    "expected": 11
+  },
+  {
+    "input": ["CVQCKWH"],
+    "cid": "#1320_38",
+    "expected": 7
+  },
+  {
+    "input": ["EXLRQPUF"],
+    "cid": "#1320_39",
+    "expected": 8
+  },
+  {
+    "input": ["NPYQUCKS"],
+    "cid": "#1320_40",
+    "expected": 13
+  },
+  {
+    "input": ["FEGMNHH"],
+    "cid": "#1320_41",
+    "expected": 4
+  },
+  {
+    "input": ["KXRGSQX"],
+    "cid": "#1320_42",
+    "expected": 9
+  },
+  {
+    "input": ["LJN"],
+    "cid": "#1320_43",
+    "expected": 2
+  },
+  {
+    "input": ["HAVTUBUD"],
+    "cid": "#1320_44",
+    "expected": 8
+  },
+  {
+    "input": ["BENQKFJZ"],
+    "cid": "#1320_45",
+    "expected": 12
+  },
+  {
+    "input": ["QKFZPLUC"],
+    "cid": "#1320_46",
+    "expected": 13
+  },
+  {
+    "input": ["OIYZIE"],
+    "cid": "#1320_47",
+    "expected": 5
+  },
+  {
+    "input": ["IDXY"],
+    "cid": "#1320_48",
+    "expected": 7
+  },
+  {
+    "input": ["ISB"],
+    "cid": "#1320_49",
+    "expected": 2
+  },
+  {
+    "input": ["FDCP"],
+    "cid": "#1320_50",
+    "expected": 3
+  },
+  {
+    "input": ["QKHTB"],
+    "cid": "#1320_51",
+    "expected": 5
+  },
+  {
+    "input": ["ORHSYJPT"],
+    "cid": "#1320_52",
+    "expected": 12
+  },
+  {
+    "input": ["AJ"],
+    "cid": "#1320_53",
+    "expected": 0
+  },
+  {
+    "input": ["JLAFLQG"],
+    "cid": "#1320_54",
+    "expected": 7
+  },
+  {
+    "input": ["KEHI"],
+    "cid": "#1320_55",
+    "expected": 2
+  },
+  {
+    "input": ["RIUEWRRB"],
+    "cid": "#1320_56",
+    "expected": 12
+  },
+  {
+    "input": ["MDY"],
+    "cid": "#1320_57",
+    "expected": 2
+  },
+  {
+    "input": ["ZN"],
+    "cid": "#1320_58",
+    "expected": 0
+  },
+  {
+    "input": ["SVOOJG"],
+    "cid": "#1320_59",
+    "expected": 6
+  },
+  {
+    "input": ["RXASGWP"],
+    "cid": "#1320_60",
+    "expected": 9
+  },
+  {
+    "input": ["VEKKJHY"],
+    "cid": "#1320_61",
+    "expected": 8
+  },
+  {
+    "input": ["QMACNC"],
+    "cid": "#1320_62",
+    "expected": 7
+  },
+  {
+    "input": ["MCXGXZH"],
+    "cid": "#1320_63",
+    "expected": 13
+  },
+  {
+    "input": ["NJGD"],
+    "cid": "#1320_64",
+    "expected": 3
+  },
+  {
+    "input": ["ZTM"],
+    "cid": "#1320_65",
+    "expected": 1
+  },
+  {
+    "input": ["AUHWLU"],
+    "cid": "#1320_66",
+    "expected": 10
+  },
+  {
+    "input": ["PPZ"],
+    "cid": "#1320_67",
+    "expected": 0
+  },
+  {
+    "input": ["FBEPCZ"],
+    "cid": "#1320_68",
+    "expected": 9
+  },
+  {
+    "input": ["RRR"],
+    "cid": "#1320_69",
+    "expected": 0
+  },
+  {
+    "input": ["UDVAHZ"],
+    "cid": "#1320_70",
+    "expected": 9
+  },
+  {
+    "input": ["FHUH"],
+    "cid": "#1320_71",
+    "expected": 5
+  },
+  {
+    "input": ["NJTY"],
+    "cid": "#1320_72",
+    "expected": 3
+  },
+  {
+    "input": ["MGURAH"],
+    "cid": "#1320_73",
+    "expected": 8
+  },
+  {
+    "input": ["GKLT"],
+    "cid": "#1320_74",
+    "expected": 4
+  },
+  {
+    "input": ["XMT"],
+    "cid": "#1320_75",
+    "expected": 2
+  },
+  {
+    "input": ["GOVST"],
+    "cid": "#1320_76",
+    "expected": 5
+  },
+  {
+    "input": ["ROSDLCSI"],
+    "cid": "#1320_77",
+    "expected": 14
+  },
+  {
+    "input": ["GASEQU"],
+    "cid": "#1320_78",
+    "expected": 8
+  },
+  {
+    "input": ["VBABKS"],
+    "cid": "#1320_79",
+    "expected": 9
+  },
+  {
+    "input": ["OUN"],
+    "cid": "#1320_80",
+    "expected": 1
+  },
+  {
+    "input": ["UX"],
+    "cid": "#1320_81",
+    "expected": 0
+  },
+  {
+    "input": ["AS"],
+    "cid": "#1320_82",
+    "expected": 0
+  },
+  {
+    "input": ["KAWWNRQ"],
+    "cid": "#1320_83",
+    "expected": 8
+  },
+  {
+    "input": ["BVCGQ"],
+    "cid": "#1320_84",
+    "expected": 6
+  },
+  {
+    "input": ["BK"],
+    "cid": "#1320_85",
+    "expected": 0
+  },
+  {
+    "input": ["QDUSZHWF"],
+    "cid": "#1320_86",
+    "expected": 16
+  },
+  {
+    "input": ["LODEPZB"],
+    "cid": "#1320_87",
+    "expected": 12
+  },
+  {
+    "input": ["EBEIH"],
+    "cid": "#1320_88",
+    "expected": 3
+  },
+  {
+    "input": ["RMBUK"],
+    "cid": "#1320_89",
+    "expected": 9
+  },
+  {
+    "input": ["SIRJUEO"],
+    "cid": "#1320_90",
+    "expected": 12
+  },
+  {
+    "input": ["HM"],
+    "cid": "#1320_91",
+    "expected": 0
+  },
+  {
+    "input": ["UP"],
+    "cid": "#1320_92",
+    "expected": 0
+  },
+  {
+    "input": ["YEWKLR"],
+    "cid": "#1320_93",
+    "expected": 7
+  },
+  {
+    "input": ["LLET"],
+    "cid": "#1320_94",
+    "expected": 2
+  },
+  {
+    "input": ["YRTABW"],
+    "cid": "#1320_95",
+    "expected": 9
+  },
+  {
+    "input": ["BZ"],
+    "cid": "#1320_96",
+    "expected": 0
+  },
+  {
+    "input": ["DTLR"],
+    "cid": "#1320_97",
+    "expected": 4
+  },
+  {
+    "input": ["EPOUIUX"],
+    "cid": "#1320_98",
+    "expected": 8
+  },
+  {
+    "input": ["GCTUDJMI"],
+    "cid": "#1320_99",
+    "expected": 10
+  },
+  {
+    "input": ["JKRNB"],
+    "cid": "#1320_100",
+    "expected": 5
+  },
+  {
+    "input": ["CCDMEVF"],
+    "cid": "#1320_101",
+    "expected": 7
+  },
+  {
+    "input": ["NRYN"],
+    "cid": "#1320_102",
+    "expected": 6
+  }
+]
