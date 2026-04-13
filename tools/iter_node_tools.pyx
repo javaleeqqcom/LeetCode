@@ -172,6 +172,11 @@ cdef class SafeIterBase3:
     def cur(self):
         return self._cur_node
 
+    @cur.setter
+    def cur(self, node):
+        assert isinstance(node,KitBase3)
+        self._cur_node = node
+
     @classmethod
     def _getitem(cls, it: Self, index: int, allowed_null: bool = False) -> KitBase3:
         """
@@ -249,7 +254,7 @@ cdef class SafeIterBase3:
 
         return result
 
-    cdef void _prepare_next(self):
+    cpdef void _prepare_next(self):
         raise NotImplementedError
 
     @property
@@ -292,7 +297,7 @@ cdef class IterNext2(SafeIterBase3):
         super().__init__(node=head, early_stop=True)  # 链表不支持跳过，故早停为 True
         self.allowed_null = getitem_null_end
 
-    def _prepare_next(self) -> None:
+    cpdef void _prepare_next(self):
         """移动到下一个节点，自动包装，并进行环检测。"""
         if self.cur:
             self.cur = self.cur.next
@@ -568,7 +573,7 @@ cdef class TreeIter3(SafeIterBase3):
 
         return p
 
-    cdef void _prepare_next(self):
+    cpdef void _prepare_next(self):
         cdef NodePair item
         cdef KitBase3 node
         cdef bint checked
@@ -661,7 +666,7 @@ cdef class HeapIter(SafeIterBase3):
         bits = bin(heap_index)[3:]  # 去掉 '0b1'
         self._route = [bit == '1' for bit in bits]
 
-    def _prepare_next(self) -> None:
+    def _prepare_next(self):
         if not self._route:
             self.cur = TreeBase(None)
             return
