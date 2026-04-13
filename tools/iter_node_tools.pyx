@@ -172,6 +172,17 @@ cdef class SafeIterBase3:
     def cur(self):
         return self._cur_node
 
+    def index_revisit_visit(self)->List[Tuple[int,int,int]]:
+        """返回所有涉及重复访问的节点（访问索引，重复索引，包装节点）"""
+        cdef Py_ssize_t i, n = self._revisit.size()
+        cdef list result = []
+
+        for i in range(n):
+            if self._revisit[i].first == i:
+                result.append((i, self._revisit[i].first, (<KitBase3>self._revisit[i].second).visit_index ))
+
+        return result
+
     @cur.setter
     def cur(self, node):
         assert isinstance(node,KitBase3)
@@ -438,7 +449,6 @@ cdef class ListNodeKitBase(KitBase3):
 
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
 
-
 # -------------------------- 树的遍历 ------------------------------
 
 cdef enum OpCode:
@@ -625,7 +635,7 @@ cdef class TreeIter3(SafeIterBase3):
         assert isinstance(node, TreeBase), "设计错误，传入的节点类型应当保持 TreeBase 类及其继承"
         return node
 
-    def flatten(self, max_len: int = -1, raw: bool = False) -> Tuple[List[TreeBase] | List[HasLR], TreeIter3[Self]]:
+    def flatten(self, max_len: int = -1, raw: bool = False) -> Tuple[List[TreeBase] | List[HasLR], TreeIter3]:
         """
         展平遍历结果。
         :param max_len: 最大节点数限制，-1表示无限制
@@ -685,7 +695,6 @@ cdef class HeapIter(SafeIterBase3):
         res.visit_index = self.visit_index
         return res
 
-
 class TreeNodeKitBase(TreeBase):
     """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
 
@@ -705,7 +714,7 @@ class TreeNodeKitBase(TreeBase):
         assert isinstance(node, TreeNodeKitBase), f"设计错误：SafeIterBase3._getitem 丢失了节点包装类型的保持状态, 实际类型为 {type(node)}"
         return node
 
-    def flatten(self, early_stop: bool = False, max_depth: int = -1, max_len: int = -1) -> Tuple[List[TreeNodeKitBase], TreeIter3[Self]]:
+    def flatten(self, early_stop: bool = False, max_depth: int = -1, max_len: int = -1) -> Tuple[List[TreeNodeKitBase], TreeIter3]:
         """
         层序遍历树，返回 (索引, 原生节点) 列表 和 重复索引列表。
         :param max_depth: 最大深度限制（包含）
@@ -723,7 +732,7 @@ class TreeNodeKitBase(TreeBase):
         else:
             return nodes, it  # pyright: ignore[reportReturnType]
 
-    def flatten_raw(self, early_stop: bool = False, max_depth: int = -1, max_len: int = -1) -> Tuple[List[HasLR], TreeIter3[Self]]:
+    def flatten_raw(self, early_stop: bool = False, max_depth: int = -1, max_len: int = -1) -> Tuple[List[HasLR], TreeIter3]:
         """
         层序遍历树，返回 (索引, 原生节点) 列表 和 重复索引列表。
         :param max_depth: 最大深度限制（包含）
@@ -732,22 +741,22 @@ class TreeNodeKitBase(TreeBase):
         nodes, it = self.flatten(early_stop, max_depth, max_len)
         return [node.raw for node in nodes if node.raw], it
 
-    def layer_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3[Self]:
+    def layer_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """层序遍历迭代器 (ULR)"""
         return TreeIter3(self, "LR", use_queue=True,
                          early_stop=early_stop, max_depth=max_depth)
 
-    def NLR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3[Self]:
+    def NLR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """前序遍历迭代器 (NLR) -> 操作字符串 "RLU" """
         return TreeIter3(self, "RL", use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
 
-    def LNR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3[Self]:
+    def LNR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """中序遍历迭代器 (LNR) -> 操作字符串 "RCL" """
         return TreeIter3(self, "RCL", use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
 
-    def LRN_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3[Self]:
+    def LRN_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """后序遍历迭代器 (LRN) -> 操作字符串 "CRL" """
         return TreeIter3(self, "CRL", use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
@@ -785,11 +794,12 @@ class TreeNodeKitBase(TreeBase):
 
         # 构建重复索引标注
         repeat_mark = {}
-        for i, (p, kn) in enumerate(it_res._revisit):
+        i_rv_v = it_res.index_revisit_visit()
+        for i, p, v in i_rv_v: # 遍历 revisit索引、访问索引、树堆索引
             if i == p:  # 是重复节点
-                repeat_mark[kn.visit_index] = f"*{kn.visit_index}"
+                repeat_mark[v] = f"*{v}"
             elif -1 != p:
-                repeat_mark[kn.visit_index] = f"^{it_res._revisit[p][1].visit_index}"
+                repeat_mark[v] = f"^{i_rv_v[p][2]}"
 
         # 收集索引 -> 值
         idx_val = {kn.visit_index: getattr(kn.raw, prep_property) for kn in kit_nodes}
@@ -814,7 +824,7 @@ class TreeNodeKitBase(TreeBase):
             tree_str = "Error: binarytree build failed"
 
         parts = []
-        repeat_idxs = [n.visit_index for n in it_res.revisit_nodes]
+        repeat_idxs = [n.visit_index for _,_,n in it_res.revisit_nodes]
         if full_traversal:
             if repeat_idxs:
                 parts.append(f'  "warning_duplicate_idx": {repeat_idxs}')
