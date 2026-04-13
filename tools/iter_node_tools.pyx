@@ -132,32 +132,32 @@ cdef class SafeIterBase3:
     """
     cdef:
         KitBase3 _cur_node
-        bint _early_stop
+        readonly bint _early_stop
 
         unordered_map[Py_ssize_t, Py_ssize_t] _seen
         vector[pair[Py_ssize_t, PyObjPtr]] _revisit
 
         Py_ssize_t _repeat_num
-        type _kit_cls
 
     def __cinit__(self):
-        self._cur_node = KitBase3()
+        self._cur_node = KitBase3()          # 空占位
         self._early_stop = False
         self._repeat_num = 0
-        self._kit_cls = KitBase3
 
     def __init__(self, node, bint early_stop=False):
+        # 1️⃣ 确定包装类型和当前节点
         if isinstance(node, KitBase3):
-            self._cur_node.raw = node.raw
+            # 保留完整包装对象（包括子类类型）
+            self._cur_node = node
         elif node is not None:
-            self._cur_node.raw = node
+            # 原生节点 -> 使用默认包装类（通常是 KitBase3，子类需自行重写）
+            self._cur_node = KitBase3(node)
         else:
-            self._cur_node.raw = None
+            self._cur_node = KitBase3(None)
 
         self._early_stop = early_stop
-        self._repeat_num = 0
-        self._kit_cls = type(self._cur_node)
 
+        # 2️⃣ 初始化环检测结构（基于原始节点内存地址）
         cdef Py_ssize_t rid
         if self._cur_node and self._cur_node.raw is not None:
             rid = <Py_ssize_t>id(self._cur_node.raw)
@@ -167,6 +167,10 @@ cdef class SafeIterBase3:
     @property
     def repeat_num(self):
         return self._repeat_num
+
+    @property
+    def cur(self):
+        return self._cur_node
 
     @classmethod
     def _getitem(cls, it: Self, index: int, allowed_null: bool = False) -> KitBase3:
@@ -190,7 +194,7 @@ cdef class SafeIterBase3:
 
         # 索引超出范围，若允许 allowed_null 返回空节点
         if allowed_null:
-            return it._kit_cls(None)  # ✅ 保持子类类型
+            return it.cur.__class__(None)  # ✅ 保持子类类型
         else:  # 否则报错
             raise IndexError(f"Index: {index} out of range")
 
@@ -290,9 +294,9 @@ cdef class IterNext2(SafeIterBase3):
 
     def _prepare_next(self) -> None:
         """移动到下一个节点，自动包装，并进行环检测。"""
-        if self._cur_node:
-            self._cur_node = self._cur_node.next
-            self._check_safe(self._cur_node)  # 不安全会自动触发早停，无需置 None
+        if self.cur:
+            self.cur = self.cur.next
+            self._check_safe(self.cur)  # 不安全会自动触发早停，无需置 None
 
     @property
     def circle_index(self) -> int:
@@ -304,8 +308,9 @@ cdef class IterNext2(SafeIterBase3):
 
     def copy(self, reset_index=False) -> IterNext2:
         """注意默认 reset_index=False，即默认不重置索引值"""
-        node = cast(ListNodeKitBase, self._kit_cls( self._cur_node ) if reset_index else self._cur_node)
-        assert isinstance(node, ListNodeKitBase), f"node must be type of ListNodeKitBase, but got {type(node)}"
+        assert isinstance(self.cur, ListNodeKitBase), f"IterNext2.cur must be type of ListNodeKitBase, but got {type(self.cur)}"
+        node = self.cur.__class__(self.cur.raw, 0 if reset_index else self.cur.visit_index)
+
         return IterNext2(node, self.allowed_null)
 
     def __getitem__(self, index: int) -> ListNodeKitBase:
@@ -315,7 +320,7 @@ cdef class IterNext2(SafeIterBase3):
         - 如果遇到环且未达到索引，根据 allowed_null 返回 None 或抛出 IndexError
         """
         return cast(ListNodeKitBase,
-                    self._kit_cls(SafeIterBase3._getitem(self.copy(), index, self.allowed_null))
+                    self.cur.__class__(SafeIterBase3._getitem(self.copy(), index, self.allowed_null))
                     )
 
     def flatten(self, max_len: int = -1) -> Tuple[List[ListNodeKitBase], int]:
@@ -331,7 +336,8 @@ cdef class IterNext2(SafeIterBase3):
         nodes = SafeIterBase3._flatten(it, max_len=max_len)
 
         stop_index = it.circle_index  # 检测到环，则以环节点索引为停止索引
-        if -1 == stop_index and it._cur_node:  # 未检测到环，但是迭代器没有迭代到空节点
+
+        if -1 == stop_index and it.cur:  # 未检测到环，但是迭代器没有迭代到空节点
             stop_index = len(nodes)  # 说明迭代器因 max_len 限制而停止
         return nodes, stop_index
 
@@ -344,9 +350,9 @@ cdef class ListNodeKitBase(KitBase3):
     def __cinit__(self):
         self._visit_index = 0
 
-    def __init__(self, node: KitBase3 | HasNext | None = None, visit_index: int = 0):
+    def __init__(self, node: KitBase3 | HasNext | None = None, visit_index: int|Py_ssize_t = 0):
         super().__init__(node)
-        self._visit_index = visit_index
+        self._visit_index = <Py_ssize_t>visit_index
 
     @property
     def visit_index(self) -> Py_ssize_t:  # Cython 用int计算机位数的普通有符号整型即可
@@ -520,7 +526,7 @@ cdef class TreeIter3(SafeIterBase3):
         super().__init__(root, early_stop)
         self.use_queue = use_queue
         self._max_depth = max_depth
-        self._root = self._cur_node  # 保存根节点
+        self._root = self.cur  # 保存根节点
         self._operation = operation
 
         # 预编译 operation
@@ -536,7 +542,7 @@ cdef class TreeIter3(SafeIterBase3):
                 self.ops.push_back(OP_U)
 
         if root:
-            self._push(self._cur_node, <bint>False)
+            self._push(self.cur, <bint>False)
             self._prepare_next()
 
     cdef void _push(self, object node, bint checked):
@@ -594,10 +600,10 @@ cdef class TreeIter3(SafeIterBase3):
                 else:
                     continue
 
-            self._cur_node = node
+            self.cur = node
             return
 
-        self._cur_node = KitBase3(None)
+        self.cur = KitBase3(None)
 
     def clone_init(self) -> 'TreeIter3[TreeBase]':
         """返回从头开始的新迭代器（用于索引访问）"""
@@ -657,20 +663,20 @@ cdef class HeapIter(SafeIterBase3):
 
     def _prepare_next(self) -> None:
         if not self._route:
-            self._cur_node = TreeBase(None)
+            self.cur = TreeBase(None)
             return
         go_right = self._route.pop(0)
-        if self._cur_node:
-            nxt = self._cur_node.right if go_right else self._cur_node.left
+        if self.cur:
+            nxt = self.cur.right if go_right else self.cur.left
             if nxt and self._check_safe(nxt):
-                self._cur_node = nxt
+                self.cur = nxt
             else:
-                self._cur_node = TreeBase(None)
+                self.cur = TreeBase(None)
 
     def copy(self) -> 'HeapIter':
-        assert isinstance(self._cur_node, TreeBase), "HeapIter 仅支持 TreeBase 极其后继类型作为 _cur_node"
+        assert isinstance(self.cur, TreeBase), "HeapIter 仅支持 TreeBase 极其后继类型作为 cur"
         cdef HeapIter res = HeapIter.__new__(HeapIter)
-        res._cur_node = self._cur_node
+        res.cur = self.cur
         res.visit_index = self.visit_index
         return res
 
@@ -814,7 +820,7 @@ class TreeNodeKitBase(TreeBase):
 
         tree_part = '  "tree_by_idx": """{}{}"""'.format(
             tree_str,
-            '...\n' if (it_res._depth_exceeded or it_res._cur_node) else ''
+            '...\n' if (it_res._depth_exceeded or it_res.cur) else ''
         )
         parts.append(tree_part)
         parts.append(f'  "idx:val": {idx_val}')
