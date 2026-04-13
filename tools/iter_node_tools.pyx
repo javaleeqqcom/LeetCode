@@ -538,10 +538,10 @@ cdef class TreeIter3(SafeIterBase3):
         self._operation = ""
 
     def __init__(self, root, str operation, bint use_queue, bint early_stop=False, int max_depth=-1):
-        super().__init__(root, early_stop)
+        super().__init__(None, early_stop)
         self.use_queue = use_queue
         self._max_depth = max_depth
-        self._root = self.cur  # 保存根节点
+        self._root = root  # 保存根节点
         self._operation = operation
 
         # 预编译 operation
@@ -557,12 +557,11 @@ cdef class TreeIter3(SafeIterBase3):
                 self.ops.push_back(OP_U)
 
         if root:
-            self._push(self.cur, <bint>False)
+            self._push(root, False)
             self._prepare_next()
 
-    cdef void _push(self, object node, bint checked):
-        if node is None:
-            return
+    cdef void _push(self, KitBase3 node, bint checked):
+        if node is None: return
 
         cdef NodePair p = pair[PyObjPtr, bint](<PyObjPtr>node, checked)
 
@@ -620,7 +619,7 @@ cdef class TreeIter3(SafeIterBase3):
 
         self.cur = KitBase3(None)
 
-    def clone_init(self) -> 'TreeIter3[TreeBase]':
+    def clone_init(self) -> 'TreeIter3':
         """返回从头开始的新迭代器（用于索引访问）"""
         return TreeIter3(
             self._root,
