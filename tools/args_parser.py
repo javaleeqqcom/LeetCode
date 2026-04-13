@@ -1,11 +1,12 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
-try:
-    from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-    from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
-except:
-    from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-    from iter_node_tools import ListNodeKitBase,TreeNodeKitBase
+# try:
+#     from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+#     from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
+# except:
+from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
+from iter_node_tools import ListNodeKitBase,TreeNodeKitBase
+
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -49,7 +50,7 @@ def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
         cur = cur.next
     return head
 
-class ListNodeKit(ListNodeKitBase[ListNode]):
+class ListNodeKit(ListNodeKitBase): #[ListNode]):
     """链表调试增强工具，提供安全的扁平化、环检测和打印功能。
 
     该类基于 ListNodeKitBase 和 ListNodeKitDecorator 实现，
@@ -95,7 +96,7 @@ class TreeNode:
         self.right = right
 
 # 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
-class TreeNodeKit(TreeNodeKitBase[TreeNode]):
+class TreeNodeKit(TreeNodeKitBase): #[TreeNode]):
     """
     二叉树调试增强工具，提供安全的层序遍历、环检测和索引访问。
     用法与 ListNodeKit 类似，支持从原始节点或从层序列表构造。

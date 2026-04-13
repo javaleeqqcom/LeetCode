@@ -8,6 +8,34 @@ from cpython.object cimport PyObject_GetAttrString
 from libc.stdlib cimport malloc, free, realloc
 from libc.string cimport memcpy
 
+
+# =========================
+# 工具函数
+# =========================
+ctypedef struct Array:
+    char* data
+    Py_ssize_t size
+    Py_ssize_t capacity
+    Py_ssize_t item_size
+
+cdef void array_init(Array* arr, Py_ssize_t item_size):
+    arr.size = 0
+    arr.capacity = 8
+    arr.item_size = item_size
+    arr.data = <char*>malloc(arr.capacity * item_size)
+
+
+cdef void array_append(Array* arr, void* value):
+    if arr.size == arr.capacity:
+        arr.capacity *= 2
+        arr.data = <char*>realloc(arr.data, arr.capacity * arr.item_size)
+
+    memcpy(arr.data + arr.size * arr.item_size, value, arr.item_size)
+    arr.size += 1
+
+cdef void* array_get(Array* arr, Py_ssize_t idx):
+    return <void*>(arr.data + idx * arr.item_size)
+
 # =========================
 # Struct 定义
 # =========================
@@ -16,25 +44,17 @@ cdef struct BaseIterStruct:
     PyObject* raw
     Py_ssize_t revisit_idx
 
-
 cdef struct LinkIterStruct:
     BaseIterStruct base
     Py_ssize_t visit_index
 
-
-# =========================
-# 工具函数
-# =========================
-
-cdef inline uintptr_t get_ptr(PyObject* obj):
+cdef inline uintptr_t get_node_id(PyObject* obj):
     return <uintptr_t>obj
 
-cdef PyObject* get_next_obj(PyObject* obj):
+cdef PyObject* get_attr_obj(PyObject* obj, const char* attr):
     if obj == NULL:
         return NULL
-
-    cdef object tmp = PyObject_GetAttrString(<object>obj, "next")
-    return <PyObject*>tmp
+    return PyObject_GetAttrString(obj, attr)  # 返回新引用
 
 cdef inline LinkIterStruct make_null():
     cdef LinkIterStruct s
@@ -43,7 +63,6 @@ cdef inline LinkIterStruct make_null():
     s.visit_index = -1
     return s
 
-
 cdef inline LinkIterStruct make_node(PyObject* raw, Py_ssize_t vid):
     cdef LinkIterStruct s
     s.base.raw = raw
@@ -51,14 +70,14 @@ cdef inline LinkIterStruct make_node(PyObject* raw, Py_ssize_t vid):
     s.visit_index = vid
     return s
 
-
-cdef inline LinkIterStruct get_next(LinkIterStruct cur):
+cdef LinkIterStruct get_next(LinkIterStruct cur):
     cdef LinkIterStruct nxt
 
     if cur.base.raw == NULL:
-        return make_null()
+        nxt.base.raw = NULL
+        return nxt
 
-    nxt.base.raw = get_next_obj(cur.base.raw)
+    nxt.base.raw = get_attr_obj(cur.base.raw, "next")
     nxt.visit_index = cur.visit_index + 1
     nxt.base.revisit_idx = -1
 
@@ -70,44 +89,17 @@ cdef inline LinkIterStruct get_next(LinkIterStruct cur):
 
 cdef class SafeIterBase:
 
-    cdef dict seen              # uintptr_t -> index
-    cdef LinkIterStruct* revisit
-    cdef Py_ssize_t revisit_size
-    cdef Py_ssize_t revisit_cap
-    cdef Py_ssize_t repeat_num # 注意与 revisit_cap 不等价，仅算 revisit[p] 中 revisit_idx == p 的数量
-
     cdef LinkIterStruct cur
+    cdef dict seen                # uintptr_t -> index
+    cdef Array revisit
+    cdef Py_ssize_t repeat_num
+    cdef bint early_stop
 
-
-    def __cinit__(self, object head):
+    def __cinit__(self, bint early_stop=True):
         self.seen = {}
         self.repeat_num = 0
-
-        self.revisit_cap = 16
-        self.revisit_size = 0
-        self.revisit = <LinkIterStruct*>malloc(self.revisit_cap * sizeof(LinkIterStruct))
-
-        if head is None:
-            self.cur = make_null()
-            return
-
-        self.cur = make_node(<PyObject*>head, 0)
-
-        cdef uintptr_t rid = get_ptr(self.cur.base.raw)
-        self.seen[rid] = 0
-
-        self._revisit_append(self.cur)
-
-    cdef void _revisit_append(self, LinkIterStruct node):
-        if self.revisit_size >= self.revisit_cap:
-            self.revisit_cap *= 2
-            self.revisit = <LinkIterStruct*>realloc(
-                self.revisit,
-                self.revisit_cap * sizeof(LinkIterStruct)
-            )
-
-        self.revisit[self.revisit_size] = node
-        self.revisit_size += 1
+        self.early_stop = early_stop
+        array_init(&self.revisit, sizeof(LinkIterStruct))
 
     cdef bint _check_safe(self, LinkIterStruct* node):
         cdef uintptr_t rid
@@ -115,7 +107,7 @@ cdef class SafeIterBase:
         if node.base.raw == NULL:
             return False
 
-        rid = get_ptr(node.base.raw)
+        rid = get_node_id(node.base.raw)
 
         if rid in self.seen:
             node.base.revisit_idx = self.seen[rid]
@@ -123,19 +115,15 @@ cdef class SafeIterBase:
             return False
         else:
             node.base.revisit_idx = -1
-            self.seen[rid] = self.revisit_size
-            self._revisit_append(node[0])
+            self.seen[rid] = self.revisit.size
+            array_append(&self.revisit, <void*>&node)
             return True
 
     def __dealloc__(self):
-        if self.revisit != NULL:
-            free(self.revisit)
+        if self.revisit.data != NULL:
+            free(self.revisit.data)
 
-    cpdef tuple flatten_raw(self, Py_ssize_t max_len=-1):
-        """
-        返回 (list[raw_node], stop_index)
-        """
-
+    cpdef tuple flatten(self, Py_ssize_t max_len=-1):
         cdef list result = []
         cdef LinkIterStruct cur = self.cur
         cdef Py_ssize_t i = 0
@@ -157,7 +145,7 @@ cdef class SafeIterBase:
                 return result, -1
 
             if not self._check_safe(&cur):
-                rid = get_ptr(cur.base.raw)
+                rid = get_node_id(cur.base.raw)
                 return result, self.seen[rid]
 
             i += 1
