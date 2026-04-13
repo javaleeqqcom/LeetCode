@@ -3,3 +3,5 @@
 *.rar
 *.txt
 *.log
+*.pyc
+*.pyd

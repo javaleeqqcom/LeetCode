@@ -19,7 +19,6 @@ import sys
 from typing_extensions import Self
 from itertools import chain
 from binarytree import build
-from listkit import *
 
 # ---------- 辅助函数 ----------
 def _formatted_string(val: Any) -> str:
@@ -42,15 +41,16 @@ cdef class KitBase3:
     """
     调试增强基类（代理模式），扩展支持哈希和索引存储。
     """
-    cdef object _node
-    cdef int _visit_index
+    cdef public object raw   # ✅ 必须声明
 
-    def __cinit__(self, object node, int visit_index = 0):
-        object.__setattr__(self, '_node', KitBase3.unwrap(node))
-        self._visit_index = visit_index
+    def __cinit__(self, object node = None, int visit_index=0):
+        if isinstance(node, KitBase3):
+            self.raw = (<KitBase3>node).raw
+        else:
+            self.raw = node
 
     def __bool__(self):
-        return self._node is not None
+        return self.raw is not None
 
     @classmethod
     def unwrap(cls, other: 'KitBase3 | Hashable | None') -> Optional[Hashable]:
@@ -62,13 +62,6 @@ cdef class KitBase3:
         if isinstance(other, KitBase3):
             return other.raw
         return other
-
-    @property
-    def raw(self):
-        """直接访问原生节点"""
-        node = object.__getattribute__(self, '_node')
-        assert not hasattr(node,'_node'), "Node has been wrapped twice!"
-        return node
 
     @property
     def visit_index(self)->Any:
@@ -86,7 +79,7 @@ cdef class KitBase3:
             return attr.__get__(self)
 
         # 3️⃣ 否则走你原来的逻辑
-        node = self._node
+        node = self.raw
         return getattr(node, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -99,7 +92,7 @@ cdef class KitBase3:
             return
 
         # 3️⃣ 否则走你原来的逻辑
-        node = self._node
+        node = self.raw
         if node is None:
             raise AttributeError(f"Can't set attribute '{name}' on empty node")
 
@@ -108,16 +101,16 @@ cdef class KitBase3:
     def __eq__(self, other: Any) -> bool:
         """比较两个包装节点是否包装同一个原生节点，并且 visit_index 相同"""
         if not isinstance(other,KitBase3): return False
-        return self._node is other._node and self._visit_index == other._visit_index
+        return self.raw is other.raw and self.visit_index == other.visit_index
 
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
     
     def __repr__(self) -> str:
-        vid = self.self.visit_index
+        vid = self.visit_index
         return "<%s>{%s, %s}"%(
             str(self.__class__),
-            "raw.id: 0x{id(self.raw):x}" if self._node else "raw: None",
+            "raw.id: 0x{id(self.raw):x}" if self.raw else "raw: None",
             "visit.id: " + (f"0x{vid:x}" if vid and vid >= 2**16 else str(vid))
             )
 
@@ -141,7 +134,10 @@ cdef class SafeIterBase3:
         Py_ssize_t _repeat_num
 
     def __cinit__(self, KitBase3 node, bint early_stop=<bint>False):
-        self._cur_node = node if isinstance(node,KitBase3) else KitBase3(node)
+        if isinstance(node,KitBase3):
+            self._cur_node = node
+        elif node is not None:
+            self._cur_node.raw = node
         self._early_stop = early_stop
         self._repeat_num = <Py_ssize_t>0
         self._kit_cls = type(self._cur_node) # 类型“向下保持”
@@ -177,7 +173,7 @@ cdef class SafeIterBase3:
             
         # 如果迭代因环而停止，抛出异常
         if it._early_stop and it.revisit_nodes:
-            raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0]._visit_index}.")
+            raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0].visit_index}.")
 
         # 索引超出范围，若允许 allowed_null 返回空节点
         if allowed_null:
@@ -262,7 +258,7 @@ class IterNext2(SafeIterBase3):
     支持 __getitem__ 和 flatten 方法。
     """
 
-    def __init__(
+    def __cinit__(
         self,
         head: ListNodeKitBase,
         getitem_null_end: bool = False
@@ -272,9 +268,8 @@ class IterNext2(SafeIterBase3):
             head: 链表头节点（包装类实例）
             getitem_null_end: __getitem__ 风格索引越界时返回 None（True）或抛出 IndexError（False）
         """
-
-        super().__init__(node=head if isinstance(head,ListNodeKitBase) else ListNodeKitBase(head),
-                        early_stop=True) # 链表不支持跳过，故早停为 True
+        assert isinstance(head,ListNodeKitBase),f"head must be type of ListNodeKitBase, but {type(head)}"
+        SafeIterBase3.__cinit__(self, node=head, early_stop=<bint>True) # 链表不支持跳过，故早停为 True
         self.allowed_null = getitem_null_end
 
     def _prepare_next(self) -> None:
@@ -288,7 +283,7 @@ class IterNext2(SafeIterBase3):
         """获取当前迭代器的环节点索引，若无则返回 -1"""
         if self.repeat_num > 0:
             assert 1 == self.repeat_num, f"链表重复索引理论上不可能超过一次，而实际重复索引数量={self.repeat_num}，可能是被非法重置初始节点，重复迭代。"
-            return self.revisit_nodes[0]._visit_index 
+            return self.revisit_nodes[0].visit_index 
         return -1
 
     def copy(self,reset_index = False) -> IterNext2:
@@ -325,16 +320,23 @@ class IterNext2(SafeIterBase3):
             stop_index = len(nodes) # 说明迭代器因 max_len 限制而停止
         return nodes, stop_index
 
-class ListNodeKitBase(KitBase3):
+cdef class ListNodeKitBase(KitBase3):
+    cdef:
+        Py_ssize_t _visit_index
     """ 调试增强工具，使用代理模式（安全实现） 用法: link = ListNodeKit(head_node) """
-    def __init__(self, node: KitBase3 | HasNext | None , visit_index:int = 0):
-        super().__cinit__(node)
+    def __cinit__(self, node: KitBase3 | HasNext | None , visit_index:int = 0):
+        KitBase3.__cinit__(self,node)
         object.__setattr__(self, '_visit_index', visit_index)
         
     @property
-    def _visit_index(self)->int: # Cython 用int计算机位数的普通有符号整型即可
+    def visit_index(self)->Py_ssize_t: # Cython 用int计算机位数的普通有符号整型即可
         """ 访问节点索引编号，用于标记遍历到该节点的迭代次数 """
         return object.__getattribute__(self, '_visit_index')
+
+    @visit_index.setter
+    def visit_index(self, Py_ssize_t new_index): # Cython 用int计算机位数的普通有符号整型即可
+        """ 访问节点索引编号，用于标记遍历到该节点的迭代次数 """
+        object.__setattr__(self, '_visit_index', new_index)
 
     @property
     def next(self)->'ListNodeKitBase':
@@ -343,7 +345,10 @@ class ListNodeKitBase(KitBase3):
             raise AttributeError("Empty node has no 'next' attribute")
         
         # 关键：返回当前类的实例，保持装饰器效果延续
-        return self.__class__(node = node.next, visit_index = self._visit_index + 1)
+        cdef res = self.__class__()
+        res.raw = node.next
+        res.visit_index = self.visit_index + 1
+        return res
     
     @next.setter
     def next(self, value) -> None:
@@ -402,9 +407,6 @@ class ListNodeKitBase(KitBase3):
 
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
     
-    def __repr__(self) -> str:
-        return super().__repr__()
-    
 # -------------------------- 待修改的代码 ------------------------------
 
 cdef enum OpCode:
@@ -424,8 +426,8 @@ cdef class TreeBase(KitBase3):
         deque[NodePair] queue
 
     """二叉树包装基类，支持堆索引和深度计算"""
-    def __init__(self, node: KitBase3 | HasLR | None, heap_index: int = 1):
-        super().__cinit__(node)
+    def __cinit__(self, node: KitBase3 | HasLR | None, heap_index: int = 1):
+        KitBase3.__cinit__(self,node)
         object.__setattr__(self, '_heap_index', heap_index)
 
     @property
@@ -468,9 +470,6 @@ cdef class TreeBase(KitBase3):
             raise AttributeError("空树节点不能设置 right 属性")
         node.right = self.unwrap(value)
 
-    def __repr__(self) -> str:
-        return super().__repr__()
-
 cdef class TreeIter3(SafeIterBase3):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     cdef:
@@ -481,7 +480,7 @@ cdef class TreeIter3(SafeIterBase3):
         vector[OpCode] ops
 
     def __cinit__(self, root, str operation, bint use_queue, bint early_stop=False):
-        SafeIterBase3.__cinit__(self, KitBase3(None), early_stop)
+        SafeIterBase3.__cinit__(self, KitBase3(), early_stop)
 
         self.use_queue = use_queue
 
@@ -496,10 +495,16 @@ cdef class TreeIter3(SafeIterBase3):
             else:
                 self.ops.push_back(OP_U)
 
-        cdef KitBase3 r = root if isinstance(root, KitBase3) else KitBase3(root)
+        cdef KitBase3 r
+        if isinstance(root, KitBase3):
+            r = root
+        else:
+            r = KitBase3()
+            if root is not None:
+                r.raw = root
 
-        if r and r._node is not None:
-            self._push(r, False)
+        if r:
+            self._push(r, <bint>False)
             self._prepare_next()
 
     cdef void _push(self, object node, bint checked):
@@ -587,14 +592,14 @@ cdef class TreeIter3(SafeIterBase3):
         it = self.clone_init()
         nodes = SafeIterBase3._flatten(it, max_len)
         if raw:
-            nodes = [n._node for n in nodes if n._node]
+            nodes = [n.raw for n in nodes if n.raw]
         else:
             nodes = [self.assert_TreeBase(n) for n in nodes] # 保持与初始节点类型一致
         return nodes, it
     
     @property
     def rep_nodes_idx(self) -> List[int]: # 注意是大整数类
-        return [node._visit_index for node in self.revisit_nodes]
+        return [node.visit_index for node in self.revisit_nodes]
     
     
 class HeapIter(SafeIterBase3):
@@ -602,8 +607,17 @@ class HeapIter(SafeIterBase3):
     沿堆索引路径的安全迭代器，用于 get_heap
     root  必须是 TreeBase 的（后继）类型
     """
-    def __init__(self, root: TreeBase | HasLR, heap_index: int):
-        super().__init__(root if isinstance(root, TreeBase) else TreeBase(root), early_stop=True)
+    def __cinit__(self, root: TreeBase, heap_index: int):
+        cdef KitBase3 r
+        if isinstance(root, KitBase3):
+            r = root
+        else:
+            r = KitBase3()
+            if root is not None:
+                r.raw = root
+
+        SafeIterBase3.__cinit__(self, r, early_stop=<bint>True)
+        assert isinstance(root, TreeBase)
         self.visit_index = heap_index
         # 将 heap_index 转为左右路径列表：True=右，False=左
         bits = bin(heap_index)[3:]  # 去掉 '0b1'
@@ -611,7 +625,7 @@ class HeapIter(SafeIterBase3):
 
     def _prepare_next(self) -> None:
         if not self._route:
-            self._cur_node = TreeBase(None)
+            self._cur_node = TreeBase()
             return
         go_right = self._route.pop(0)
         if self._cur_node:
@@ -619,11 +633,14 @@ class HeapIter(SafeIterBase3):
             if nxt and self._check_safe(nxt):
                 self._cur_node = nxt
             else:
-                self._cur_node = TreeBase(None)
+                self._cur_node = TreeBase()
 
     def copy(self) -> 'HeapIter':
         assert isinstance(self._cur_node,TreeBase), "HeapIter 仅支持 TreeBase 极其后继类型作为 _cur_node"
-        return HeapIter(self._cur_node, self.visit_index)
+        cdef res = HeapIter()
+        res._cur_node = self._cur_node
+        res.visit_index = self.visit_index
+        return res
 
 class TreeNodeKitBase(TreeBase):
     """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
@@ -754,7 +771,7 @@ class TreeNodeKitBase(TreeBase):
             tree_str = "Error: binarytree build failed"
 
         parts = []
-        repeat_idxs = [n._visit_index for n in it_res.revisit_nodes]
+        repeat_idxs = [n.visit_index for n in it_res.revisit_nodes]
         if full_traversal:
             if repeat_idxs:
                 parts.append(f'  "warning_duplicate_idx": {repeat_idxs}')
