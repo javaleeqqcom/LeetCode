@@ -6,14 +6,10 @@ from libcpp.deque cimport deque
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport pair
 
-# 移除 PyObject* 相关导入，不再需要
-# from cpython.object cimport PyObject
-# ctypedef PyObject* PyObjPtr
-
 __DEBUG__ = True
 
 from typing import (
-    Any, Dict, List, Optional, Iterator, Tuple, TypeVar, Generic, Protocol, Hashable,
+    Any, Dict, List, Optional, Iterator, Tuple, TypeVar, Generic, Protocol, Hashable,Deque,
     cast, runtime_checkable
 )
 from collections import deque as pydeque
@@ -123,7 +119,6 @@ cdef class KitBase3:
 
 
 # ---------- SafeIterBase3 ----------
-
 cdef class SafeIterBase3:
     """
     安全迭代器基类（方案二版本）
@@ -136,14 +131,15 @@ cdef class SafeIterBase3:
         readonly bint _early_stop
 
         unordered_map[Py_ssize_t, Py_ssize_t] _seen
-        vector[pair[Py_ssize_t, object]] _revisit   # (首次出现索引, 包装节点)
-
+        vector[Py_ssize_t] _revisit_index
+        list _revisit_nodes
         Py_ssize_t _repeat_num
 
     def __cinit__(self):
         self._cur_node = KitBase3()          # 空占位
         self._early_stop = False
         self._repeat_num = 0
+        self._revisit_nodes = list()
 
     def __init__(self, node, bint early_stop=False):
         # 1️⃣ 确定包装类型和当前节点
@@ -160,11 +156,13 @@ cdef class SafeIterBase3:
 
         # 2️⃣ 初始化环检测结构（基于原始节点内存地址）
         cdef Py_ssize_t rid
+        
         if self._cur_node and self._cur_node.raw is not None:
             rid = <Py_ssize_t>id(self._cur_node.raw)
             self._seen[rid] = <Py_ssize_t>0
-            # 存储对象，不再需要强制转换
-            self._revisit.push_back(pair[Py_ssize_t, object](-1, self._cur_node))
+            # 存储结构体，first_idx 初始为 -1
+            self._revisit_index.push_back(<Py_ssize_t>-1)
+            self._revisit_nodes.append(self._cur_node)
 
     @property
     def repeat_num(self):
@@ -176,14 +174,11 @@ cdef class SafeIterBase3:
 
     def index_revisit_visit(self)->List[Tuple[int,int,int]]:
         """返回所有涉及重复访问的节点（访问索引，重复索引，包装节点）"""
-        cdef Py_ssize_t i, n = self._revisit.size()
         cdef list result = []
 
-        for i in range(n):
-            if self._revisit[i].first == i:
-                # 直接从 object 转换为 KitBase3（Cython 会自动处理引用）
-                node = <KitBase3>self._revisit[i].second
-                result.append((i, self._revisit[i].first, node.visit_index))
+        for i,node in enumerate(self._revisit_nodes):
+            if self._revisit_index[i] != -1:
+                result.append((i, self._revisit_index[i], node.visit_index ))
 
         return result
 
@@ -209,7 +204,7 @@ cdef class SafeIterBase3:
                 return node
 
         # 如果迭代因环而停止，抛出异常
-        if it._early_stop and it.revisit_nodes:
+        if it._early_stop and it.repeat_num > 0:
             raise IndexError(f"Repeated reference detected by index: {it.revisit_nodes[0].visit_index}.")
 
         # 索引超出范围，若允许 allowed_null 返回空节点
@@ -222,22 +217,24 @@ cdef class SafeIterBase3:
         if not node or node.raw is None:
             return False
 
-        cdef Py_ssize_t rid = <Py_ssize_t>id(node.raw)
-
+        cdef Py_ssize_t rid = <Py_ssize_t>id(node.raw), rv_idx
         cdef Py_ssize_t has_key = self._seen.count(rid)  # 先把结果存入变量
+        
         if has_key > 0:
             rv_idx = self._seen[rid]
-            # 存储对象，不再需要强制转换
-            self._revisit.push_back(pair[Py_ssize_t, object](rv_idx, node))
-
-            if self._revisit[rv_idx].first == -1:
-                self._revisit[rv_idx].first = rv_idx
+            # 记录重复节点的索引信息
+            self._revisit_index.push_back(rv_idx)
+            self._revisit_nodes.append(node)
+            # 若首次记录为重复访问节点，需更新并查索引为 rv_idx
+            if self._revisit_index[rv_idx] == -1:
+                self._revisit_index[rv_idx] = rv_idx
                 self._repeat_num += 1
             return False
         else:
-            rv_idx = <Py_ssize_t>self._revisit.size()
-            self._seen[rid] = <Py_ssize_t>rv_idx
-            self._revisit.push_back(pair[Py_ssize_t, object](-1, node))
+            rv_idx = <Py_ssize_t>self._revisit_index.size()
+            self._seen[rid] = rv_idx 
+            self._revisit_index.push_back(-1) # 首次出现节点的并查索引为 -1
+            self._revisit_nodes.append(node)
             return True
 
     @classmethod
@@ -275,15 +272,8 @@ cdef class SafeIterBase3:
 
     @property
     def revisit_nodes(self) -> List[KitBase3]:
-        """返回所有重复访问的节点（按发现顺序）"""
-        cdef Py_ssize_t i, n = self._revisit.size()
-        cdef list result = []
-
-        for i in range(n):
-            if self._revisit[i].first == i:
-                result.append(<KitBase3>self._revisit[i].second)
-
-        return result
+        """返回所有被重复访问的节点（按发现顺序）"""
+        return [node for i,node in enumerate(self._revisit_nodes) if self._revisit_index[i] == i]
 
 
 # 定义原生节点协议（必须包含 .next 属性）
@@ -293,7 +283,7 @@ class HasNext(Protocol):
 
 
 # ---------- IterNext2 ----------
-cdef class IterNext2(SafeIterBase3):
+cdef class IterNext3(SafeIterBase3):
     """
     链表安全迭代器，继承 SafeIterBase3 实现环检测，自动包装原生节点。
     支持 __getitem__ 和 flatten 方法。
@@ -322,17 +312,19 @@ cdef class IterNext2(SafeIterBase3):
     @property
     def circle_index(self) -> int:
         """获取当前迭代器的环节点索引，若无则返回 -1"""
+        assert self._revisit_index.size() == len(self._revisit_nodes)
         if self.repeat_num > 0:
-            assert 1 == self.repeat_num, f"链表重复索引理论上不可能超过一次，而实际重复索引数量={self.repeat_num}，可能是被非法重置初始节点，重复迭代。"
-            return self.revisit_nodes[0].visit_index
+            for i in range(self._revisit_index.size()):
+                if self._revisit_index[i] == <Py_ssize_t>i:
+                    return int((<ListNodeKitBase>self._revisit_nodes[i]).visit_index)
         return -1
 
-    def copy(self, reset_index=False) -> IterNext2:
+    def copy(self, reset_index=False) -> IterNext3:
         """注意默认 reset_index=False，即默认不重置索引值"""
         assert isinstance(self.cur, ListNodeKitBase), f"IterNext2.cur must be type of ListNodeKitBase, but got {type(self.cur)}"
         node = self.cur.__class__(self.cur.raw, 0 if reset_index else self.cur.visit_index)
 
-        return IterNext2(node, self.allowed_null)
+        return IterNext3(node, self.allowed_null)
 
     def __getitem__(self, index: int) -> ListNodeKitBase:
         """
@@ -406,20 +398,20 @@ cdef class ListNodeKitBase(KitBase3):
 
     def flatten(self: 'ListNodeKitBase | HasNext | None', max_len: int = -1) -> Tuple[List[ListNodeKitBase], int]:
         """展开链表（包装节点类），若 max_len 非负则限制展开节点数量不超过 max_len"""
-        return IterNext2(ListNodeKitBase(self), False).flatten(max_len)
+        return IterNext3(ListNodeKitBase(self), False).flatten(max_len)
 
     def flatten_raw(self: 'ListNodeKitBase | HasNext | None', max_len: int = -1) -> Tuple[List[HasNext], int]:
         """展开链表（原生节点类），若 max_len 非负则限制展开节点数量不超过 max_len"""
-        kit_nodes, stop_index = IterNext2(ListNodeKitBase(self), False).flatten(max_len)
+        kit_nodes, stop_index = IterNext3(ListNodeKitBase(self), False).flatten(max_len)
         return [node.raw for node in kit_nodes if node.raw], stop_index
 
-    def __iter__(self) -> IterNext2:
+    def __iter__(self) -> IterNext3:
         """返回安全链表迭代器"""
-        return IterNext2(ListNodeKitBase(self, visit_index=0), False)  # 注意不能用 self 代替 ListNodeKitBase(self)，因为要重置 visit_index
+        return IterNext3(ListNodeKitBase(self, visit_index=0), False)  # 注意不能用 self 代替 ListNodeKitBase(self)，因为要重置 visit_index
 
     def __getitem__(self, key) -> ListNodeKitBase:
         """根据索引获取链表节点，返回的是 ListNodeKitBase 包装类对象，允许最后一个节点恰为空节点返回，但若中途遇到重复节点或空节点则抛出异常"""
-        return ListNodeKitBase(IterNext2(ListNodeKitBase(self, 0), True)[key])  # 用 ListNodeKitBase 同理（见 __iter__）
+        return ListNodeKitBase(IterNext3(ListNodeKitBase(self, 0), True)[key])  # 用 ListNodeKitBase 同理（见 __iter__）
 
     @classmethod
     def _to_string(cls, head: ListNodeKitBase | HasNext | None, prep_property: str = "val", max_len: int = -1) -> str:
@@ -456,27 +448,12 @@ cdef class ListNodeKitBase(KitBase3):
 
 # -------------------------- 树的遍历 ------------------------------
 
-cdef enum OpCode:
-    OP_L
-    OP_R
-    OP_C
-    OP_U
-
 @runtime_checkable
 class HasLR(Protocol):
     left: Optional[Any]
     right: Optional[Any]
 
-# ---------- 在文件开头（导入之后、类定义之前）添加 struct NodePair ----------
-cdef struct NodePair:
-    object node
-    bint checked
-
 cdef class TreeBase(KitBase3):
-    cdef:
-        vector[NodePair] stack
-        deque[NodePair] queue
-
     """二叉树包装基类，支持堆索引和深度计算"""
 
     def __cinit__(self):
@@ -493,7 +470,7 @@ cdef class TreeBase(KitBase3):
         return object.__getattribute__(self, "_heap_index")
 
     @property
-    def depth(self) -> int:
+    def depth(self) -> int: # 若改为 vector 实现大整数，则可修改为直接记录
         """节点深度（根深度为1）"""
         if not self.raw:
             return 0
@@ -527,102 +504,127 @@ cdef class TreeBase(KitBase3):
             raise AttributeError("空树节点不能设置 right 属性")
         node.right = self.unwrap(value)
 
-# ---------- 修改 TreeIter3 类 ----------
+# 修改 TreeIter3：使用两个平行容器代替 NodePair
+
+cdef enum OpCode:
+    OP_END = 0
+    OP_L   = 1
+    OP_R   = 2
+    OP_C   = 4
+    OP_SHIFT = 4
+    OP_U   = 0x44444444
+
+cdef unsigned int str2OpCode(s:str):
+    assert len(s) < 4
+    cdef unsigned int res = 0
+    for c in s.lower()[::-1]:
+        res <<= OP_SHIFT
+        if c == 'l':
+            res |= OP_L
+        elif c == 'r':
+            res |= OP_R
+        elif c == 'c':
+            res |= OP_C
+        else:
+            raise ValueError(f"invalid op: {s}")
+    return res
+
 cdef class TreeIter3(SafeIterBase3):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     cdef:
-        vector[NodePair] stack
-        deque[NodePair] queue
+        vector[bint]    stack_checked   # 存储对应的 checked 标志
+        deque[bint]     queue_checked
+
+        list stack_nodes 
+        object queue_nodes # ✅ pydeque 用 object
+
         bint use_queue
         KitBase3 _root
-        string _operation
+        readonly unsigned int _ops
         int _max_depth
-        bint _depth_exceeded   # 注意：原代码中使用了 _depth_exceeded，但未定义，这里补上
+        readonly bint _depth_exceeded
         bint _instant_updates
 
     def __cinit__(self):
         self.use_queue = False
         self._max_depth = -1
         self._root = KitBase3()
-        self._operation = ""
-        self._depth_exceeded = False   # 初始化
+        self._depth_exceeded = False
         self._instant_updates = False
+        self._ops = 0
 
-    def __init__(self, root, str operation, bint use_queue, bint early_stop=False, int max_depth=-1):
+        self.stack_nodes = [] 
+        self.queue_nodes = pydeque()
+
+    def __init__(self, root, unsigned int operation, bint use_queue, bint early_stop=False, int max_depth=-1):
         super().__init__(None, early_stop)
         self.use_queue = use_queue
         self._max_depth = max_depth
-        self._root = root  # 保存根节点
-        self._operation = operation.lower().encode('utf-8')
-        self._depth_exceeded = False
-        self._instant_updates = self._operation.find(b'c') == string.end() # 无入栈、队本节点，则为即时更新本节点
+        if isinstance(root, KitBase3):
+            self._root = root
+        else:
+            self._root = TreeBase(root)
+            
+        self._ops = operation
+        self._instant_updates = 0 == (operation & OP_U)
 
-        if root:
-            self._push(root, False)
+        if self._root:
+            self._push(self._root, False)
             self._prepare_next()
 
     cdef void _push(self, KitBase3 node, bint checked):
-        if node is None:
-            return
-
-        # 在 _push 之前或 _check_safe 之后增加深度限制
+        if not node: return
         if self._max_depth > 0 and node.depth > self._max_depth:
             self._depth_exceeded = True
-            return   # 跳过该节点的子节点入栈
-
-        cdef NodePair p
-        p.node = node
-        p.checked = checked
+            return
         if self.use_queue:
-            self.queue.push_back(p)
+            self.queue_nodes.append(node)
+            self.queue_checked.push_back(checked)
         else:
-            self.stack.push_back(p)
+            self.stack_nodes.append(node)
+            self.stack_checked.push_back(checked)
 
-    cdef NodePair _pop(self):
-        cdef NodePair p
+    cdef KitBase3 _pop(self, bint* checked):
         if self.use_queue:
-            p = self.queue.front()
-            self.queue.pop_front()
+            checked[0] = self.queue_checked.front()
+            self.queue_checked.pop_front()
+            return self.queue_nodes.popleft()
         else:
-            p = self.stack.back()
-            self.stack.pop_back()
-        return p
+            checked[0] = self.stack_checked.back()
+            self.stack_checked.pop_back()
+            return self.stack_nodes.pop()
 
     cpdef void _prepare_next(self):
-        cdef NodePair item
         cdef KitBase3 node
         cdef bint checked
-        cdef size_t i, n   # 声明 i 和 n
+        cdef unsigned int ops = self._ops
 
         while True:
             if self.use_queue:
-                if self.queue.empty():
+                if self.queue_checked.empty():
                     break
             else:
-                if self.stack.empty():
+                if self.stack_checked.empty():
                     break
 
-            item = self._pop()
-            node = <KitBase3>item.node
-            checked = item.checked
+            node = self._pop(&checked)
 
             if not checked:
                 if self._check_safe(node):
-                    # 修复：初始化 i = 0
-                    for op in self._operation:
-                        if op == b'l'[0]:     # std::string 迭代出的 op 是整数(char)，需对比 char 或 b'l'[0]
+                    while ops:
+                        if ops & OP_L:
                             self._push(node.left, False)
-                        elif op == b'r'[0]:
+                        elif ops & OP_R:
                             self._push(node.right, False)
-                        else:   # OP_C 或 OP_U
+                        else:
                             self._push(node, True)
-                    continue
-                elif self._early_stop:
-                    break
-                else:
-                    continue
-
-            self.cur = node
+                        ops >>= OP_SHIFT
+                    if not self._instant_updates: # 非即时更新当前节点，继续 POP
+                        continue
+                elif self._early_stop: break # 不安全且早停，置为空节点
+                else: continue # 不安全，继续 POP
+            # 已检查安全，或即时更新，设置 POP 节点为当前节点，跳出循环
+            self.cur = self.assert_TreeBase(node)
             return
 
         self.cur = KitBase3(None)
@@ -631,7 +633,7 @@ cdef class TreeIter3(SafeIterBase3):
         """返回从头开始的新迭代器（用于索引访问）"""
         return TreeIter3(
             self._root,
-            self._operation,
+            self._ops,
             self.use_queue,
             early_stop=self._early_stop,
             max_depth=self._max_depth
@@ -727,7 +729,7 @@ class TreeNodeKitBase(TreeBase):
         :param max_depth: 最大深度限制（包含）
         :param early_stop: 遇到重复节点是否停止
         """
-        it = TreeIter3(self, "LR", use_queue=True,
+        it = TreeIter3(self, str2OpCode("LR"), use_queue=True,
                        early_stop=early_stop, max_depth=max_depth)
         nodes = SafeIterBase3._flatten(it, max_len)
         if __DEBUG__:
@@ -750,22 +752,22 @@ class TreeNodeKitBase(TreeBase):
 
     def layer_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """层序遍历迭代器 (ULR)"""
-        return TreeIter3(self, "LR", use_queue=True,
+        return TreeIter3(self, str2OpCode("LR"), use_queue=True,
                          early_stop=early_stop, max_depth=max_depth)
 
     def NLR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """前序遍历迭代器 (NLR) -> 操作字符串 "RLU" """
-        return TreeIter3(self, "RL", use_queue=False,
+        return TreeIter3(self, str2OpCode("RL"), use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
 
     def LNR_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """中序遍历迭代器 (LNR) -> 操作字符串 "RCL" """
-        return TreeIter3(self, "RCL", use_queue=False,
+        return TreeIter3(self, str2OpCode("RCL"), use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
 
     def LRN_iter(self, early_stop: bool = False, max_depth: int = -1) -> TreeIter3:
         """后序遍历迭代器 (LRN) -> 操作字符串 "CRL" """
-        return TreeIter3(self, "CRL", use_queue=False,
+        return TreeIter3(self, str2OpCode("CRL"), use_queue=False,
                          early_stop=early_stop, max_depth=max_depth)
 
     def __iter__(self):
@@ -794,7 +796,7 @@ class TreeNodeKitBase(TreeBase):
             return "<class 'TreeNodeKit'>: empty"
 
         kit_nodes, it_res = TreeIter3(
-            node, "ULR", use_queue=True,
+            node, str2OpCode("LR"), use_queue=True,
             early_stop=not full_traversal,
             max_depth=max_depth
         ).flatten(max_len=max_node_len, raw=False)

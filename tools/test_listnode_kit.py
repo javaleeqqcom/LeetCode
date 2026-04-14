@@ -10,7 +10,7 @@ def test_listnode_kit():
     
     # ---------- 1. 空链表 ----------
     empty = ListNodeKit(None)
-    print("1. 空链表测试")
+    print("1.1 空链表测试")
     print(f"   bool(empty): {bool(empty)}")          # False
     print(f"   str(empty): {str(empty)}")            # <ListNodeKit>:[] 
     try:
@@ -23,7 +23,7 @@ def test_listnode_kit():
         print(f"   访问 empty[0] 抛出 IndexError: {e}")
     
     # ---------- 2. 无环链表 ----------
-    print("\n2. 无环链表测试")
+    print("\n1.2 无环链表测试")
     n1 = ListNode(1)
     n2 = ListNode(2)
     n3 = ListNode(3)
@@ -80,7 +80,7 @@ def test_listnode_kit():
         cur = cur.next
 
     # ---------- 3. 带环链表（使用示例中的构造方式）----------
-    print("\n3. 带环链表测试")
+    print("\n1.3 带环链表测试")
     ring_link = ListNodeKit.from_val(val=1)
     b = ListNode(2)
     c = ListNode(3)
@@ -101,7 +101,7 @@ def test_listnode_kit():
     print(f"   ring_link[1].val: {ring_link[1].val}")  # 2
     
     # ---------- 4. 使用 val 参数构造 ----------
-    print("\n4. 使用 val 参数构造")
+    print("\n1.4 使用 val 参数构造")
     kit_by_val = ListNodeKit.from_val(val=5)
     print(f"   str(kit_by_val): {str(kit_by_val)}")  # <ListNodeKit>:[5]
     print(f"   kit_by_val.node.val: {kit_by_val.val}")  # 5
@@ -158,10 +158,13 @@ def validate_list_flatten(head, expected_cycle_start_node):
         assert start_node is expected_cycle_start_node, \
             f"环起始节点 {start_node.val} 不符合预期 {expected_cycle_start_node.val}"
 
-def test_random_lists():
+def test_random_lists(seed:int):
     """随机生成大量链表（包括有环和无环），验证 flatten 的正确性"""
+    random.seed(seed)
     test_rounds = 10000
     max_nodes = 100
+    
+    print(f"\n5. 随机压力测试（{test_rounds} 轮，最大节点数 {max_nodes}）")
     
     for round_i in range(test_rounds):
         node_count = random.randint(1, max_nodes)
@@ -201,7 +204,7 @@ def test_random_lists():
 
 def test_duplicate_values_no_cycle():
     """测试值重复但节点不同的情况，不应触发环检测"""
-    print("\n6. 重复值（非环）测试")
+    print("\n2. 重复值（非环）测试")
     # 创建三个节点值相同但对象不同
     a = ListNode(100)
     b = ListNode(100)
@@ -220,24 +223,25 @@ def test_duplicate_values_no_cycle():
 
 def test_iter():
     """测试 ListNodeKit 的 __iter__ 方法（安全迭代）"""
-    print("\n5.========== 测试 __iter__ 方法 ==========")
     from args_parser import List2ListNode
 
     # 1. 空链表迭代
+    print("\n3.1 空链表迭代测试")
     empty = ListNodeKit(None)
     items = list(empty)
     assert items == [], "空链表迭代应返回空列表"
-    print("   空链表迭代测试通过")
 
     # 2. 无环链表迭代
+    print("\n3.2 无环链表迭代测试")
     head = List2ListNode([10, 20, 30])
     kit = ListNodeKit(head)
     collected = [(kit_node.visit_index, kit_node.val) for kit_node in kit]
     expected = [(0, 10), (1, 20), (2, 30)]
     assert collected == expected, f"无环链表迭代结果错误: {collected} != {expected}"
-    print("   无环链表迭代测试通过")
 
     # 3. 有环链表迭代（检测重复节点并提前停止）
+    
+    print("\n3.3 有环链表迭代（环检测）测试")
     # 构造环: 1 -> 2 -> 3 -> 2 (环)
     a = ListNode(1)
     b = ListNode(2)
@@ -254,10 +258,12 @@ def test_iter():
     # 迭代应在遇到重复节点 b 时停止，不会输出索引3
     assert collected == [(0, 1), (1, 2), (2, 3)], f"有环链表迭代结果错误: {collected}"
     # 检查 repeat_idx 属性
+    print(f"type of iter(kit_ring) is {type(it)}")
+    ici = it.circle_index
     assert it.circle_index == 1, f"repeat_idx 应为 1，实际为 {it.circle_index}"
-    print("   有环链表迭代（环检测）测试通过")
 
     # 4. 重复值但无环链表（不应触发环检测）
+    print("\n3.4 重复值但无环链表（不应触发环检测）")
     d = ListNode(100)
     e = ListNode(100)
     f = ListNode(100)
@@ -266,11 +272,10 @@ def test_iter():
     kit_dup = ListNodeKit(d)
     collected_dup = [(kit_node.visit_index, kit_node.val) for kit_node in kit_dup]
     assert collected_dup == [(0, 100), (1, 100), (2, 100)], "重复值无环链表被错误检测为环"
-    print("   重复值无环链表迭代测试通过")
 
 def test_flatten_methods():
     """专门测试 flatten 方法的调用方式和 stop_index 的所有可能值"""
-    print("\n6.========== 测试 flatten 方法 ==========")
+    print("\n4.========== 测试 flatten 方法 ==========")
 
     # ---------- 准备无环链表 ----------
     # 1 -> 2 -> 3 -> 4 -> 5
@@ -425,17 +430,15 @@ if __name__ == "__main__":
     # temp()
     # exit(0)
 
-    # 先运行原有基础测试
+    # 1. 先运行原有基础测试
     test_listnode_kit()
-    # 额外运行重复值测试（避免被随机测试掩盖）
+    # 2. 额外运行重复值测试（避免被随机测试掩盖）
     test_duplicate_values_no_cycle()
-    # 新增迭代器测试
-    test_iter()
-    # 新增 flatten 专项测试
+    # 3. 新增迭代器测试
+    test_iter()  # 在此处卡死
+    # 4. 新增 flatten 专项测试
     test_flatten_methods()
 
     # ---------- 5. 随机压力测试（新增）----------
-    print("\n7. 随机压力测试（1000 轮，最大节点数 200）")
-    random.seed(42)  # 可复现
-    test_random_lists()
+    test_random_lists(42)
     print("   随机压力测试通过")
