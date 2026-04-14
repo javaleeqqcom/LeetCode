@@ -1,3 +1,5 @@
+在学习了Cython容器不可以容纳任何PyObject后，注意之前尝试过用一个结构体将 PyObject 和 C++类型如 Py_ssize_t 或 bint 合并，放入 vector，但这会报错！修改了代码如下：
+```pyx
 # distutils: language = c++
 
 from libcpp.vector cimport vector
@@ -172,6 +174,16 @@ cdef class SafeIterBase3:
     def cur(self):
         return self._cur_node
 
+    def index_revisit_visit(self)->List[Tuple[int,int,int]]:
+        """返回所有涉及重复访问的节点（访问索引，重复索引，包装节点）"""
+        cdef list result = []
+
+        for i,node in enumerate(self._revisit_nodes):
+            if self._revisit_index[i] != -1:
+                result.append((i, self._revisit_index[i], node.visit_index ))
+
+        return result
+
     @cur.setter
     def cur(self, node):
         assert isinstance(node, KitBase3)
@@ -259,16 +271,6 @@ cdef class SafeIterBase3:
 
     cpdef void _prepare_next(self):
         raise NotImplementedError
-
-    def index_revisit_visit(self)->List[Tuple[int,int,int]]:
-        """返回所有涉及重复访问的节点（访问索引，重复索引，包装节点）"""
-        cdef list result = []
-
-        for i,node in enumerate(self._revisit_nodes):
-            if self._revisit_index[i] != -1:
-                result.append((i, self._revisit_index[i], node.visit_index ))
-
-        return result
 
     @property
     def revisit_nodes(self) -> List[KitBase3]:
@@ -851,3 +853,69 @@ class TreeNodeKitBase(TreeBase):
 
         body = ",\n".join(parts)
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
+```
+链表能AC，但是树报错如下：
+```
+(py314) PS D:\Users\java_lee\Documents\GitHub\LeetCode> & C:/Users/john/anaconda3/envs/py314/python.exe d:/Users/java_lee/Documents/GitHub/LeetCode/tools/test_TreeNodeKit.py
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+
+=== 1. 基本功能测试 ===
+<class 'TreeNodeKit'>: {
+  "tree_by_idx": """
+    __1__
+   /     \
+  2       3
+ / \     /
+4   5   6
+""",
+  "idx:val": {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+}
+<class 'TreeNodeKit'>: {
+  "tree_by_idx": """
+    __1__
+   /     \
+  2       3
+ / \     /
+4   5   6
+""",
+  "idx:val": {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+}
+Traceback (most recent call last):
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\tools\test_TreeNodeKit.py", line 495, in <module>
+    test_basic_functionality()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\tools\test_TreeNodeKit.py", line 182, in test_basic_functionality
+    assert kit.get_heap(i).val == i,f"expected kit[{i}]={i}, got {kit[i].val}"
+           ~~~~~~~~~~~~^^^
+  File "tools/iter_node_tools.pyx", line 715, in tools.iter_node_tools.TreeNodeKitBase.get_heap
+    node = SafeIterBase3._getitem(it, len(it._route), allowed_null=allowed_null)
+  File "tools/iter_node_tools.pyx", line 202, in tools.iter_node_tools.SafeIterBase3._getitem
+    for i, node in enumerate(it):
+  File "tools/iter_node_tools.pyx", line 263, in tools.iter_node_tools.SafeIterBase3.__next__
+    self._prepare_next()
+  File "tools/iter_node_tools.pyx", line 271, in tools.iter_node_tools.SafeIterBase3._prepare_next
+    raise NotImplementedError
+NotImplementedError
+```
+拟改进方案思考：
+1. SafeIterBase3 面向原生节点
+   - 更名为 SafeIterKit
+   - readonly list cit_pool: 保存原生 node 节点（不是 TreeIterBase 这种包装节点），如此可确保原生节点引用安全
+   - cit_pool 只能在 _check_safe 时添加，可通过 seen 查重
+   - _check_safe 参数改为原生节点，返回改为 cit_pool 索引，若不安全返回 -1（通常计算机能保存到 node 总数不可能超过有符号位长整型上限）
+   - KitBase3 用 cit_pool 的索引代替，_cur_node 就变成 _cur_index
+   - _revisit_nodes 就可以与 _revisit_index 合并为 _revisit_US_CT_index （表示分别为 并查集、引用池 的索引）
+   - 去掉 __iter__ __next（由其他函数实现）
+2. 迭代节点惰性包装化
+   - TreeIterBase、LinkIterBase 继承 SafeIterKit 或将 SafeIterKit 作为成员对象
+   - LinkIterBase 的 visit_index 用 size_t 即可（节点数不可能超过内存索引数）
+   - TreeIterBase 的 visit_index 用 小端 vector 数组表示（left\right 只需 vid<<1 和 vid|1 运算，都可以O(1)完成，除非遇上扩容）
+   - LinkIterBase 的 next、TreeIterBase 的 left、right 等在访问时就执行 _check_safe，从根本上杜绝重复迭代
+3. 内部迭代类
+   - IterNext3 改为 LinkIter
+   - TreeIter、LinkIter 实现 __iter__ __next__
+   - 原 HeapIter 删除，完全没必要用迭代，改为直接在 get_heap 操作 TreeIterBase
+4. 面向用户包装的迭代类 TreeIterKit、LinkIterKit
+   - 负责调用上述函数，用户友好
+   - 将原生 node 包装为带 visit_index，迭代时不包装，输出才惰性包装

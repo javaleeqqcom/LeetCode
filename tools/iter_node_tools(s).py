@@ -14,7 +14,6 @@ import sys
 from typing_extensions import Self
 from itertools import chain
 from binarytree import build
-from listkit import *
 
 # ---------- 辅助函数 ----------
 def _formatted_string(val: Any) -> str:
