@@ -7,3 +7,5 @@
 *.pyd
 build/
 __pycache__/
+iter_node_tools.cpp
+iter_node_tools.html

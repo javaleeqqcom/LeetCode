@@ -4,9 +4,10 @@ from libcpp.vector cimport vector
 from libcpp.deque cimport deque
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport pair
-from cpython.object cimport PyObject
 
-ctypedef PyObject* PyObjPtr
+# 移除 PyObject* 相关导入，不再需要
+# from cpython.object cimport PyObject
+# ctypedef PyObject* PyObjPtr
 
 __DEBUG__ = True
 
@@ -121,7 +122,6 @@ cdef class KitBase3:
 
 
 # ---------- SafeIterBase3 ----------
-ctypedef pair[PyObjPtr, bint] NodePair
 
 cdef class SafeIterBase3:
     """
@@ -135,7 +135,7 @@ cdef class SafeIterBase3:
         readonly bint _early_stop
 
         unordered_map[Py_ssize_t, Py_ssize_t] _seen
-        vector[pair[Py_ssize_t, PyObjPtr]] _revisit
+        vector[pair[Py_ssize_t, object]] _revisit   # (首次出现索引, 包装节点)
 
         Py_ssize_t _repeat_num
 
@@ -162,7 +162,8 @@ cdef class SafeIterBase3:
         if self._cur_node and self._cur_node.raw is not None:
             rid = <Py_ssize_t>id(self._cur_node.raw)
             self._seen[rid] = <Py_ssize_t>0
-            self._revisit.push_back(pair[Py_ssize_t, PyObjPtr](-1, <PyObjPtr>self._cur_node))
+            # 存储对象，不再需要强制转换
+            self._revisit.push_back(pair[Py_ssize_t, object](-1, self._cur_node))
 
     @property
     def repeat_num(self):
@@ -179,13 +180,15 @@ cdef class SafeIterBase3:
 
         for i in range(n):
             if self._revisit[i].first == i:
-                result.append((i, self._revisit[i].first, (<KitBase3>self._revisit[i].second).visit_index ))
+                # 直接从 object 转换为 KitBase3（Cython 会自动处理引用）
+                node = <KitBase3>self._revisit[i].second
+                result.append((i, self._revisit[i].first, node.visit_index))
 
         return result
 
     @cur.setter
     def cur(self, node):
-        assert isinstance(node,KitBase3)
+        assert isinstance(node, KitBase3)
         self._cur_node = node
 
     @classmethod
@@ -220,10 +223,11 @@ cdef class SafeIterBase3:
 
         cdef Py_ssize_t rid = <Py_ssize_t>id(node.raw)
 
-        cdef Py_ssize_t has_key = self._seen.count(rid)  # 先把結果存入變數
+        cdef Py_ssize_t has_key = self._seen.count(rid)  # 先把结果存入变量
         if has_key > 0:
             rv_idx = self._seen[rid]
-            self._revisit.push_back(pair[Py_ssize_t, PyObjPtr](rv_idx, <PyObjPtr>node))
+            # 存储对象，不再需要强制转换
+            self._revisit.push_back(pair[Py_ssize_t, object](rv_idx, node))
 
             if self._revisit[rv_idx].first == -1:
                 self._revisit[rv_idx].first = rv_idx
@@ -232,7 +236,7 @@ cdef class SafeIterBase3:
         else:
             rv_idx = <Py_ssize_t>self._revisit.size()
             self._seen[rid] = <Py_ssize_t>rv_idx
-            self._revisit.push_back(pair[Py_ssize_t, PyObjPtr](-1, <PyObjPtr>node))
+            self._revisit.push_back(pair[Py_ssize_t, object](-1, node))
             return True
 
     @classmethod
@@ -462,6 +466,8 @@ class HasLR(Protocol):
     left: Optional[Any]
     right: Optional[Any]
 
+# 不再使用 PyObjPtr，直接用 object
+ctypedef pair[object, bint] NodePair   # 存储 (包装节点, 是否已处理标志)
 
 cdef class TreeBase(KitBase3):
     cdef:
@@ -522,8 +528,8 @@ cdef class TreeBase(KitBase3):
 cdef class TreeIter3(SafeIterBase3):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     cdef:
-        vector[pair[PyObjPtr, bint]] stack
-        deque[pair[PyObjPtr, bint]] queue
+        vector[NodePair] stack
+        deque[NodePair] queue
 
         bint use_queue
         vector[OpCode] ops
@@ -563,7 +569,7 @@ cdef class TreeIter3(SafeIterBase3):
     cdef void _push(self, KitBase3 node, bint checked):
         if node is None: return
 
-        cdef NodePair p = pair[PyObjPtr, bint](<PyObjPtr>node, checked)
+        cdef NodePair p = pair[object, bint](node, checked)   # 直接存储 object
 
         if self.use_queue:
             self.queue.push_back(p)
@@ -586,6 +592,8 @@ cdef class TreeIter3(SafeIterBase3):
         cdef NodePair item
         cdef KitBase3 node
         cdef bint checked
+        # 使用索引循环代替 Python 迭代器，性能更优
+        cdef size_t i, n = self.ops.size()
 
         while True:
             if self.use_queue:
@@ -596,18 +604,19 @@ cdef class TreeIter3(SafeIterBase3):
                     break
 
             item = self._pop()
-            node = <KitBase3>item.first
+            node = <KitBase3>item.first   # item.first 现在是 object，Cython 自动转换
             checked = item.second
 
             if not checked:
                 if self._check_safe(node):
-                    for op in self.ops:
-                        if op == OP_L:
+                    while i < n:
+                        if self.ops[i] == OP_L:
                             self._push(node.left, False)
-                        elif op == OP_R:
+                        elif self.ops[i] == OP_R:
                             self._push(node.right, False)
                         else:
                             self._push(node, True)
+                        i += 1
                     continue
                 elif self._early_stop:
                     break
