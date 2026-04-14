@@ -1,6 +1,7 @@
 # distutils: language = c++
 
 from libcpp.vector cimport vector
+from libcpp.string cimport string
 from libcpp.deque cimport deque
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport pair
@@ -466,8 +467,10 @@ class HasLR(Protocol):
     left: Optional[Any]
     right: Optional[Any]
 
-# 不再使用 PyObjPtr，直接用 object
-ctypedef pair[object, bint] NodePair   # 存储 (包装节点, 是否已处理标志)
+# ---------- 在文件开头（导入之后、类定义之前）添加 struct NodePair ----------
+cdef struct NodePair:
+    object node
+    bint checked
 
 cdef class TreeBase(KitBase3):
     cdef:
@@ -524,53 +527,52 @@ cdef class TreeBase(KitBase3):
             raise AttributeError("空树节点不能设置 right 属性")
         node.right = self.unwrap(value)
 
-
+# ---------- 修改 TreeIter3 类 ----------
 cdef class TreeIter3(SafeIterBase3):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     cdef:
         vector[NodePair] stack
         deque[NodePair] queue
-
         bint use_queue
-        vector[OpCode] ops
         KitBase3 _root
-        str _operation
+        string _operation
         int _max_depth
+        bint _depth_exceeded   # 注意：原代码中使用了 _depth_exceeded，但未定义，这里补上
+        bint _instant_updates
 
     def __cinit__(self):
         self.use_queue = False
         self._max_depth = -1
         self._root = KitBase3()
         self._operation = ""
+        self._depth_exceeded = False   # 初始化
+        self._instant_updates = False
 
     def __init__(self, root, str operation, bint use_queue, bint early_stop=False, int max_depth=-1):
         super().__init__(None, early_stop)
         self.use_queue = use_queue
         self._max_depth = max_depth
         self._root = root  # 保存根节点
-        self._operation = operation
-
-        # 预编译 operation
-        self.ops.clear()
-        for c in operation.lower():
-            if c == 'l':
-                self.ops.push_back(OP_L)
-            elif c == 'r':
-                self.ops.push_back(OP_R)
-            elif c == 'c':
-                self.ops.push_back(OP_C)
-            else:
-                self.ops.push_back(OP_U)
+        self._operation = operation.lower().encode('utf-8')
+        self._depth_exceeded = False
+        self._instant_updates = self._operation.find(b'c') == string.end() # 无入栈、队本节点，则为即时更新本节点
 
         if root:
             self._push(root, False)
             self._prepare_next()
 
     cdef void _push(self, KitBase3 node, bint checked):
-        if node is None: return
+        if node is None:
+            return
 
-        cdef NodePair p = pair[object, bint](node, checked)   # 直接存储 object
+        # 在 _push 之前或 _check_safe 之后增加深度限制
+        if self._max_depth > 0 and node.depth > self._max_depth:
+            self._depth_exceeded = True
+            return   # 跳过该节点的子节点入栈
 
+        cdef NodePair p
+        p.node = node
+        p.checked = checked
         if self.use_queue:
             self.queue.push_back(p)
         else:
@@ -578,22 +580,19 @@ cdef class TreeIter3(SafeIterBase3):
 
     cdef NodePair _pop(self):
         cdef NodePair p
-
         if self.use_queue:
             p = self.queue.front()
             self.queue.pop_front()
         else:
             p = self.stack.back()
             self.stack.pop_back()
-
         return p
 
     cpdef void _prepare_next(self):
         cdef NodePair item
         cdef KitBase3 node
         cdef bint checked
-        # 使用索引循环代替 Python 迭代器，性能更优
-        cdef size_t i, n = self.ops.size()
+        cdef size_t i, n   # 声明 i 和 n
 
         while True:
             if self.use_queue:
@@ -604,19 +603,19 @@ cdef class TreeIter3(SafeIterBase3):
                     break
 
             item = self._pop()
-            node = <KitBase3>item.first   # item.first 现在是 object，Cython 自动转换
-            checked = item.second
+            node = <KitBase3>item.node
+            checked = item.checked
 
             if not checked:
                 if self._check_safe(node):
-                    while i < n:
-                        if self.ops[i] == OP_L:
+                    # 修复：初始化 i = 0
+                    for op in self._operation:
+                        if op == b'l'[0]:     # std::string 迭代出的 op 是整数(char)，需对比 char 或 b'l'[0]
                             self._push(node.left, False)
-                        elif self.ops[i] == OP_R:
+                        elif op == b'r'[0]:
                             self._push(node.right, False)
-                        else:
+                        else:   # OP_C 或 OP_U
                             self._push(node, True)
-                        i += 1
                     continue
                 elif self._early_stop:
                     break
