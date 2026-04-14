@@ -117,8 +117,6 @@ cdef class KitBase3:
             "visit.id: " + (f"0x{vid:x}" if vid and vid >= 2**16 else str(vid))
         )
 
-
-# ---------- SafeIterBase3 ----------
 cdef class SafeIterBase3:
     """
     安全迭代器基类（方案二版本）
@@ -130,39 +128,33 @@ cdef class SafeIterBase3:
         KitBase3 _cur_node
         readonly bint _early_stop
 
-        unordered_map[Py_ssize_t, Py_ssize_t] _seen
-        vector[Py_ssize_t] _revisit_index
-        list _revisit_nodes
+        unordered_map[Py_ssize_t, Py_ssize_t] _seen   # raw_id -> 首次出现索引（在 _revisit 中）
+        list _revisit                                 # [(parent_index, node)]，parent_index 指向首次出现的位置（-1 表示首次）
         Py_ssize_t _repeat_num
 
     def __cinit__(self):
-        self._cur_node = KitBase3()          # 空占位
+        self._cur_node = KitBase3()
         self._early_stop = False
         self._repeat_num = 0
-        self._revisit_nodes = list()
+        self._revisit = []
 
     def __init__(self, node, bint early_stop=False):
         # 1️⃣ 确定包装类型和当前节点
         if isinstance(node, KitBase3):
-            # 保留完整包装对象（包括子类类型）
             self._cur_node = node
         elif node is not None:
-            # 原生节点 -> 使用默认包装类（通常是 KitBase3，子类需自行重写）
             self._cur_node = KitBase3(node)
         else:
             self._cur_node = KitBase3(None)
 
         self._early_stop = early_stop
 
-        # 2️⃣ 初始化环检测结构（基于原始节点内存地址）
+        # 2️⃣ 初始化环检测结构
         cdef Py_ssize_t rid
-        
         if self._cur_node and self._cur_node.raw is not None:
             rid = <Py_ssize_t>id(self._cur_node.raw)
-            self._seen[rid] = <Py_ssize_t>0
-            # 存储结构体，first_idx 初始为 -1
-            self._revisit_index.push_back(<Py_ssize_t>-1)
-            self._revisit_nodes.append(self._cur_node)
+            self._seen[rid] = 0                     # 首次出现索引为 0
+            self._revisit.append((-1, self._cur_node))  # parent = -1
 
     @property
     def repeat_num(self):
@@ -204,27 +196,28 @@ cdef class SafeIterBase3:
             raise IndexError(f"Index: {index} out of range")
 
     cdef bint _check_safe(self, KitBase3 node):
+        """返回 True 表示节点是安全的（未重复），False 表示重复。同时更新 _revisit 和 _repeat_num。"""
         if not node or node.raw is None:
             return False
 
-        cdef Py_ssize_t rid = <Py_ssize_t>id(node.raw), rv_idx
-        cdef Py_ssize_t has_key = self._seen.count(rid)  # 先把结果存入变量
-        
-        if has_key > 0:
-            rv_idx = self._seen[rid]
-            # 记录重复节点的索引信息
-            self._revisit_index.push_back(rv_idx)
-            self._revisit_nodes.append(node)
-            # 若首次记录为重复访问节点，需更新并查索引为 rv_idx
-            if self._revisit_index[rv_idx] == -1:
-                self._revisit_index[rv_idx] = rv_idx
+        cdef Py_ssize_t rid = <Py_ssize_t>id(node.raw)
+        cdef Py_ssize_t first_idx
+        cdef bint exists = self._seen.count(rid) > 0
+
+        if exists:
+            first_idx = self._seen[rid]
+            # 记录重复节点
+            self._revisit.append((first_idx, node))
+            # 如果首次出现的节点还没有设置 parent 为自己（即该节点还未被标记为重复起点）
+            if self._revisit[first_idx][0] == -1:
+                # 将首次出现节点的 parent 指向自身，标记为重复起点
+                self._revisit[first_idx] = (first_idx, self._revisit[first_idx][1])
                 self._repeat_num += 1
             return False
         else:
-            rv_idx = <Py_ssize_t>self._revisit_index.size()
-            self._seen[rid] = rv_idx 
-            self._revisit_index.push_back(-1) # 首次出现节点的并查索引为 -1
-            self._revisit_nodes.append(node)
+            first_idx = <Py_ssize_t>len(self._revisit)
+            self._seen[rid] = first_idx
+            self._revisit.append((-1, node))
             return True
 
     @classmethod
@@ -241,7 +234,7 @@ cdef class SafeIterBase3:
             if cur_len == max_len:  # cur_len 是逐一递增的，若 max_len 为正，则必能生效
                 break
         return nodes
-
+        
     def __iter__(self) -> Iterator[KitBase3]:
         return self
 
@@ -257,24 +250,17 @@ cdef class SafeIterBase3:
 
         return result
 
-    cpdef void _prepare_next(self):
+    def _prepare_next(self):
         raise NotImplementedError
 
-    def index_revisit_visit(self)->List[Tuple[int,int,int]]:
-        """返回所有涉及重复访问的节点（访问索引，重复索引，包装节点）"""
-        cdef list result = []
-
-        for i,node in enumerate(self._revisit_nodes):
-            if self._revisit_index[i] != -1:
-                result.append((i, self._revisit_index[i], node.visit_index ))
-
-        return result
+    @property
+    def revisit(self)-> List[Tuple[int, KitBase3]]:
+        return self._revisit
 
     @property
     def revisit_nodes(self) -> List[KitBase3]:
-        """返回所有被重复访问的节点（按发现顺序）"""
-        return [node for i,node in enumerate(self._revisit_nodes) if self._revisit_index[i] == i]
-
+        """返回所有被重复访问的节点（即作为环起点的节点，每个节点只返回一次）"""
+        return [node for i, (p, node) in enumerate(self._revisit) if p == i]
 
 # 定义原生节点协议（必须包含 .next 属性）
 @runtime_checkable
@@ -303,7 +289,7 @@ cdef class IterNext3(SafeIterBase3):
         super().__init__(node=head, early_stop=True)  # 链表不支持跳过，故早停为 True
         self.allowed_null = getitem_null_end
 
-    cpdef void _prepare_next(self):
+    def _prepare_next(self):
         """移动到下一个节点，自动包装，并进行环检测。"""
         if self.cur:
             self.cur = self.cur.next
@@ -311,12 +297,10 @@ cdef class IterNext3(SafeIterBase3):
 
     @property
     def circle_index(self) -> int:
-        """获取当前迭代器的环节点索引，若无则返回 -1"""
-        assert self._revisit_index.size() == len(self._revisit_nodes)
-        if self.repeat_num > 0:
-            for i in range(self._revisit_index.size()):
-                if self._revisit_index[i] == <Py_ssize_t>i:
-                    return int((<ListNodeKitBase>self._revisit_nodes[i]).visit_index)
+        """获取当前迭代器的环节点索引（visit_index），若无则返回 -1"""
+        for i, (p, node) in enumerate(self._revisit):
+            if p == i:   # 该节点是重复起点
+                return node.visit_index
         return -1
 
     def copy(self, reset_index=False) -> IterNext3:
@@ -455,19 +439,18 @@ class HasLR(Protocol):
 
 cdef class TreeBase(KitBase3):
     """二叉树包装基类，支持堆索引和深度计算"""
+    cdef int _heap_index
 
-    def __cinit__(self):
-        pass
-        # C++ 容器自动初始化，无需额外操作
+    def __cinit__(self, node, Py_ssize_t heap_index=1):
+        self._heap_index = heap_index
 
     def __init__(self, node: KitBase3 | HasLR | None = None, heap_index: int = 1):
         super().__init__(node)
-        object.__setattr__(self, '_heap_index', heap_index)
 
     @property
     def visit_index(self) -> int:
         """完全二叉树索引（从1开始）"""
-        return object.__getattribute__(self, "_heap_index")
+        return self._heap_index
 
     @property
     def depth(self) -> int: # 若改为 vector 实现大整数，则可修改为直接记录
@@ -594,10 +577,10 @@ cdef class TreeIter3(SafeIterBase3):
             self.stack_checked.pop_back()
             return self.stack_nodes.pop()
 
-    cpdef void _prepare_next(self):
+    def _prepare_next(self):
         cdef KitBase3 node
         cdef bint checked
-        cdef unsigned int ops = self._ops
+        cdef unsigned int ops
 
         while True:
             if self.use_queue:
@@ -611,10 +594,11 @@ cdef class TreeIter3(SafeIterBase3):
 
             if not checked:
                 if self._check_safe(node):
+                    ops = self._ops   # ✅ 每个节点重新拷贝
                     while ops:
-                        if ops & OP_L:
+                        if ops&0xF == OP_L:
                             self._push(node.left, False)
-                        elif ops & OP_R:
+                        elif ops&0xF == OP_R:
                             self._push(node.right, False)
                         else:
                             self._push(node, True)
@@ -706,6 +690,8 @@ cdef class HeapIter(SafeIterBase3):
 
 class TreeNodeKitBase(TreeBase):
     """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
+    def __init__(self, node: KitBase3 | HasLR | None = None, heap_index: int = 1):
+        super().__init__(node, heap_index)
 
     def get_heap(self, heap_index: int, allowed_null: bool = False) -> 'TreeNodeKitBase':
         """按堆索引获取节点（从1开始），路径断裂或遇环时抛出 IndexError"""
@@ -713,8 +699,7 @@ class TreeNodeKitBase(TreeBase):
             raise IndexError("堆索引不能小于1")
         it = HeapIter(self, heap_index)
         node = SafeIterBase3._getitem(it, len(it._route), allowed_null=allowed_null)
-        assert isinstance(node, TreeNodeKitBase), f"设计错误：SafeIterBase3._getitem 丢失了节点包装类型的保持状态, 实际类型为 {type(node)}"
-        return node
+        return TreeNodeKitBase(node,node.visit_index)
 
     def __getitem__(self, index: int) -> 'TreeNodeKitBase':
         """按层序遍历顺序索引（从0开始），返回包装节点"""
@@ -803,12 +788,14 @@ class TreeNodeKitBase(TreeBase):
 
         # 构建重复索引标注
         repeat_mark = {}
-        i_rv_v = it_res.index_revisit_visit()
-        for i, p, v in i_rv_v: # 遍历 revisit索引、访问索引、树堆索引
+        
+        # 遍历 revisit索引、访问索引、包装节点
+        for i, (p, kn) in enumerate(it_res.revisit): 
+            v = kn.visit_index
             if i == p:  # 是重复节点
                 repeat_mark[v] = f"*{v}"
-            elif -1 != p:
-                repeat_mark[v] = f"^{i_rv_v[p][2]}"
+            if p != -1:
+                repeat_mark[v] = f"^{it_res.revisit[p][1].visit_index}"\
 
         # 收集索引 -> 值
         idx_val = {kn.visit_index: getattr(kn.raw, prep_property) for kn in kit_nodes}
@@ -833,7 +820,7 @@ class TreeNodeKitBase(TreeBase):
             tree_str = "Error: binarytree build failed"
 
         parts = []
-        repeat_idxs = [n.visit_index for _,_,n in it_res.revisit_nodes]
+        repeat_idxs = [kn.visit_index for kn in it_res.revisit_nodes]
         if full_traversal:
             if repeat_idxs:
                 parts.append(f'  "warning_duplicate_idx": {repeat_idxs}')
