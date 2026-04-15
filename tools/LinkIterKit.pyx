@@ -21,10 +21,12 @@ cdef class SafeIterBase:
     cdef dict _seen                 # node -> first_index
     cdef vector[RevisitEntry] _revisit
     cdef int _repeat_num
+    cdef PyObject* _cur
 
     def __cinit__(self):
         self._seen = {}
         self._repeat_num = 0
+        self._cur = NULL
 
     @property
     def repeat_num(self):
@@ -32,37 +34,33 @@ cdef class SafeIterBase:
 
     # ===== 核心：重复检测 =====
     cdef bint _check_safe(self, PyObject* node):
-        cdef PyObject* key
         cdef int first_idx
         cdef RevisitEntry entry
 
-        if node is NULL:
+        if SafeIterBase.is_null(node):
             return False
 
-        key = <PyObject*>node
+        key = <object>node # 关键！指针 -> PyObj
 
         if key in self._seen:
             first_idx = <int>self._seen[key]
 
             entry.uf_index = first_idx
-            entry.node = node
+            entry.node = node      # 存储指针，不增加引用计数
             self._revisit.push_back(entry)
 
             # 标记首次重复
             if self._revisit[first_idx].uf_index == -1:
                 self._revisit[first_idx].uf_index = first_idx
                 self._repeat_num += 1
-
             return False
-
         else:
             first_idx = self._revisit.size()
-            self._seen[key] = first_idx
+            self._seen[key] = first_idx # node 通过 _seen 的引用计数维持不在 SafeIterBase 析构前消亡
 
             entry.uf_index = -1
             entry.node = node
             self._revisit.push_back(entry)
-
             return True
 
     # ===== flatten =====
@@ -77,7 +75,6 @@ cdef class SafeIterBase:
             i += 1
             if max_len >= 0 and i >= max_len:
                 break
-
         return out
 
     # ===== get_next =====
@@ -89,7 +86,7 @@ cdef class SafeIterBase:
         if index < 0:
             raise IndexError()
 
-        for node in it:
+        for node in enumerate(it):
             if i == index:
                 return node
             i += 1
@@ -102,50 +99,122 @@ cdef class SafeIterBase:
 
         raise IndexError()
 
-
-# ===============================
-# LinkIterBase
-# ===============================
-cdef class LinkIterBase(SafeIterBase):
-    cdef PyObject* _cur
-    cdef PyObject* _head
-    cdef bint _allowed_null
-
-    def __cinit__(self, object head, bint allowed_null=False):
-        SafeIterBase.__cinit__(self)
-
-        if head is None:
-            self._head = NULL
-        else:
-            self._head = <PyObject*>head
-
-        self._cur = self._head
-        self._allowed_null = allowed_null
-
-        # ⚠️ 必须先登记 head
-        self._check_safe(self._head)
-
     def __iter__(self):
         return self
+    
+    def _prepare_next(self):
+        raise NotImplementedError("_prepare_next method should be implemented by the SafeIterBase inheritance class.")
 
     def __next__(self):
         cdef PyObject* res
-        cdef PyObject* next_node
 
-        if self._cur is NULL:
+        if SafeIterBase.is_null(self._cur):
             raise StopIteration
-
         res = self._cur
 
         # 获取 next（Python属性访问）
-        next_node = <PyObject*>getattr(<object>self._cur, "next")
+        next_node = self._prepare_next()
 
-        if self._check_safe(next_node):
-            self._cur = next_node
+        if self._check_safe(<PyObject*>next_node):
+            self._cur = <PyObject*>next_node    # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
         else:
             self._cur = NULL
 
         return <object>res
+
+    @staticmethod
+    cdef is_null(PyObject* ptr):
+        if ptr is NULL:
+            return True
+        obj = <object>ptr
+        # ✅ 关键修复：拦住 None
+        if obj is None:
+            return True
+        return False
+
+
+# ===============================
+# KitBase（轻量代理）
+# ===============================
+cdef class KitBase:
+    cdef readonly object raw
+
+    def __cinit__(self):
+        self.raw= None
+
+    def __init__(self, object node) -> None:
+        self.raw = KitBase.unwrap(node)
+
+    @classmethod
+    def unwrap(cls, other):
+        """
+        提取包装类内部的原始节点。
+        - 如果 other 是 KitBase2 子类实例，返回其内部 _node。
+        - 否则直接返回 other 本身（可能为 None）。
+        """
+        if isinstance(other, KitBase):
+            return other.raw
+        return other
+
+    def __getattr__(self, name: str) -> Any:
+        """代理属性访问到原生节点"""
+        # 1️⃣ 先查类属性
+        attr = getattr(type(self), name, None)
+
+        # 2️⃣ 如果是 data descriptor（有 __set__）
+        if hasattr(attr, "__get__"):
+            # ✅ 调用 property
+            return attr.__get__(self)
+
+        # 3️⃣ 否则走你原来的逻辑
+        node = self.raw
+        return getattr(node, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # 1️⃣ 先查类属性
+        attr = getattr(type(self), name, None)
+
+        # 2️⃣ 如果是 data descriptor（有 __set__）
+        if hasattr(attr, "__set__"):
+            attr.__set__(self, value)   # ✅ 调用 property setter
+            return
+
+        # 3️⃣ 否则走你原来的逻辑
+        node = self.raw
+        if node is None:
+            raise AttributeError(f"Can't set attribute '{name}' on empty node")
+
+        setattr(node, name, KitBase.unwrap(value))
+
+    def __eq__(self, other) -> bool:
+        """比较两个包装节点是否包装同一个原生节点"""
+        if not isinstance(other,KitBase): return False
+        return self.raw is other.raw
+
+    def __ne__(self, other) -> bool:
+        return not self.__eq__(other)
+    
+# ===============================
+# LinkIterBase
+# ===============================
+cdef class LinkIterBase(SafeIterBase):
+    cdef bint _allowed_null
+
+    def __cinit__(self):
+        self._allowed_null = False
+
+    def __init__(self, object head, bint allowed_null=False):
+        super().__init__()
+        self._allowed_null = allowed_null
+        head = KitBase.unwrap(head)
+        if head is not None:
+            self._cur = <PyObject*>head
+            # ⚠️ 必须先登记 head
+            self._check_safe(self._cur)
+
+    # 覆盖 SafeIterBase 基类
+    def _prepare_next(self):
+        return getattr(<object>self._cur, "next") # next_node 必须赋值为 PyObject 类型否则会报错：`Storing unsafe C derivative of temporary Python reference`
 
     @property
     def circle_index(self):
@@ -160,67 +229,39 @@ cdef class LinkIterBase(SafeIterBase):
         return SafeIterBase._flatten(self, max_len)
 
 
-# ===============================
-# KitBase（轻量代理）
-# ===============================
-cdef class KitBase:
-    cdef PyObject* _node
 
-    def __cinit__(self, object node):
-        if isinstance(node, KitBase):
-            self._node = (<KitBase>node)._node
-        else:
-            if node is None:
-                self._node = NULL
-            else:
-                self._node = <PyObject*>node
-
-    @property
-    def raw(self):
-        return <object>self._node
-
-    def __getattr__(self, name):
-        if self._node is NULL:
-            raise AttributeError(name)
-        return getattr(<object>self._node, name)
-
-    def __setattr__(self, name, value):
-        if name == "_node":
-            object.__setattr__(self, name, value)
-            return
-        if self._node is NULL:
-            raise AttributeError(name)
-        setattr(<object>self._node, name, value)
-
-
+from args_parser_tools import _formated_string # _to_string 需要
 # ===============================
 # LinkIterKit（用户层）
 # ===============================
 cdef class LinkIterKit(KitBase):
     cdef bint _allowed_null
 
-    def __cinit__(self, object node, bint allowed_null=False):
-        KitBase.__cinit__(self, node)
+    def __cinit__(self):
+        self._allowed_null = False
+
+    def __init__(self, object node, bint allowed_null=False):
+        KitBase.__init__(self, node)
         self._allowed_null = allowed_null
 
     def __iter__(self):
         return LinkIterBase(self.raw, self._allowed_null)
 
     @property
-    def next(self):
-        if self._node is NULL:
-            raise AttributeError("None node")
-
-        cdef object nxt = getattr(<object>self._node, "next")
-        return LinkIterKit(nxt, self._allowed_null)
+    def next(self)->'LinkIterKit':
+        node = self.raw
+        if node is None:
+            raise AttributeError("Empty node has no 'next' attribute")
+        
+        # 关键：返回当前类的实例，保持装饰器效果延续
+        return self.__class__(node = node.next)
 
     @next.setter
-    def next(self, value):
-        if self._node is NULL:
-            raise AttributeError("None node")
-
-        setattr(<object>self._node, "next",
-                value.raw if isinstance(value, KitBase) else value)
+    def next(self, value) -> None:
+        node = self.raw # 提取原生节点
+        if node is None:
+            raise AttributeError("Empty node has no 'next' attribute")
+        node.next = self.unwrap(value) # 对原生节点赋值需要去包装
 
     # ===== flatten =====
     cpdef list flatten(self):
@@ -232,7 +273,7 @@ cdef class LinkIterKit(KitBase):
         cdef LinkIterBase it = LinkIterBase(self.raw, self._allowed_null)
         cdef list nodes = it.iter_flatten_raw(max_len)
 
-        if it._cur is NULL:
+        if SafeIterBase.is_null(it._cur):
             return nodes, it.circle_index
         else:
             return nodes, max_len
@@ -241,3 +282,39 @@ cdef class LinkIterKit(KitBase):
     def __getitem__(self, int idx):
         cdef LinkIterBase it = LinkIterBase(self.raw, self._allowed_null)
         return LinkIterKit(it.get_next(idx), self._allowed_null)
+
+    @classmethod
+    def _to_string(cls, head, prep_property: str = "val" , max_len:int = -1) -> str:
+        """安全打印链表，自动标记环（> 和 ^）"""
+        cdef Py_ssize_t stop_index
+        # 注意要用 unwrap 去包装节点
+        nodes, stop_index = LinkIterKit(head).flatten_stopIDX( max_len = max_len)       
+
+        str_lst = []
+        
+        # 环之前的节点（若无环则全部节点）
+        for i in range(stop_index if -1 != stop_index else len(nodes)):
+            try:
+                str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
+            except:
+                raise Exception(f"len(nodes)={len(nodes)}, stop_index={stop_index}, node={nodes[-1]}")
+        
+        # 有异常终止索引
+        if stop_index >= 0:
+            if stop_index == len(nodes):
+                str_lst.append("...") # 说明链表长度超过最大限制，截断打印
+
+            else: # 说明检测到链表环
+                str_lst.append(">")
+            
+                # 环之后的节点
+                for i in range(stop_index, len(nodes)):
+                    assert len(nodes)>0,"len(nodes)==0"
+                    str_lst.append(_formated_string(getattr(nodes[i],prep_property)))
+            
+                # 环结束标记
+                str_lst.append("^")
+
+        return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
+        
+        

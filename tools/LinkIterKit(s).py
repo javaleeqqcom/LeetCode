@@ -102,6 +102,7 @@ class SafeIterBase:
                 break
         return nodes
     
+    # ===== get_next =====
     @classmethod
     def _get_next(cls,it: Self, index: int ,allowed_null:bool= False , early_stop = True) -> Any:
         """
@@ -139,6 +140,9 @@ class SafeIterBase:
         """返回所有重复访问的节点（按发现顺序）"""
         return [rv_n for i,rv_n in enumerate(self._revisit) if i==rv_n.uf_index]
         
+# ===============================
+# KitBase（轻量代理）
+# ===============================
 class KitBase:
     """
     调试增强基类（代理模式）
@@ -205,7 +209,10 @@ class KitBase:
     def __ne__(self, other: Any) -> bool:
         return not self.__eq__(other)
     
-# ---------- IterNext2 ----------
+
+# ===============================
+# LinkIterBase
+# ===============================
 class LinkIterBase(SafeIterBase):
     __slots__ = (
         "_cur",        # 当前节点（PyObject*）

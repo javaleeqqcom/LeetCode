@@ -4,7 +4,7 @@
    - 迭代过程中去掉包装节点，在Cython中对节点进行二次包装 -> 访问 cache 命中率低
    - 因此需要在迭代器中用数组维护包装节点所需的信息如 node 和 visit_index，内存连续，性能更好
 2. SafeIterBase 面向原生节点
-   - _seen : 采用 Dict[node,`_revisit 索引`] ，因为 Dict 持有 node 引用，不会内存泄漏，并且 Dict 的 key() 自带查重，每个引用至多1次，更高效
+   - _seen : 采用 Dict[node,`_revisit 索引`] ，因为 Dict 持有 node 引用（注意 dict 作为Python容器不能容纳 PyObject* 指针！），不会内存泄漏，并且 Dict 的 key() 自带查重，每个引用至多1次，更高效
      - 有重复时 _seen 的 `_revisit 索引` 只保存最小（早）的。
    - _check_safe 参数改为原生节点
    - 因为弃用包装类 KitBase3 删除，将其功能移植到其他类中
@@ -51,11 +51,14 @@
    - TreeIterKit 和 LinkIterKit 的 flatten、get_next 通过维护的 temp_iter（相应的 SafeIterBase 子类），实现记忆化。
      - 如先 p1.flatten(5) ，则暂存 Top5 结果，同时维持 temp_iter 状态，若后面需要 p1.get_next(8) 则只需要迭代 temp_iter 3 次。
      - 但是注意若通过 p2 = LinkIterKit(p1).next() 得到的 p2 包装节点，并不继承 p1 的 temp_iter，因为若有环，则视为从 p2 起步，不记忆 p1 的状态。TreeIterKit 同理。
+   - 用 unordered_map 替代 dict，用 PyObject* 替代 PyObject
+    -  PyObject* 絕對不會自動維持引用計數
+    -  因此改用 PyObject* 时必须手动设计引用計數
 
 当前改进：
 1. 我已经实现了 LinkIterKit 的Python代码并过测：
 ```
-5. 随机压力测试（10000 轮，最大节点数 100）
+1. 随机压力测试（10000 轮，最大节点数 100）
    已完成 10000/10000 轮随机测试
 随机压力测试通过
 ```
