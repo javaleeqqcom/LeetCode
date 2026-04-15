@@ -152,7 +152,7 @@ class SafeIterBase2(Generic[T_Node]):
         return self._repeat_num
 
     @classmethod
-    def _getitem(cls,it: Self, index: int ,allowed_null:bool= False) -> KitBase2[T_Node]:
+    def _getitem(cls,it: Self, index: int ,allowed_null:bool= True) -> KitBase2[T_Node]:
         """
         根据索引获取节点。
         - 如果索引>=有效节点数量，当 allowed_null 为假则抛出 IndexError，否则为真则返回 包装类的 None 节点
@@ -579,7 +579,7 @@ class HeapIter(SafeIterBase2[T_LR]):
 class TreeNodeKitBase(TreeBase[T_LR]):
     """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
 
-    def get_heap(self, heap_index: int ,allowed_null:bool = False) -> 'TreeNodeKitBase[T_LR]':
+    def get_heap(self, heap_index: int ,allowed_null:bool = True) -> 'TreeNodeKitBase[T_LR]':
         """按堆索引获取节点（从1开始），路径断裂或遇环时抛出 IndexError"""
         if heap_index < 1:
             raise IndexError("堆索引不能小于1")        

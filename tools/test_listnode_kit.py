@@ -31,7 +31,7 @@ def test_listnode_kit():
     n3 = ListNode(3)
     n1.next = n2
     n2.next = n3
-    kit = ListNodeKit(n1)
+    kit = ListNodeKit(n1,True)
     
     # 2.1 基本属性
     print(f"   str(kit): {str(kit)}")                # <ListNodeKit>:[1,2,3]

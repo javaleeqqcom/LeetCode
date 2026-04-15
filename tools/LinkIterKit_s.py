@@ -104,7 +104,7 @@ class SafeIterBase:
     
     # ===== get_next =====
     @classmethod
-    def _get_next(cls,it: Self, index: int ,allowed_null:bool= False , early_stop = True) -> Any:
+    def _get_next(cls,it: Self, index: int ,allowed_null:bool= True , early_stop = True) -> Any:
         """
         根据索引获取节点。
         - 如果索引>=有效节点数量，当 allowed_null 为假则抛出 IndexError，否则为真则返回 包装类的 None 节点
@@ -220,11 +220,11 @@ class LinkIterBase(SafeIterBase):
         "_allowed_null",
     )
 
-    def __init__(self, head: KitBase|Any , allowed_null = False):
+    def __init__(self, head: KitBase|Any , allowed_null = True):
         super().__init__()
         self._head = KitBase.unwrap(head) if isinstance(head,KitBase) else head # 注意提纯为原生节点
         self._cur = self._head
-        self._allowed_null = True
+        self._allowed_null = allowed_null
         self._check_safe(self._head) # 易错！必须将起点执行查重
 
     # ===== 迭代 =====
@@ -265,7 +265,7 @@ class LinkIterBase(SafeIterBase):
     
 class LinkIterKit(KitBase):
     
-    def __init__(self, node: KitBase | Any , allowed_null =  False):
+    def __init__(self, node: KitBase | Any , allowed_null =  True):
         super().__init__(node)
         # self._allowed_null = allowed_null
         object.__setattr__(self, '_allowed_null', allowed_null) # 若改为 cdef 可在 cinit 中执行
