@@ -1,4 +1,4 @@
-附件pyx的代码已经经过严格测试通过，但是性能不理想。
+附件pyx的代码已经经过严格测试通过。
 改进方案：
 1. 将来需要改造为 Cython-C （不依赖 C++）以提高可移植性，降低程序大小
    - 迭代过程中去掉包装节点，在Cython中对节点进行二次包装 -> 访问 cache 命中率低
@@ -13,7 +13,8 @@
      - `并查集索引` 是指 _revisit[i].`并查集索引` ：为 -1 时节点无重复，为 j 时该节点有重复且最早出现在 _revisit 的下标是 j（为 i 时说明 _revisit[i] 被后面重复出现的所指向）
    - 去掉 __iter__ ，__next__（由子类实现），
    - 去掉 _cur_node ，可兼容 二叉树 和链表，不用管初始节点
-   - _flatten、_getitem 删除，因为 SafeIterBase 对象不再持有包装节点，因此不能实现该逻辑。
+   - _flatten 改为仅输出原生节点，而重复信息则需通过 SafeIterBase._revisit 相关属性函数提取
+   - _getitem 容易引起歧义，因为会影响迭代器的状态，因此更名为 _get_next(t) 以表示会相当于 next() t 次取节点值。
 3. 迭代节点惰性包装化 —— visit_index 的设计
    - visit_index 本质是为了检测重复节点的 from 和 self 位置，其实不需要用包装节点保存，可以根据整体推导
    - 3.1 对于链表，继承 SafeIterBase 的 LinkIterBase 类：`_revisit 索引` 就是 visit_index，因此 visit_index 写成 property 从 _seen[node] 中读取即可
@@ -36,18 +37,31 @@
    - 原 HeapIter 删除，完全没必要用迭代，改为直接在 get_heap 操作 TreeIterBase
    - 将来可以考虑将 LinkIterBase、TreeIterBase、SafeIterBase 都写成 .c 的接口，供 Cython 调用。
    - 目前先用 Cython C++ 跑通
-   - _flatten、_getitem 在 LinkIterBase 中可以用 _revisit 实现，_getitem 只需检查 idx 是否超过 _revisit.size 不够就继续迭代补充
-   - 要特别注意的是！TreeIterBase 中 _flatten、_getitem 不能以 _revisit 来实现！因为中序、后序遍历等 check_safe 的顺序和遍历顺序不一致，需要额外增加 iter_out: vector<`_revisit的索引`> 来实现。
+   - _flatten、get_next 在 LinkIterBase 中可以用 _revisit 实现，get_next 只需检查 idx 是否超过 _revisit.size 不够就继续迭代补充
+   - 要特别注意的是！TreeIterBase 中 _flatten、get_next 不能以 _revisit 来实现！因为中序、后序遍历等 check_safe 的顺序和遍历顺序不一致，需要额外增加 iter_out: vector<`_revisit的索引`> 来实现。
+   - TreeIterBase
+     - flatten_* 提供 raw 版（调用 SafeIterBase 即可）和 含visit_index版（需重写函数，并返回重复节点的 vid 序列，否则标定 visit_index 没多大意义）
+     - get_next* 也提供 raw 和 visit_index版
 5. 面向用户包装的迭代类 TreeIterKit、LinkIterKit
    - 负责调用上述函数，用户友好
    - 将原生 node 包装为带 visit_index，迭代时不包装，输出才惰性包装
 6. 进一步性能和依赖程度优化：
    - 改用 Cython-C 实现，用 Tempita 实现 array 数组模板结构体
    - 用 Tempita 模拟 SafeIterBase 的泛型，将 _early_stop 、use_queue 等用宏模板编程优化。
-   - flatten、_getitem 改为统一的外部函数，只需写 LinkIterBase 的 iter_out 属性映射为 _revisit.node，而 TreeIterBase 的 iter_out 则是做成类似记忆化数组的形式（iter_out(idx) 中 idx 超过 _iter_out 的长度时则补充迭代）
+   - TreeIterKit 和 LinkIterKit 的 flatten、get_next 通过维护的 temp_iter（相应的 SafeIterBase 子类），实现记忆化。
+     - 如先 p1.flatten(5) ，则暂存 Top5 结果，同时维持 temp_iter 状态，若后面需要 p1.get_next(8) 则只需要迭代 temp_iter 3 次。
+     - 但是注意若通过 p2 = LinkIterKit(p1).next() 得到的 p2 包装节点，并不继承 p1 的 temp_iter，因为若有环，则视为从 p2 起步，不记忆 p1 的状态。TreeIterKit 同理。
 
 当前改进：
-1. 先实现链表类 LinkIterKit 及其依赖（但是注意 SafeIterBase 需要维持 _revisit 以便兼容树结构）
-2. 请先用纯 Python 写出 1 的核心修改代码，注意标准转 Cython 时的类型，如 int 类型为有无符号等，bool类型肯定是bint就不用写，指针则用Python对象引用代替备注要改为指针即可（与附件中的函数一样的部分用注释省略，例如 _flatten、_getitem 只是改个类、函数名的可以省略，LinkIterKit 的 flatten 和 __getitem 须调用基类 SafeIterBase，同时 TreeIterKit 也能调用）
+1. 我已经实现了 LinkIterKit 的Python代码并过测：
+```
+5. 随机压力测试（10000 轮，最大节点数 100）
+   已完成 10000/10000 轮随机测试
+随机压力测试通过
+```
+请改为 Cython-C++ 完整版：
+
+
+2. 请先用纯 Python 写出 1 的核心修改代码，注意标准转 Cython 时的类型，如 int 类型为有无符号等，bool类型肯定是bint就不用写，指针则用Python对象引用代替备注要改为指针即可（与附件中的函数一样的部分用注释省略，例如 _flatten、get_next 只是改个类、函数名的可以省略，LinkIterKit 的 flatten 和 __getitem 须调用基类 SafeIterBase，同时 TreeIterKit 也能调用）
 3. 务必！虽然暂时不用写 TreeIterKit，但是所有的接口函数定义等都要兼容 TreeIterKit，不能为了省代码写出不兼容 TreeIterKit 的 SafeIterBase。
 4. 务必！虽然暂时写作 Python，但是所有的定义要能兼容 Cython！例如不能用Python的泛型。

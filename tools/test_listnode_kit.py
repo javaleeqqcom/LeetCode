@@ -4,6 +4,7 @@ from args_parser import ListNode, ListNodeKit , List2ListNode
 # from iter_node_tools import ListNodeKitBase
 # from listkit import ListNodeKitBase
 __MIX_TEST__ = False
+OLD_VERSION = False
 
 def test_listnode_kit():
     """测试 ListNodeKit 的所有功能（基础 + 随机压力）"""
@@ -51,9 +52,9 @@ def test_listnode_kit():
     except IndexError as e:
         print(f"   kit[4] 抛出 IndexError: {e}")
     
-    # 2.4 flatten
-    nodes, cycle_idx = kit.flatten()
-    print(f"   flatten() 返回节点数: {len(nodes)}, 环索引: {cycle_idx}")
+    # 2.4 flatten_stopIDX
+    nodes, cycle_idx = kit.flatten_stopIDX()
+    print(f"   flatten_stopIDX() 返回节点数: {len(nodes)}, 环索引: {cycle_idx}")
     assert cycle_idx == -1
     
     # 2.5 通过 __bool__ 判断非空
@@ -91,8 +92,8 @@ def test_listnode_kit():
     d.next = b                       # 环起点为 b (val=2)
     
     print(f"   str(ring_link): {str(ring_link)}")    # 预期: [1,>,2,3,4,^]
-    nodes, cycle_idx = ring_link.flatten()
-    print(f"   flatten() 节点数: {len(nodes)}, 环起始索引: {cycle_idx}")
+    nodes, cycle_idx = ring_link.flatten_stopIDX()
+    print(f"   flatten_stopIDX() 节点数: {len(nodes)}, 环起始索引: {cycle_idx}")
     assert cycle_idx == 1, f"环起始索引错误, cycle_idx={cycle_idx}"
 
     print(f"   环起始节点值: {nodes[cycle_idx].val}")  # 2
@@ -141,9 +142,9 @@ def generate_random_list(node_count: int, create_cycle: bool = False):
     return nodes[0], nodes[target_idx]
 
 def validate_list_flatten(head, expected_cycle_start_node):
-    """验证 flatten 结果是否符合预期"""
+    """验证 flatten_stopIDX 结果是否符合预期"""
     kit = ListNodeKit(head)
-    nodes, cycle_idx = kit.flatten_raw()
+    nodes, cycle_idx = kit.flatten_stopIDX()
     
     if expected_cycle_start_node == -1:
         # 期望无环
@@ -159,7 +160,7 @@ def validate_list_flatten(head, expected_cycle_start_node):
             f"环起始节点 {start_node.val} 不符合预期 {expected_cycle_start_node.val}"
 
 def test_random_lists(seed:int):
-    """随机生成大量链表（包括有环和无环），验证 flatten 的正确性"""
+    """随机生成大量链表（包括有环和无环），验证 flatten_stopIDX 的正确性"""
     random.seed(seed)
     test_rounds = 10000
     max_nodes = 100
@@ -197,10 +198,11 @@ def test_random_lists(seed:int):
                 # 根据实现，索引第 n 个节点应返回空链表，不应抛出异常
                 assert False, f"根据实现，索引第 n 个节点应返回空链表，kit: {kit}"
         
-        # 对包含环的链表，测试 flatten 的环索引一致性（已在上方 validate 中完成）
+        # 对包含环的链表，测试 flatten_stopIDX 的环索引一致性（已在上方 validate 中完成）
         
         if (round_i + 1) % 200 == 0:
             print(f"   已完成 {round_i + 1}/{test_rounds} 轮随机测试",end="\r")
+    print("\n随机压力测试通过")
 
 def test_duplicate_values_no_cycle():
     """测试值重复但节点不同的情况，不应触发环检测"""
@@ -212,7 +214,7 @@ def test_duplicate_values_no_cycle():
     a.next = b
     b.next = c
     kit = ListNodeKit(a)
-    nodes, cycle_idx = kit.flatten_raw()
+    nodes, cycle_idx = kit.flatten_stopIDX()
     assert cycle_idx == -1
     assert len(nodes) == 3
     # 确认节点对象不同
@@ -235,7 +237,10 @@ def test_iter():
     print("\n3.2 无环链表迭代测试")
     head = List2ListNode([10, 20, 30])
     kit = ListNodeKit(head)
-    collected = [(kit_node.visit_index, kit_node.val) for kit_node in kit]
+    if OLD_VERSION:
+        collected = [(kit_node.visit_index, kit_node.val) for kit_node in kit]
+    else:
+        collected = [(i, kit_node.val) for i,kit_node in enumerate(kit)]
     expected = [(0, 10), (1, 20), (2, 30)]
     assert collected == expected, f"无环链表迭代结果错误: {collected} != {expected}"
 
@@ -253,8 +258,16 @@ def test_iter():
 
     it = iter(kit_ring)          # 获取 SafeIter 实例
     collected = []
-    for kit_node in it:
-        collected.append((kit_node.visit_index, kit_node.val))
+
+    # 有环链表迭代
+    it = iter(kit_ring)
+    if OLD_VERSION:
+        collected = [(kit_node.visit_index, kit_node.val) for kit_node in it]
+    else:
+        collected = [(i, kit_node.val) for i, kit_node in enumerate(it)]
+            
+    # for kit_node in it:
+    #     collected.append((kit_node.visit_index, kit_node.val))
     # 迭代应在遇到重复节点 b 时停止，不会输出索引3
     assert collected == [(0, 1), (1, 2), (2, 3)], f"有环链表迭代结果错误: {collected}"
     # 检查 repeat_idx 属性
@@ -270,12 +283,16 @@ def test_iter():
     d.next = e
     e.next = f
     kit_dup = ListNodeKit(d)
-    collected_dup = [(kit_node.visit_index, kit_node.val) for kit_node in kit_dup]
+    # 重复值无环链表
+    if OLD_VERSION:
+        collected_dup = [(kit_node.visit_index, kit_node.val) for kit_node in kit_dup]
+    else:
+        collected_dup = [(i, kit_node.val) for i, kit_node in enumerate(kit_dup)]
     assert collected_dup == [(0, 100), (1, 100), (2, 100)], "重复值无环链表被错误检测为环"
 
 def test_flatten_methods():
-    """专门测试 flatten 方法的调用方式和 stop_index 的所有可能值"""
-    print("\n4.========== 测试 flatten 方法 ==========")
+    """专门测试 flatten_stopIDX 方法的调用方式和 stop_index 的所有可能值"""
+    print("\n4.========== 测试 flatten_stopIDX 方法 ==========")
 
     # ---------- 准备无环链表 ----------
     # 1 -> 2 -> 3 -> 4 -> 5
@@ -291,50 +308,50 @@ def test_flatten_methods():
     head = n1
     kit = ListNodeKit(head)
 
-    # 1.1 实例调用 flatten()，无环正常结束
-    nodes, stop = kit.flatten()
+    # 1.1 实例调用 flatten_stopIDX()，无环正常结束
+    nodes, stop = kit.flatten_stopIDX()
     assert stop == -1, f"无环链表正常结束应为 None，实际 {stop}"
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten() 正常结束，stop=-1")
+    print("✓ 实例调用 flatten_stopIDX() 正常结束，stop=-1")
 
-    # 1.2 实例调用 flatten(max_len=3)，提前达到 max_len
-    nodes, stop = kit.flatten(max_len=3)
+    # 1.2 实例调用 flatten_stopIDX(max_len=3)，提前达到 max_len
+    nodes, stop = kit.flatten_stopIDX(max_len=3)
     assert stop == 3, f"max_len=3 应返回 stop=3，实际 {stop}"
     assert len(nodes) == 3
-    print("✓ 实例调用 flatten(max_len=3) 提前终止，stop=3")
+    print("✓ 实例调用 flatten_stopIDX(max_len=3) 提前终止，stop=3")
 
-    # 1.3 实例调用 flatten(max_len=10)，max_len 大于实际长度，正常结束
-    nodes, stop = kit.flatten(max_len=10)
+    # 1.3 实例调用 flatten_stopIDX(max_len=10)，max_len 大于实际长度，正常结束
+    nodes, stop = kit.flatten_stopIDX(max_len=10)
     assert stop ==-1, f"max_len 大于链表长度应正常结束，实际 {stop}"
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten(max_len=10) 正常结束，stop=-1")
+    print("✓ 实例调用 flatten_stopIDX(max_len=10) 正常结束，stop=-1")
 
-    # 1.4 实例调用 flatten(max_len=5)，max_len 大于实际长度，正常结束
-    nodes, stop = kit.flatten(max_len=5)
+    # 1.4 实例调用 flatten_stopIDX(max_len=5)，max_len 大于实际长度，正常结束
+    nodes, stop = kit.flatten_stopIDX(max_len=5)
     assert stop == -1, f"max_len 恰好等于链表长度应算正常结束，实际 {stop}"
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten(max_len=5) 正常结束，stop=-1")
+    print("✓ 实例调用 flatten_stopIDX(max_len=5) 正常结束，stop=-1")
 
     # ---------- 类调用方式（将 head 作为第一个参数）----------
-    # 2.1 类调用 flatten(head)
+    # 2.1 类调用 flatten_stopIDX(head)
     print(f"type(head)={type(head)}")
     assert isinstance(head, ListNode)
 
     
-    nodes2, stop2 = ListNodeKit.flatten_raw(head)
+    nodes2, stop2 = ListNodeKit.flatten_stopIDX(head)
     assert stop2 == -1
     assert len(nodes2) == 5
     # 节点对象应与原始相同
     assert nodes2[0] is n1 and nodes2[-1] is n5
-    print("✓ 类调用 ListNodeKit.flatten(head) 正常结束")
+    print("✓ 类调用 ListNodeKit.flatten_stopIDX(head) 正常结束")
 
-    # 2.2 类调用 flatten(head, max_len=3)
-    nodes2, stop2 = ListNodeKit.flatten(head, max_len=3)
+    # 2.2 类调用 flatten_stopIDX(head, max_len=3)
+    nodes2, stop2 = ListNodeKit.flatten_stopIDX(head, max_len=3)
     assert stop2 == 3
     assert len(nodes2) == 3
-    print("✓ 类调用 ListNodeKit.flatten(head, max_len=3) 提前终止")
+    print("✓ 类调用 ListNodeKit.flatten_stopIDX(head, max_len=3) 提前终止")
 
-    # 2.3 末端成环，实例调用 flatten(max_len=5)，提前达到 max_len
+    # 2.3 末端成环，实例调用 flatten_stopIDX(max_len=5)，提前达到 max_len
     print(type(kit[4]))
     assert kit[4] and not hasattr(kit[4].next.raw, '_node'), f"kit[4].next = kit[0] 操作前正常"
 
@@ -346,15 +363,15 @@ def test_flatten_methods():
     kit[4].next = kit[0]  
     assert not hasattr(kit[4].next.raw, '_node'), f"关键错误！ kit[4].next 指向了包装类！"
 
-    nodes, stop = kit.flatten(max_len=5)
+    nodes, stop = kit.flatten_stopIDX(max_len=5)
     assert stop == 0, f"由于环位置是 0 应返回 stop=0，实际 {stop}"
 
     assert len(nodes) == 5
-    print("✓ 实例调用 flatten(max_len=5) 提前终止，stop=5")
+    print("✓ 实例调用 flatten_stopIDX(max_len=5) 提前终止，stop=5")
 
     # ---------- 有环链表 ----------
     # 构造环：1 -> 2 -> 3 -> 4 -> 5 -> 3  (环起始节点val为 3，索引为 2)
-    # 注意：环起始索引基于 flatten 返回的列表顺序，从 0 开始计数
+    # 注意：环起始索引基于 flatten_stopIDX 返回的列表顺序，从 0 开始计数
     n1 = ListNode(1)
     n2 = ListNode(2)
     n3 = ListNode(3)
@@ -370,28 +387,28 @@ def test_flatten_methods():
 
     if __MIX_TEST__:
         n5.next = cycle_kit[1]   # 非法赋值，将 ListNodeKit 强行赋给 ListNode，检查是否死循环
-        nodes, stop = cycle_kit.flatten(max_len=100)
+        nodes, stop = cycle_kit.flatten_stopIDX(max_len=100)
         assert stop == 1, f"max_len=100 应检测到环起始索引 1，实际 {stop}, 说明混用 ListNodeKit 和 ListNode 将导致环检测失效。"
 
-    # 3.1 实例调用 flatten()，检测到环
-    nodes, stop = cycle_kit.flatten_raw()
+    # 3.1 实例调用 flatten_stopIDX()，检测到环
+    nodes, stop = cycle_kit.flatten_stopIDX()
     assert stop == 2, f"环起始索引应为 2，实际 {stop}"
     assert len(nodes) > 2
     assert nodes[stop] is n3
-    print("✓ 有环链表 flatten() 正确返回环起始索引")
+    print("✓ 有环链表 flatten_stopIDX() 正确返回环起始索引")
 
-    # 3.2 实例调用 flatten(max_len=1)，max_len 小于环起始索引，提前终止
-    nodes, stop = cycle_kit.flatten(max_len=1)
+    # 3.2 实例调用 flatten_stopIDX(max_len=1)，max_len 小于环起始索引，提前终止
+    nodes, stop = cycle_kit.flatten_stopIDX(max_len=1)
     assert stop == 1, f"max_len=1 应返回 stop=1，实际 {stop}"
     assert len(nodes) == 1
-    print("✓ 有环链表 flatten(max_len=1) 提前终止，未触发环检测")
+    print("✓ 有环链表 flatten_stopIDX(max_len=1) 提前终止，未触发环检测")
 
-    # 3.3 实例调用 flatten(max_len=5)，max_len 大于环起始索引，触发环检测
-    nodes, stop = cycle_kit.flatten(max_len=5)
+    # 3.3 实例调用 flatten_stopIDX(max_len=5)，max_len 大于环起始索引，触发环检测
+    nodes, stop = cycle_kit.flatten_stopIDX(max_len=5)
     assert stop == 2, f"max_len=5 仍应检测到环起始索引 2，实际 {stop}"
-    print("✓ 有环链表 flatten(max_len=5) 仍正确检测环")
+    print("✓ 有环链表 flatten_stopIDX(max_len=5) 仍正确检测环")
 
-    print("========== flatten 方法测试全部通过 ==========\n")
+    print("========== flatten_stopIDX 方法测试全部通过 ==========\n")
 
 def temp():
     n1 = ListNode(17)
@@ -436,9 +453,8 @@ if __name__ == "__main__":
     test_duplicate_values_no_cycle()
     # 3. 新增迭代器测试
     test_iter()  # 在此处卡死
-    # 4. 新增 flatten 专项测试
+    # 4. 新增 flatten_stopIDX 专项测试
     test_flatten_methods()
 
     # ---------- 5. 随机压力测试（新增）----------
     test_random_lists(42)
-    print("   随机压力测试通过")

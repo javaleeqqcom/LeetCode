@@ -5,7 +5,8 @@ from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedD
 #     from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
 # except:
 from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-from iter_node_tools import ListNodeKitBase,TreeNodeKitBase
+from iter_node_tools import TreeNodeKitBase
+from LinkIterKit import LinkIterKit as ListNodeKitBase
 
 from collections import deque
 import inspect
