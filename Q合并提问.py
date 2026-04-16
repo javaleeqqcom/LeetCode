@@ -17,9 +17,9 @@ def filter_empty(lines, not_empty_lines = False):
 NOT_EMPTY_LINES = True
 source_files =[
   "tools/iter_node_tools 极限优化方案.md",
-  "tools/link_node_kit.pyx",
   "tools/LinkIterKit.pyx",
-  # "Q报错如下.txt",
+  "tools/LinkIterKit(err).pyx",
+  "Q报错如下.txt",
 ]
 
 source_texts = []
@@ -29,15 +29,18 @@ for file in source_files:
 
 template_text = """附件pyx的代码已经经过严格测试通过。
 {}
-旧版的 link_node_kit.pyx 已通过链表和树的压力测试：
-```link_node_kit.pyx
-{}
-```
-我已经实现了新版的链表代码，并且通过了链表的压力测试：
+如下代码已通过链表和树的压力测试：
 ```LinkIterKit.pyx
 {}
 ```
-请追加实现树的设计代码，visit_index 先用 int 型代替，等测试成熟后再用静态链表版提速。
+但是该代码部分架构不符合树的遍历需求，因为树有栈\队列，不应该返回 self._cur 时才进行 check_safe，还有 allow_null 冗余进行了去除，但是如下代码
+```LinkIterKit(err).pyx
+{}
+```
+在进行压力测试时，卡死且计算机内存消耗快速攀升，只能杀进程，执行如下。
+```
+{}
+```
 """.format(*source_texts)
 
 import sys

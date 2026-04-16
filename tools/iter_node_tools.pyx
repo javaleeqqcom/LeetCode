@@ -641,6 +641,13 @@ cdef class TreeIter3(SafeIterBase3):
             nodes = [n.raw for n in nodes if n.raw]
         else:
             nodes = [self.assert_TreeBase(n) for n in nodes]  # 保持与初始节点类型一致
+
+        if __DEBUG__: # 验证能否用 _revisit 推导 flatten
+            for i,(p,kn) in enumerate(it.revisit):
+                if i==p or -1==p:
+                    assert nodes[i] == kn,f"({i},{p}) \n\tact={kn} \n\texp={nodes[i]}"
+            print(f"验证能否用 _revisit 推导 flatten，本次验证通过，节点数 {len(nodes)}。")
+
         return nodes, it
 
     @property
@@ -785,6 +792,7 @@ class TreeNodeKitBase(TreeBase):
             early_stop=not full_traversal,
             max_depth=max_depth
         ).flatten(max_len=max_node_len, raw=False)
+
 
         # 构建重复索引标注
         repeat_mark = {}

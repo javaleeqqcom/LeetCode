@@ -7,5 +7,8 @@
 *.pyd
 build/
 __pycache__/
-iter_node_tools.cpp
-iter_node_tools.html
+tools/*.cpp
+tools/*.html
+
+# 移除已经 git 的 file_or_folder 文件或目录，允许使用通配符规则
+# git rm -r --cached file_or_folder
