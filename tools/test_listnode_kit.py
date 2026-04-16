@@ -177,7 +177,7 @@ def test_random_lists(seed:int):
         
         # 对无环链表额外测试索引访问（随机抽几个索引）
         if not create_cycle:
-            kit = ListNodeKit(head)
+            kit = ListNodeKit(head,True)
             # 随机测试索引
             for _ in range(5):
                 idx = random.randint(0, node_count - 1)

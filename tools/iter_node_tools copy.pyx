@@ -18,105 +18,6 @@ from typing_extensions import Self
 from itertools import chain
 from binarytree import build
 
-# ---------- 辅助函数 ----------
-def _formatted_string(val: Any) -> str:
-    """将值格式化为 Python 字面量字符串，用于打印链表节点值。"""
-    if isinstance(val, str):
-        escaped = val.replace("'", "\\'")
-        return f"'{escaped}'"
-    elif isinstance(val, list):
-        return "[" + ", ".join(_formatted_string(item) for item in val) + "]"
-    elif isinstance(val, dict):
-        return "{" + ", ".join(f"{_formatted_string(k)}: {_formatted_string(v)}" for k, v in val.items()) + "}"
-    elif isinstance(val, tuple):
-        return "(" + ", ".join(_formatted_string(item) for item in val) + ")"
-    else:
-        return str(val)
-
-
-# ---------- KitBase3 ----------
-cdef class KitBase3:
-    """
-    调试增强基类（代理模式），扩展支持哈希和索引存储。
-    """
-    cdef public object raw   # ✅ 必须声明
-
-    def __cinit__(self):
-        self.raw = None
-
-    def __init__(self, node=None, visit_index=0):
-        if isinstance(node, KitBase3):
-            self.raw = (<KitBase3>node).raw
-        else:
-            self.raw = node
-        # visit_index 在基类中未使用，子类可能会用到
-
-    def __bool__(self):
-        return self.raw is not None
-
-    @classmethod
-    def unwrap(cls, other: 'KitBase3 | Hashable | None') -> Optional[Hashable]:
-        """
-        提取包装类内部的原始节点。
-        - 如果 other 是 KitBase3 子类实例，返回其内部 _node。
-        - 否则直接返回 other 本身（可能为 None）。
-        """
-        if isinstance(other, KitBase3):
-            return other.raw
-        return other
-
-    @property
-    def visit_index(self) -> Any:
-        """ 访问节点索引编号，子类需覆盖此属性以返回特定类型 """
-        return None
-
-    def __getattr__(self, name: str) -> Any:
-        """代理属性访问到原生节点"""
-        # 1️⃣ 先查类属性
-        attr = getattr(type(self), name, None)
-
-        # 2️⃣ 如果是 data descriptor（有 __set__）
-        if hasattr(attr, "__get__"):
-            # ✅ 调用 property
-            return attr.__get__(self)
-
-        # 3️⃣ 否则走你原来的逻辑
-        node = self.raw
-        return getattr(node, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        # 1️⃣ 先查类属性
-        attr = getattr(type(self), name, None)
-
-        # 2️⃣ 如果是 data descriptor（有 __set__）
-        if hasattr(attr, "__set__"):
-            attr.__set__(self, value)   # ✅ 调用 property setter
-            return
-
-        # 3️⃣ 否则走你原来的逻辑
-        node = self.raw
-        if node is None:
-            raise AttributeError(f"Can't set attribute '{name}' on empty node")
-
-        setattr(node, name, KitBase3.unwrap(value))
-
-    def __eq__(self, other: Any) -> bool:
-        """比较两个包装节点是否包装同一个原生节点，并且 visit_index 相同"""
-        if not isinstance(other, KitBase3):
-            return False
-        return self.raw is other.raw and self.visit_index == other.visit_index
-
-    def __ne__(self, other: Any) -> bool:
-        return not self.__eq__(other)
-
-    def __repr__(self) -> str:
-        vid = self.visit_index
-        return "<%s>{%s, %s}" % (
-            str(self.__class__),
-            "raw.id: 0x{id(self.raw):x}" if self.raw else "raw: None",
-            "visit.id: " + (f"0x{vid:x}" if vid and vid >= 2**16 else str(vid))
-        )
-
 cdef class SafeIterBase3:
     """
     安全迭代器基类（方案二版本）
@@ -261,6 +162,89 @@ cdef class SafeIterBase3:
     def revisit_nodes(self) -> List[KitBase3]:
         """返回所有被重复访问的节点（即作为环起点的节点，每个节点只返回一次）"""
         return [node for i, (p, node) in enumerate(self._revisit) if p == i]
+
+# ---------- KitBase3 ----------
+cdef class KitBase3:
+    """
+    调试增强基类（代理模式），扩展支持哈希和索引存储。
+    """
+    cdef public object raw   # ✅ 必须声明
+
+    def __cinit__(self):
+        self.raw = None
+
+    def __init__(self, node=None, visit_index=0):
+        if isinstance(node, KitBase3):
+            self.raw = (<KitBase3>node).raw
+        else:
+            self.raw = node
+        # visit_index 在基类中未使用，子类可能会用到
+
+    def __bool__(self):
+        return self.raw is not None
+
+    @classmethod
+    def unwrap(cls, other: 'KitBase3 | Hashable | None') -> Optional[Hashable]:
+        """
+        提取包装类内部的原始节点。
+        - 如果 other 是 KitBase3 子类实例，返回其内部 _node。
+        - 否则直接返回 other 本身（可能为 None）。
+        """
+        if isinstance(other, KitBase3):
+            return other.raw
+        return other
+
+    @property
+    def visit_index(self) -> Any:
+        """ 访问节点索引编号，子类需覆盖此属性以返回特定类型 """
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        """代理属性访问到原生节点"""
+        # 1️⃣ 先查类属性
+        attr = getattr(type(self), name, None)
+
+        # 2️⃣ 如果是 data descriptor（有 __set__）
+        if hasattr(attr, "__get__"):
+            # ✅ 调用 property
+            return attr.__get__(self)
+
+        # 3️⃣ 否则走你原来的逻辑
+        node = self.raw
+        return getattr(node, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # 1️⃣ 先查类属性
+        attr = getattr(type(self), name, None)
+
+        # 2️⃣ 如果是 data descriptor（有 __set__）
+        if hasattr(attr, "__set__"):
+            attr.__set__(self, value)   # ✅ 调用 property setter
+            return
+
+        # 3️⃣ 否则走你原来的逻辑
+        node = self.raw
+        if node is None:
+            raise AttributeError(f"Can't set attribute '{name}' on empty node")
+
+        setattr(node, name, KitBase3.unwrap(value))
+
+    def __eq__(self, other: Any) -> bool:
+        """比较两个包装节点是否包装同一个原生节点，并且 visit_index 相同"""
+        if not isinstance(other, KitBase3):
+            return False
+        return self.raw is other.raw and self.visit_index == other.visit_index
+
+    def __ne__(self, other: Any) -> bool:
+        return not self.__eq__(other)
+
+    def __repr__(self) -> str:
+        vid = self.visit_index
+        return "<%s>{%s, %s}" % (
+            str(self.__class__),
+            "raw.id: 0x{id(self.raw):x}" if self.raw else "raw: None",
+            "visit.id: " + (f"0x{vid:x}" if vid and vid >= 2**16 else str(vid))
+        )
 
 # 定义原生节点协议（必须包含 .next 属性）
 @runtime_checkable
@@ -430,12 +414,11 @@ cdef class ListNodeKitBase(KitBase3):
 
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
 
-# -------------------------- 树的遍历 ------------------------------
-
 @runtime_checkable
 class HasLR(Protocol):
     left: Optional[Any]
     right: Optional[Any]
+
 
 cdef class TreeBase(KitBase3):
     """二叉树包装基类，支持堆索引和深度计算"""
@@ -512,6 +495,7 @@ cdef unsigned int str2OpCode(s:str):
             raise ValueError(f"invalid op: {s}")
     return res
 
+# -------------------------- 树的遍历 ------------------------------
 cdef class TreeIter3(SafeIterBase3):
     """二叉树通用迭代器，支持前/中/后/层序遍历，操作字符串驱动"""
     cdef:

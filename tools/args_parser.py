@@ -71,6 +71,8 @@ class ListNodeKit(ListNodeKitBase): #[ListNode]):
         - 空链表 (`ListNodeKit(None)`) 无法使用 `next` 属性，访问会抛出 AttributeError。
         - 若链表存在环，索引 n 会迭代 n 次，请优先使用 flatten 检测环。
     """
+    def __init__(self, head:ListNodeKitBase|ListNode|None,allowed_null:bool=True):
+        super().__init__(head,allowed_null)
     @classmethod
     def from_val(cls, val: _BASE_TYPE) -> 'ListNodeKit':
         """创建单节点树，并设置节点值为 val"""

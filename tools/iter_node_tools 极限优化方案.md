@@ -1,4 +1,3 @@
-附件pyx的代码已经经过严格测试通过。
 改进方案：
 1. 将来需要改造为 Cython-C （不依赖 C++）以提高可移植性，降低程序大小
    - 迭代过程中去掉包装节点，在Cython中对节点进行二次包装 -> 访问 cache 命中率低
@@ -62,9 +61,3 @@
    已完成 10000/10000 轮随机测试
 随机压力测试通过
 ```
-请改为 Cython-C++ 完整版：
-
-
-2. 请先用纯 Python 写出 1 的核心修改代码，注意标准转 Cython 时的类型，如 int 类型为有无符号等，bool类型肯定是bint就不用写，指针则用Python对象引用代替备注要改为指针即可（与附件中的函数一样的部分用注释省略，例如 _flatten、get_next 只是改个类、函数名的可以省略，LinkIterKit 的 flatten 和 __getitem 须调用基类 SafeIterBase，同时 TreeIterKit 也能调用）
-3. 务必！虽然暂时不用写 TreeIterKit，但是所有的接口函数定义等都要兼容 TreeIterKit，不能为了省代码写出不兼容 TreeIterKit 的 SafeIterBase。
-4. 务必！虽然暂时写作 Python，但是所有的定义要能兼容 Cython！例如不能用Python的泛型。

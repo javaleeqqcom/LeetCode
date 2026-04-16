@@ -4,6 +4,8 @@
 # ===============================
 from cpython.ref cimport PyObject
 from libcpp.vector cimport vector
+from libcpp.deque cimport deque
+from libcpp.pair cimport pair
 
 ALLOWED_NULL = True
 # ===============================
@@ -177,12 +179,8 @@ cdef class KitBase:
 # LinkIterBase
 # ===============================
 cdef class LinkIterBase(SafeIterBase):
-    cdef bint _allowed_null
-    def __cinit__(self):
-        self._allowed_null = True
-    def __init__(self, object head, bint allowed_null=True):
+    def __init__(self, object head):
         super().__init__()
-        self._allowed_null = allowed_null
         head = KitBase.unwrap(head)
         if head is not None:
             self._cur = <PyObject*>head
@@ -196,8 +194,8 @@ cdef class LinkIterBase(SafeIterBase):
         if self._repeat_num > 0:
             return self.revisit_nodes[0][0]
         return -1
-    cpdef object get_next(self, int index):
-        return SafeIterBase._get_next(self, index, self._allowed_null)
+    cpdef object get_next(self, Py_ssize_t index , bint allowed_null):
+        return SafeIterBase._get_next(self, index, allowed_null)
     cpdef list iter_flatten_raw(self, int max_len=-1):
         return SafeIterBase._flatten(self, max_len)
 from args_parser_tools import _formated_string # _to_string 需要
@@ -212,7 +210,7 @@ cdef class LinkIterKit(KitBase):
         KitBase.__init__(self, head)
         self._allowed_null = allowed_null
     def __iter__(self):
-        return LinkIterBase(self.raw, self._allowed_null)
+        return LinkIterBase(self.raw)
     @property
     def next(self)->'LinkIterKit':
         node = self.raw
@@ -229,11 +227,11 @@ cdef class LinkIterKit(KitBase):
         node.next = self.unwrap(value) # 对原生节点赋值需要去包装
     # ===== flatten =====
     cpdef list flatten(self):
-        cdef LinkIterBase it = LinkIterBase(self.raw, self._allowed_null)
+        cdef LinkIterBase it = LinkIterBase(self.raw)
         return it.iter_flatten_raw()
     # ===== flatten + stop index =====
     cpdef tuple flatten_stopIDX(self, int max_len=-1):
-        cdef LinkIterBase it = LinkIterBase(self.raw, self._allowed_null) if isinstance(self, LinkIterKit) else LinkIterBase(self, ALLOWED_NULL)
+        cdef LinkIterBase it = LinkIterBase(self.raw) if isinstance(self, LinkIterKit) else LinkIterBase(self, ALLOWED_NULL)
         cdef list nodes = it.iter_flatten_raw(max_len)
         if _is_null(it._cur):
             return nodes, it.circle_index
@@ -241,8 +239,8 @@ cdef class LinkIterKit(KitBase):
             return nodes, max_len
     # ===== getitem =====
     def __getitem__(self, int idx):
-        cdef LinkIterBase it = LinkIterBase(self.raw, self._allowed_null)
-        return LinkIterKit(it.get_next(idx), self._allowed_null)
+        cdef LinkIterBase it = LinkIterBase(self.raw)
+        return LinkIterKit(it.get_next(<Py_ssize_t>idx, self._allowed_null))
     @classmethod
     def _to_string(cls, head, prep_property: str = "val" , max_len:int = -1) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
@@ -273,5 +271,153 @@ cdef class LinkIterKit(KitBase):
                 # 环结束标记
                 str_lst.append("^")
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
-        
-        
+  
+
+cdef enum OpCode:
+    OP_END = 0
+    OP_L   = 1
+    OP_R   = 2
+    OP_C   = 4
+    OP_SHIFT = 4
+    OP_U   = 0x44444444
+
+cdef unsigned int str2OpCode(s:str):
+    assert len(s) < 4
+    cdef unsigned int res = 0
+    for c in s.lower()[::-1]:
+        res <<= OP_SHIFT
+        if c == 'l':
+            res |= OP_L
+        elif c == 'r':
+            res |= OP_R
+        elif c == 'c':
+            res |= OP_C
+        else:
+            raise ValueError(f"invalid op: {s}")
+    return res
+
+# -------------------------- 树的遍历 ------------------------------      
+# 定義簡化名稱
+ctypedef pair[PyObject*, bint] NodeStatus
+cdef class TreeIterBase(SafeIterBase):
+    cdef:
+        vector[NodeStatus]    stack_checked   # 存储对应的 checked 标志
+        deque[NodeStatus]     queue_checked
+        list vid_list           # 存储 visit_index （暂时用 int 型代替）
+        Py_ssize_t _ops
+        bint _allowed_null
+
+    def __cinit__(self):
+        self.stack = []
+        self.vid_list = []
+        self._ops = 0
+        self._allowed_null = True
+
+    def __init__(self, object root, Py_ssize_t ops, bint allowed_null=True):
+        super().__init__()
+        self._ops = ops
+        self._allowed_null = allowed_null
+
+        root = KitBase.unwrap(root)
+        if root is not None:
+            self.stack.append((root, 1))
+
+    def _prepare_next(self):
+        cdef object node
+        cdef int vid
+        cdef int ops
+        cdef int op
+
+        while self.stack:
+            node, vid = self.stack.pop()
+
+            if node is None:
+                continue
+
+            if not self._check_safe(<PyObject*>node):
+                self._cur = <PyObject*>None
+                return
+
+            ops = self._ops
+
+            while ops:
+                op = ops & 0xF
+
+                if op == OP_L:
+                    if node.left is not None:
+                        self.stack.append((node.left, vid << 1))
+
+                elif op == OP_R:
+                    if node.right is not None:
+                        self.stack.append((node.right, (vid << 1) | 1))
+
+                else:  # OP_C
+                    return node
+                ops >>= 4
+        return None
+
+    cpdef list flatten_raw(self, int max_len=-1):
+        cdef list out = []
+        cdef int i = 0
+        cdef object node
+
+        for node in self:
+            out.append(node)
+            i += 1
+            if max_len >= 0 and i >= max_len:
+                break
+        return out
+
+    cdef class TreeIterKit(KitBase):
+        cdef int _mode
+        cdef bint _allowed_null
+
+        def __cinit__(self):
+            self._mode = 0
+            self._allowed_null = True
+
+        def __init__(self, object root, int mode=0, bint allowed_null=True):
+            KitBase.__init__(self, root)
+            self._mode = mode
+            self._allowed_null = allowed_null
+
+        def __iter__(self):
+            return TreeIterBase(self.raw, self._mode, self._allowed_null)
+
+        cpdef list flatten(self, int max_len=-1):
+            cdef TreeIterBase it = TreeIterBase(self.raw, self._mode, self._allowed_null)
+            return it.flatten_raw(max_len)
+
+        cpdef object get_next(self, int idx):
+            cdef TreeIterBase it = TreeIterBase(self.raw, self._mode, self._allowed_null)
+            return TreeIterKit(it.get_next(idx), self._mode, self._allowed_null)
+
+        def __getitem__(self, int idx):
+            return self.get_next(idx)
+
+cdef class TreeIterKit(KitBase):
+    cdef int _mode
+    cdef bint _allowed_null
+
+    def __cinit__(self):
+        self._mode = 0
+        self._allowed_null = True
+
+    def __init__(self, object root, int mode=0, bint allowed_null=True):
+        KitBase.__init__(self, root)
+        self._mode = mode
+        self._allowed_null = allowed_null
+
+    def __iter__(self):
+        return TreeIterBase(self.raw, self._mode, self._allowed_null)
+
+    cpdef list flatten(self, int max_len=-1):
+        cdef TreeIterBase it = TreeIterBase(self.raw, self._mode, self._allowed_null)
+        return it.flatten_raw(max_len)
+
+    cpdef object get_next(self, int idx):
+        cdef TreeIterBase it = TreeIterBase(self.raw, self._mode, self._allowed_null)
+        return TreeIterKit(it.get_next(idx), self._mode, self._allowed_null)
+
+    def __getitem__(self, int idx):
+        return self.get_next(idx)
