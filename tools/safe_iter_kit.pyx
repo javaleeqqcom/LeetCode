@@ -9,25 +9,26 @@ from libcpp.pair cimport pair
 
 from collections import deque as pydeque
 from typing import List,Tuple
-from args_parser_tools import _formated_string # _to_string 需要
+from args_parser_tools import _formated_string,_format_repr,_at_id # _to_string 需要
 __DEBUG__ = True
+
 # ===============================
 # C struct（核心）
 # ===============================
 cdef struct RevisitEntry:
     size_t uf_index
     PyObject* node
-cdef _is_null(PyObject* ptr):
-    if ptr == NULL: # 防御性编程，虽然统一用 None 指针表达空节点，但以防意外判断 NULL
+
+# 預先獲取 Py_None 的指標（這就是 None 的唯一位址）
+cdef PyObject* NONE = <PyObject*>None
+cdef inline _is_null(PyObject* ptr):
+    if __DEBUG__ and ptr == NULL: # 防御性编程，虽然统一用 NONE 指针表达空节点，但以防意外判断 NULL
         return True
-    obj = <object>ptr
-    # ✅ 关键修复：拦住 None
-    if obj is None:
+    if ptr == NONE:
         return True
     return False
 
-cdef enum:
-    UPP_SIZE = <size_t>(-2) # 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
+cdef const size_t UPP_SIZE=<size_t>(-2) # 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
 # ===============================
 # SafeIterBase
 # ===============================
@@ -140,7 +141,6 @@ cdef class SafeIterBase:
                 result.append((entry.uf_index,<object>entry.node))
         return result
 
-
 # ===============================
 # KitBase（轻量代理）
 # ===============================
@@ -192,50 +192,9 @@ cdef class KitBase:
     def __bool__(self) -> bool:
         return self.raw is not None
 
+    # 低级打印，仅显示本节点情况
     def __repr__(self) -> str:
-        return KitBase._format_repr(self)
-
-    @staticmethod
-    def _format_repr(obj, *attributes, **children):
-        """
-        统一格式化函数
-        :param obj: 当前实例 (self)
-        :param attributes: 需要显示的属性名，包含 "id" 则显示地址
-        :param children: 子节点对象，如 left=self.left, right=self.right
-        """
-        # 1. 处理本节点信息
-        lines = [line for line in f"self: {obj.raw}".splitlines()]
-        
-        # 2. 处理子节点
-        for key, prop in children.items():
-            # 假设 KitBase 在全局作用域，或此处改用通用的 unwrap 逻辑
-            prop_raw = KitBase.unwrap(prop) if prop is not None else None
-            
-            if prop_raw is None:
-                lines.append(f"{key}: None")
-            else:            
-                attr_list = []
-                for attr in attributes:
-                    if attr == "id":
-                        val = f"0x{id(prop_raw):012X}"
-                    elif hasattr(prop_raw, attr):
-                        val = getattr(prop_raw, attr)
-                    else:
-                        # 建议用 f-string 报错，并包含 key 信息方便定位
-                        raise AttributeError(f"Node '{key}' ({type(prop_raw)}) has no attribute '{attr}'")
-                    attr_list.append(f"{attr}: {val}")
-                
-                # 修正点：子节点属性通常建议在同一行显示，或者增加额外缩进
-                # 如果 attributes 很多，可以使用 ", ".join 保持紧凑
-                attrs_str = ", ".join(attr_list)
-                prop_str = f"{key}: {{<class '{prop_raw.__class__.__name__}'>: {{{attrs_str}}}}}"
-                lines.append(prop_str)
-                
-        # 3. 统一处理换行和缩进
-        # 每一行前面都加一个 \t
-        body = "\n\t".join(lines)
-        
-        return f"<class '{obj.__class__.__name__}'>: {{\n\t{body}\n}}"
+        return _format_repr(self,"raw")
 
 # ===============================
 # LinkIterBase
@@ -254,7 +213,7 @@ cdef class LinkIterBase(SafeIterBase):
         self._cur = <PyObject*>next_node
         # 必须确保早停，__next__ 才会检测重复 _cur 不重复
         if <size_t>(-1) == self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
-            self._cur = <PyObject*>None
+            self._cur = NONE
     @property
     def circle_index(self)->int:
         if self._repeat_num > 0:
@@ -337,10 +296,6 @@ cdef class LinkIterKit(KitBase):
                 str_lst.append("^")
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
 
-    # 低级打印，仅显示本节点情况和左右子节点的id
-    def __repr__(self) -> str:
-        return self._format_repr(self,"id", next=self.next)
-
 # -------------------------- 树的遍历 ------------------------------
 from libcpp.deque cimport deque as cpp_deque
 from collections import deque as py_deque
@@ -375,7 +330,6 @@ cdef unsigned int str2OpCode(s: str):
 ctypedef struct NodeStatus:
     PyObject* node
     bint checked
-
 
 cdef class TreeIterBase(SafeIterBase):
     """
@@ -628,10 +582,6 @@ cdef class TreeIterKit(KitBase):
         it = self.layer_iter(early_stop=early_stop, max_depth=max_depth)
         nodes = SafeIterBase._flatten(it, max_len)
         return nodes, it
-
-    # 低级打印，仅显示本节点情况和左右子节点的id
-    def __repr__(self) -> str:
-        return self._format_repr(self,"id", left=self.left, right=self.right)
 
     @staticmethod
     cdef str _to_string(object root, str prep_property="val",

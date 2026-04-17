@@ -17,7 +17,7 @@ ext_link = Extension(
 
 setup(
     ext_modules=cythonize(
-        [ext_link], 
+        [ext,ext_link], 
         annotate=True,
         compiler_directives={'language_level': "3"} # 建議顯式指定 Python 3
     )

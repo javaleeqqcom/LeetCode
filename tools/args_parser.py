@@ -4,7 +4,7 @@ from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedD
 #     from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
 #     from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
 # except:
-from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,_format_repr,_at_id,_obj_id # 此部分代表过于冗长故放在 args_parser_tools
+from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,_format_repr,_at_id # 此部分代表过于冗长故放在 args_parser_tools
 from iter_node_tools import TreeNodeKitBase
 from LinkIterKit import LinkIterKit as ListNodeKitBase
 from LinkIterKit import KitBase
@@ -45,7 +45,7 @@ class ListNode:
     # 方便调试，且与 leetcode 不冲突
 
     def __repr__(self) -> str:
-        return _format_repr( self, _at_id, "val", next=_obj_id )
+        return _format_repr( self, _at_id, "val", next=(_at_id,"val") )
 
 # ====== 转换函数 ======
 def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
@@ -104,7 +104,7 @@ class TreeNode:
         self.right = right
     # 方便调试，且与 leetcode 不冲突
     def __repr__(self) -> str:
-        return _format_repr( self, _at_id, "val", left=_obj_id ,right=_obj_id)
+        return _format_repr( self, _at_id, "val", left=(_at_id,"val") ,right=(_at_id,"val"))
     
 # 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
 class TreeNodeKit(TreeNodeKitBase): #[TreeNode]):

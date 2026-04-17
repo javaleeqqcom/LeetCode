@@ -89,7 +89,6 @@ def _formated_string(val):
     
     # 递归处理字典
     elif isinstance(val, dict):
-        items = [f"{_formated_string(k)}: {_formated_string(_formated_string(v))}" for k, v in val.items()]
         # 注意：这里根据需求，如果是嵌套处理，只需对内部值再次调用即可
         return "{" + ", ".join(f"{_formated_string(k)}: {_formated_string(v)}" for k, v in val.items()) + "}"
     
@@ -101,60 +100,6 @@ def _formated_string(val):
     else:
         return str(val)
 
-# 定义支持 .next 属性的协议（泛型约束）
-T = TypeVar("T")
-
-class KitBase(Generic[T]): # 泛型
-    """调试增强基类（代理模式）"""
-    
-    def __init__(self, node: Optional[T]):
-        object.__setattr__(self, '_node', node)
-
-    def __bool__(self) -> bool:
-        return self._node is not None
-
-    @classmethod
-    def unwrap(cls, other: 'KitBase[T] | T | None') -> T | None:
-        """
-        提取包装类内部的原始节点。
-        - 如果 other 是 KitBase 子类实例，返回其内部 _node。
-        - 否则直接返回 other 本身（可能为 None）。
-        """
-        if isinstance(other, KitBase):
-            # other._node 的类型理论上为 T_Node，但类型检查器无法自动收窄，使用 cast
-            return cast(T, other._node)
-        return other
-        
-    def __getattr__(self, name: str) -> T:
-        node = object.__getattribute__(self, '_node')
-        if name in ['_node']:
-            return node
-        
-        if __DEBUG__: print(f"KitBase.__getattr__({name})")
-
-        if node is None:
-            raise AttributeError(f"Empty node has no attribute '{name}'")
-        return getattr(node, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        value = KitBase.unwrap(value) # 关键：若 value 是 KitBase 包装对象，必须用 KitBase.unwrap(value) 解包
-        if name == '_node':
-            object.__setattr__(self,'_node',value)
-        else: # 其余属性视为给 self.node 赋值
-
-            if __DEBUG__: print(f"KitBase.__setattr__({name})")
-
-            node = object.__getattribute__(self, '_node')
-            if node is None:
-                raise AttributeError(f"Can't set attribute '{name}' on empty node")
-            setattr(node, name, value)
-
-    def __eq__(self, other: Any) -> bool:
-        return id(self._node) == id(self.unwrap(other))
-    
-    def __ne__(self, other: Any) -> bool:
-        return id(self._node) != id(self.unwrap(other))
-   
 import functools
 import inspect
 
@@ -191,138 +136,443 @@ def _safe_call(fn, *args, **kwargs):
 def _at_id(obj):
     if obj is None:
         return ""
-    return f" at 0x{id(obj):012X}"
-
-def _obj_id(obj):
-    if obj is None:
-        return "None"
-    return f"<{obj.__class__.__name__}{_at_id(obj)}>"
+    return f"at 0x{id(obj):012X}"
 
 _MAX_LEN_A_LINE = 80
+
 def _format_repr(obj, *args, **kwargs):
+    """
+    通用对象格式化打印工具（支持嵌套结构、递归、异常保护）。
+
+    ----------------------------------------
+    🧩 基本功能
+    ----------------------------------------
+    将对象格式化为结构化字符串，支持：
+    - 属性访问
+    - 嵌套对象递归
+    - 自定义函数计算
+    - 自动单行 / 多行布局
+    - 异常安全访问（不会中断）
+
+    ----------------------------------------
+    📌 基本用法
+    ----------------------------------------
+
+    1️⃣ 打印属性：
+        _format_repr(obj, "val", "next")
+
+    输出：
+        <ClassName> { val: ..., next: ... }
+
+    ----------------------------------------
+    🧠 参数说明
+    ----------------------------------------
+
+    obj:
+        要打印的对象
+
+    *args:
+        支持三种类型（按顺序解析）：
+
+        1. str
+            表示对象属性名
+            如：
+                "val" → obj.val
+
+        2. callable
+            函数：fn(obj) → 任意值
+            - 若在最前面，会作为 header 注释
+            - 否则作为普通字段输出
+
+        3. dict
+            结构描述（递归 DSL）
+            如：
+                {
+                    "left": ("val",),
+                    "right": ("val",)
+                }
+
+    **kwargs:
+        等价于 dict 配置（只处理一次）
+
+    ----------------------------------------
+    🔁 递归规则（tuple）
+    ----------------------------------------
+
+    若字段配置为 tuple：
+
+        key = (arg1, arg2, ..., sub_dict?)
+
+    则表示递归调用：
+
+        _format_repr(child, *args, **kwargs)
+
+    示例：
+
+        _format_repr(obj,
+            left=("val",),
+            right=("val",)
+        )
+
+    ----------------------------------------
+    ⚙️ 支持类型总结
+    ----------------------------------------
+
+    字段值 prop 支持：
+
+        tuple       → 递归
+        callable    → 动态计算
+        str         → 原样字符串
+        None        → 输出 None
+
+    ----------------------------------------
+    🛡 异常处理
+    ----------------------------------------
+
+    所有 getattr / callable 均自动 try/except：
+
+        <error: ExceptionType>
+
+    不会中断打印流程
+
+    ----------------------------------------
+    🧾 输出格式
+    ----------------------------------------
+
+    Header:
+        <ClassName [notes]>
+
+    Body:
+        单行：
+            <A> { x: 1, y: 2 }
+
+        多行：
+            <A> {
+                x: 1
+                y: 2
+            }
+
+    自动根据长度切换（_MAX_LEN_A_LINE）
+
+    ----------------------------------------
+    💡 示例
+    ----------------------------------------
+
+        _format_repr(
+            node,
+            lambda x: f"id={id(x)}",
+            "val",
+            next=("val",)
+        )
+
+    输出：
+        <Node id=...> {
+            val: 1
+            next: <Node> { val: 2 }
+        }
+
+    ----------------------------------------
+    🚀 设计目标
+    ----------------------------------------
+
+    - 统一 repr 格式
+    - 替代手写 __repr__
+    - 支持复杂结构调试（链表 / 树 / 图）
+    - 可作为轻量 DSL 描述对象结构
+    - 对 Cython / PyObject* 友好（无反射依赖）
+
+    ----------------------------------------
+    ⚠️ 注意事项
+    ----------------------------------------
+
+    - tuple 最后一项若为 dict，会作为子 kwargs
+    - callable 若在最前，会作为 header 注释
+    - 不要传入非法类型（否则抛 ValueError / TypeError）
+
+    ----------------------------------------
+    """
     if obj is None:
         return "None"
 
-    lines = []
-    obj_notes = []
-    prefix_all_call = True
+    # ===== 内部缩进工具 =====
+    def __fmt_indent_lines(__fmt_text, __fmt_level):
+        __fmt_prefix = "\t" * __fmt_level
+        return "\n".join(
+            (__fmt_prefix + line) if line else line
+            for line in __fmt_text.split("\n")
+        )
 
-    # ========================
-    # 处理 fields（dict）
-    # ========================
-    def handle_dict(the_dict):
-        for key, prop in the_dict.items():
-            try:
-                child = getattr(obj, key)
-            except Exception as e:
-                lines.append(f"{key}: <error {type(e).__name__}>")
-                continue
+    # ===== 内部递归核心 =====
+    def __fmt_core(__fmt_obj, __fmt_level, __fmt_args, __fmt_kwargs):
+        if __fmt_obj is None:
+            return "None"
 
-            # ---- tuple: 递归 ----
-            if isinstance(prop, tuple) and prop:
-                idx = 0
+        __fmt_lines = []
+        __fmt_notes = []
+        __fmt_prefix_all_call = True
 
-                # 1️⃣ show_id
-                if isinstance(prop[0], bool):
-                    show_id = prop[0]
-                    idx = 1
+        # ========================
+        # 处理 dict（fields）
+        # ========================
+        def __fmt_handle_dict(__fmt_dict):
+            for __fmt_key, __fmt_prop in __fmt_dict.items():
+                try:
+                    __fmt_child = getattr(__fmt_obj, __fmt_key)
+                except Exception as __fmt_e:
+                    __fmt_lines.append(f"{__fmt_key}: <error {type(__fmt_e).__name__}>")
+                    continue
+
+                # ---- tuple: 递归 ----
+                if isinstance(__fmt_prop, tuple) and __fmt_prop:
+                    if isinstance(__fmt_prop[-1], dict):
+                        __fmt_sub_kwargs = __fmt_prop[-1]
+                        __fmt_end = len(__fmt_prop) - 1
+                    else:
+                        __fmt_sub_kwargs = {}
+                        __fmt_end = len(__fmt_prop)
+
+                    __fmt_sub_args = __fmt_prop[:__fmt_end]
+
+                    __fmt_res = __fmt_core(
+                        __fmt_child,
+                        __fmt_level + 1,
+                        __fmt_sub_args,
+                        __fmt_sub_kwargs
+                    )
+
+                    if "\n" in __fmt_res:
+                        __fmt_lines.append(f"{__fmt_key}:")
+                        __fmt_lines.append(__fmt_res)
+                    else:
+                        __fmt_lines.append(f"{__fmt_key}: {__fmt_res}")
+
+                # ---- callable ----
+                elif callable(__fmt_prop):
+                    __fmt_val = _safe_call(__fmt_prop, __fmt_child)
+                    __fmt_lines.append(f"{__fmt_key}: {__fmt_val}")
+
+                # ---- str ----
+                elif isinstance(__fmt_prop, str):
+                    __fmt_lines.append(f"{__fmt_key}: {__fmt_prop}")
+
+                # ---- None ----
+                elif __fmt_prop is None:
+                    __fmt_lines.append(f"{__fmt_key}: None")
+
                 else:
-                    show_id = False
+                    raise TypeError(
+                        f"{__fmt_obj.__class__.__name__}._format_repr: invalid field '{__fmt_key}'"
+                    )
 
-                # 2️⃣ fields(dict)
-                if isinstance(prop[-1], dict):
-                    sub_kwargs = prop[-1]
-                    end = len(prop) - 1
+        # ========================
+        # 处理 args
+        # ========================
+        for __fmt_arg in __fmt_args:
+            if isinstance(__fmt_arg, str):
+                __fmt_prefix_all_call = False
+                try:
+                    __fmt_val = getattr(__fmt_obj, __fmt_arg)
+                    __fmt_lines.append(f"{__fmt_arg}: {_formated_string(__fmt_val)}")
+                except Exception as __fmt_e:
+                    __fmt_lines.append(f"{__fmt_arg}: <error {type(__fmt_e).__name__}>")
+
+            elif callable(__fmt_arg):
+                if __fmt_prefix_all_call:
+                    __fmt_notes.append(_safe_call(__fmt_arg, __fmt_obj))
                 else:
-                    sub_kwargs = {}
-                    end = len(prop)
+                    __fmt_lines.append(_safe_call(__fmt_arg, __fmt_obj))
 
-                # 3️⃣ attrs
-                sub_args = prop[idx:end]
-
-                res = _format_repr(
-                    child,
-                    *sub_args,
-                    **sub_kwargs
-                )
-
-                if show_id:
-                    res = res.replace(">", f"{_at_id(child)}>")
-
-                val = res.replace("\n", "\n\t")
-
-            # ---- callable ----
-            elif callable(prop):
-                val = _safe_call(prop, child)
-
-            # ---- str ----
-            elif isinstance(prop, str):
-                val = prop
-
-            # ---- None ----
-            elif prop is None:
-                val = None
+            elif isinstance(__fmt_arg, dict):
+                __fmt_prefix_all_call = False
+                __fmt_handle_dict(__fmt_arg)
 
             else:
-                raise TypeError(
-                    f"{obj.__class__.__name__}._format_repr: invalid field '{key}'"
+                raise ValueError(f"Invalid arg type: {type(__fmt_arg)}")
+
+        # kwargs（fields）
+        __fmt_handle_dict(__fmt_kwargs)
+
+        # ========================
+        # header
+        # ========================
+        __fmt_note_str = ""
+        if __fmt_notes:
+            __fmt_note_str = " " + ", ".join(map(str, __fmt_notes))
+
+        __fmt_header = f"<{__fmt_obj.__class__.__name__}{__fmt_note_str}>"
+
+        # ========================
+        # 无 body
+        # ========================
+        if not __fmt_lines:
+            return __fmt_header
+
+        # ========================
+        # 单行尝试
+        # ========================
+        __fmt_inline_body = ", ".join(__fmt_lines)
+        __fmt_inline_repr = f"{__fmt_header} {{ {__fmt_inline_body} }}"
+
+        if len(__fmt_inline_repr) <= _MAX_LEN_A_LINE:
+            return __fmt_inline_repr
+
+        # ========================
+        # 多行结构化输出
+        # ========================
+        __fmt_body_lines = []
+
+        for __fmt_line in __fmt_lines:
+            if "\n" in __fmt_line:
+                # 子结构，整体缩进
+                __fmt_body_lines.append(
+                    __fmt_indent_lines(__fmt_line, __fmt_level + 1)
+                )
+            else:
+                __fmt_body_lines.append(
+                    ("\t" * (__fmt_level + 1)) + __fmt_line
                 )
 
-            lines.append(f"{key}: {val}")
+        __fmt_body = "\n".join(__fmt_body_lines)
 
-    # ========================
-    # 处理 args
-    # ========================
-    for arg in args:
-        if isinstance(arg, str):
-            prefix_all_call = False
-            try:
-                val = getattr(obj, arg)
-                lines.append(f"{arg}: {val}")
-            except Exception as e:
-                lines.append(f"{arg}: <error {type(e).__name__}>")
+        return (
+            f"{__fmt_header} {{\n"
+            f"{__fmt_body}\n"
+            f"{'\t' * __fmt_level}"
+            f"}}"
+        )
 
-        elif callable(arg):
-            if prefix_all_call:
-                obj_notes.append(_safe_call(arg, obj))
-            else:
-                lines.append(_safe_call(arg, obj))
+    # ===== 启动递归 =====
+    return __fmt_core(obj, 0, args, kwargs)
 
-        elif isinstance(arg, dict):
-            prefix_all_call = False
-            handle_dict(arg)
+if __name__ == "__main__":
+    # =========================
+    # 测试类定义
+    # =========================
 
-        else:
-            raise ValueError(f"Invalid arg type: {type(arg)}")
+    class Node:
+        def __init__(self, val, next=None):
+            self.val = val
+            self.next = next
 
-    # ⚠️ kwargs 只处理一次
-    handle_dict(kwargs)
+    class Tree:
+        def __init__(self, val, left=None, right=None):
+            self.val = val
+            self.left = left
+            self.right = right
 
-    # ========================
-    # header
-    # ========================
-    note_str = ""
-    if obj_notes:
-        note_str = " " + ", ".join(map(str, obj_notes))
+    class Weird:
+        def __init__(self):
+            self.ok = 123
 
-    header = f"<{obj.__class__.__name__}{note_str}>"
+        @property
+        def bad(self):
+            raise RuntimeError("boom")
 
-    # ========================
-    # body 拼接
-    # ========================
-    if not lines:
-        return header
 
-    # 单行候选
-    inline_body = ", ".join(lines)
-    inline_repr = f"{header} {{ {inline_body} }}"
+    # =========================
+    # 构造数据
+    # =========================
 
-    # ========================
-    # 自动缩放
-    # ========================
-    if len(inline_repr) <= _MAX_LEN_A_LINE:
-        return inline_repr
+    # 链表：1 -> 2 -> 3
+    l3 = Node(3)
+    l2 = Node(2, l3)
+    l1 = Node(1, l2)
 
-    # 多行（统一缩进）
-    body = "\n\t".join(lines)
-    return f"{header} {{\n\t{body}\n}}"
+    # 树：
+    #       1
+    #     /   \
+    #    2     3
+    t = Tree(1, Tree(2), Tree(3))
+
+    # 深层嵌套
+    deep = Tree(10,
+                Tree(20, Tree(30)),
+                Tree(40, None, Tree(50)))
+
+    w = Weird()
+
+
+    # =========================
+    # 测试1：基础属性
+    # =========================
+    print(_format_repr(l1, "val"))
+
+    # =========================
+    # 测试2：callable
+    # =========================
+    print(_format_repr(l1, lambda x: f"val*2={x.val*2}", "val"))
+
+    # =========================
+    # 测试3：嵌套 tuple
+    # =========================
+    print(_format_repr(
+        l1,
+        "val",
+        next=("val",)
+    ))
+
+    # =========================
+    # 测试4：深层递归
+    # =========================
+    print(_format_repr(
+        t,
+        "val",
+        left=("val",),
+        right=("val",)
+    ))
+
+    # =========================
+    # 测试5：dict 配置
+    # =========================
+    print(_format_repr(
+        t,
+        {
+            "val": lambda x: x,
+            "left": ("val",),
+            "right": ("val",)
+        }
+    ))
+
+    # =========================
+    # 测试6：混合 callable + dict
+    # =========================
+    print(_format_repr(
+        t,
+        lambda x: f"id={id(x)}",
+        {
+            "val": lambda x: x,
+            "left": ("val",),
+            "right": ("val",)
+        }
+    ))
+
+    # =========================
+    # 测试7：异常属性
+    # =========================
+    print(_format_repr(w, "ok", "bad"))
+
+    # =========================
+    # 测试8：深层复杂结构
+    # =========================
+    print(_format_repr(
+        deep,
+        lambda x: "root",
+        {
+            "val": lambda x: x,
+            "left": (
+                lambda x: "L",
+                {
+                    "val": lambda x: x,
+                    "left": ("val",),
+                    "right": ("val",)
+                }
+            ),
+            "right": (
+                lambda x: "R",
+                {
+                    "val": lambda x: x,
+                    "right": ("val",)
+                }
+            )
+        }
+    ))
