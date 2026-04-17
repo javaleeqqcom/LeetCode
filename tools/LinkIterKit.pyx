@@ -6,28 +6,29 @@ from cpython.ref cimport PyObject
 from libcpp.vector cimport vector
 from libcpp.deque cimport deque
 from libcpp.pair cimport pair
-from libc.stdint cimport SIZE_MAX
 
 from collections import deque as pydeque
 from typing import List,Tuple
+from args_parser_tools import _formated_string,_format_repr,_at_id # _to_string 需要
 __DEBUG__ = True
+
 # ===============================
 # C struct（核心）
 # ===============================
 cdef struct RevisitEntry:
     size_t uf_index
     PyObject* node
-cdef _is_null(PyObject* ptr):
-    if ptr == NULL: # 防御性编程，虽然统一用 None 指针表达空节点，但以防意外判断 NULL
+
+# 預先獲取 Py_None 的指標（這就是 None 的唯一位址）
+cdef PyObject* NONE = <PyObject*>None
+cdef inline _is_null(PyObject* ptr):
+    if __DEBUG__ and ptr == NULL: # 防御性编程，虽然统一用 NONE 指针表达空节点，但以防意外判断 NULL
         return True
-    obj = <object>ptr
-    # ✅ 关键修复：拦住 None
-    if obj is None:
+    if ptr == NONE:
         return True
     return False
 
-cdef enum:
-    MAX_SIZE = (<size_t>-1) - 1 # 最大容量
+cdef const size_t UPP_SIZE=<size_t>(-2) # 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
 # ===============================
 # SafeIterBase
 # ===============================
@@ -54,13 +55,13 @@ cdef class SafeIterBase:
     cdef size_t _check_safe(self,PyObject* node): # node 必须用 Object 而不能用指针，否则无法让 _seen 自动持有
         """
         检查 node 是否在 _seen 中记录过：
-        若已记录过，返回 SIZE_MAX = <size_t>-1；
+        若已记录过，返回 <size_t>-1；
         否则返回节点在 _revisit 追加的索引值也就是 _seen[node]。
         """
         cdef size_t first_idx
         cdef RevisitEntry entry
         if _is_null(node):
-            return SIZE_MAX
+            return <size_t>(-1)
         key = <object>node # 关键！指针 -> PyObj
         if key in self._seen:
             first_idx = self._seen[key]
@@ -68,23 +69,23 @@ cdef class SafeIterBase:
             entry.node = node      # 存储指针，不增加引用计数
             self._revisit.push_back(entry)
             # 标记首次重复
-            if self._revisit[first_idx].uf_index == SIZE_MAX:
+            if <size_t>(-1) == self._revisit[first_idx].uf_index:
                 self._revisit[first_idx].uf_index = first_idx
                 self._repeat_num += 1
-            return SIZE_MAX
+            return <size_t>(-1)
         else:
             first_idx = self._revisit.size()
             self._seen[key] = first_idx # node 通过 _seen 的引用计数维持不在 SafeIterBase 析构前消亡
-            entry.uf_index = SIZE_MAX
+            entry.uf_index = <size_t>(-1)
             entry.node = node
             self._revisit.push_back(entry)
-            if self._revisit.size() >= MAX_SIZE:
+            if self._revisit.size() >= UPP_SIZE:
                 raise RuntimeError("SafeIterBase: Max size exceeded capacity.")
             return first_idx
 
     # ===== flatten =====
     @staticmethod
-    cdef list _flatten(SafeIterBase it, size_t max_len=SIZE_MAX):
+    cdef list _flatten(SafeIterBase it, size_t max_len=UPP_SIZE):
         cdef list out = []
         cdef int i = 0
         cdef object node
@@ -140,7 +141,6 @@ cdef class SafeIterBase:
                 result.append((entry.uf_index,<object>entry.node))
         return result
 
-
 # ===============================
 # KitBase（轻量代理）
 # ===============================
@@ -154,7 +154,7 @@ cdef class KitBase:
     def unwrap(cls, other):
         """
         提取包装类内部的原始节点。
-        - 如果 other 是 KitBase2 子类实例，返回其内部 _node。
+        - 如果 other 是 KitBase 子类实例，返回其内部 _node。
         - 否则直接返回 other 本身（可能为 None）。
         """
         if isinstance(other, KitBase):
@@ -192,6 +192,10 @@ cdef class KitBase:
     def __bool__(self) -> bool:
         return self.raw is not None
 
+    # 低级打印，仅显示本节点情况
+    def __repr__(self) -> str:
+        return _format_repr(self,"raw")
+
 # ===============================
 # LinkIterBase
 # ===============================
@@ -208,8 +212,8 @@ cdef class LinkIterBase(SafeIterBase):
         next_node = getattr(<object>self._cur, "next") # next_node 必须赋值为 PyObject 类型否则会报错：`Storing unsafe C derivative of temporary Python reference`
         self._cur = <PyObject*>next_node
         # 必须确保早停，__next__ 才会检测重复 _cur 不重复
-        if SIZE_MAX == self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
-            self._cur = <PyObject*>None
+        if <size_t>(-1) == self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
+            self._cur = NONE
     @property
     def circle_index(self)->int:
         if self._repeat_num > 0:
@@ -217,9 +221,9 @@ cdef class LinkIterBase(SafeIterBase):
         return -1
     cpdef object get_next(self, Py_ssize_t index , bint allowed_null):
         return SafeIterBase._get_next(self, index, allowed_null)
-    cpdef list iter_flatten_raw(self, size_t max_len=SIZE_MAX):
+    cpdef list iter_flatten_raw(self, size_t max_len=UPP_SIZE):
         return SafeIterBase._flatten(self, max_len)
-from args_parser_tools import _formated_string # _to_string 需要
+
 # ===============================
 # LinkIterKit（用户层）
 # ===============================
@@ -251,7 +255,7 @@ cdef class LinkIterKit(KitBase):
         cdef LinkIterBase it = LinkIterBase(self.raw)
         return it.iter_flatten_raw()
     # ===== flatten + stop index =====
-    def flatten_stopIDX(self, size_t max_len=SIZE_MAX)->Tuple[List, int]:
+    def flatten_stopIDX(self, size_t max_len=UPP_SIZE)->Tuple[List, int]:
         cdef LinkIterBase it = LinkIterBase(self.raw) if isinstance(self, LinkIterKit) else LinkIterBase(self)
         cdef list nodes = it.iter_flatten_raw(max_len)
         if _is_null(it._cur):
@@ -263,7 +267,7 @@ cdef class LinkIterKit(KitBase):
         cdef LinkIterBase it = LinkIterBase(self.raw)
         return LinkIterKit(it.get_next(<Py_ssize_t>idx, self._allowed_null))
     @classmethod
-    def _to_string(cls, head, prep_property: str = "val" , size_t max_len = SIZE_MAX) -> str:
+    def _to_string(cls, head, prep_property: str = "val" , size_t max_len=UPP_SIZE) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
         # 注意要用 unwrap 去包装节点
         nodes, stop_index = LinkIterKit(head).flatten_stopIDX( max_len = max_len)       

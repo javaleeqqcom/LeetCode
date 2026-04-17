@@ -23,6 +23,8 @@ def test_listnode_kit():
         _ = empty[0]
     except IndexError as e:
         print(f"   访问 empty[0] 抛出 IndexError: {e}")
+    # 打印基包装节点
+    print("   基包装节点：", ListNodeKitBase(empty))
     
     # ---------- 2. 无环链表 ----------
     print("\n1.2 无环链表测试")
@@ -38,6 +40,8 @@ def test_listnode_kit():
     print(f"   kit.val: {kit.val}")                  # 1
     print(f"   kit.next.val: {kit.next.val}")        # 2
     print(f"   kit.next.next.val: {kit.next.next.val}")  # 3
+    # 打印基包装节点
+    print("   基包装节点：", ListNodeKitBase(kit))
     
     # 2.2 node 属性（原生节点）
     print(f"   kit.node is n1: {kit.raw is n1}")    # True

@@ -339,7 +339,7 @@ cdef class LinkIterKit(KitBase):
 
     # 低级打印，仅显示本节点情况和左右子节点的id
     def __repr__(self) -> str:
-        return self._format_repr(self, next=self.next)
+        return self._format_repr(self,"id", next=self.next)
 
 # -------------------------- 树的遍历 ------------------------------
 from libcpp.deque cimport deque as cpp_deque
@@ -631,7 +631,7 @@ cdef class TreeIterKit(KitBase):
 
     # 低级打印，仅显示本节点情况和左右子节点的id
     def __repr__(self) -> str:
-        return self._format_repr(self, left=self.left, right=self.right)
+        return self._format_repr(self,"id", left=self.left, right=self.right)
 
     @staticmethod
     cdef str _to_string(object root, str prep_property="val",

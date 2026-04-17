@@ -18,7 +18,6 @@ NOT_EMPTY_LINES = True
 source_files =[
   "tools/iter_node_tools 极限优化方案.md",
   "tools/LinkIterKit.pyx",
-  "tools/LinkIterKit(err).pyx",
   "Q报错如下.txt",
 ]
 
@@ -29,17 +28,24 @@ for file in source_files:
 
 template_text = """附件pyx的代码已经经过严格测试通过。
 {}
-如下代码已通过链表和树的压力测试：
+如下代码除了打印之外都正确，因为我新增了 _format_repr 函数，但是测试发现 raw 被误识别为 bool， next 不能判空，而是会返回错误类型。
 ```LinkIterKit.pyx
 {}
 ```
-但是该代码部分架构不符合树的遍历需求，因为树有栈\队列，不应该返回 self._cur 时才进行 check_safe，还有 allow_null 冗余进行了去除，但是如下代码
-```LinkIterKit(err).pyx
-{}
-```
-在进行压力测试时，卡死且计算机内存消耗快速攀升，只能杀进程，执行如下。
+执行如下。
 ```
 {}
+```
+另外原生节点代码：
+```
+# 示例：LeetCode 常见结构（学生可按题追加）
+class ListNode:
+    def __init__(self, val:_BASE_TYPE=0, next:Optional[ListNode]=None):
+        self.val = val
+        self.next = next
+    # 方便调试，且与 leetcode 不冲突
+    def __repr__(self) -> str:
+        return KitBase._format_repr(True,"val",next=(False,"val") if self.next else None)
 ```
 """.format(*source_texts)
 

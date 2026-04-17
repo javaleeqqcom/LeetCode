@@ -181,3 +181,148 @@ def ReprDecorator(prep_property: str = "val"):
         cls.__repr__ = _repr
         return cls
     return wrapper
+
+def _safe_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        return f"<error: {type(e).__name__}>"
+
+def _at_id(obj):
+    if obj is None:
+        return ""
+    return f" at 0x{id(obj):012X}"
+
+def _obj_id(obj):
+    if obj is None:
+        return "None"
+    return f"<{obj.__class__.__name__}{_at_id(obj)}>"
+
+_MAX_LEN_A_LINE = 80
+def _format_repr(obj, *args, **kwargs):
+    if obj is None:
+        return "None"
+
+    lines = []
+    obj_notes = []
+    prefix_all_call = True
+
+    # ========================
+    # 处理 fields（dict）
+    # ========================
+    def handle_dict(the_dict):
+        for key, prop in the_dict.items():
+            try:
+                child = getattr(obj, key)
+            except Exception as e:
+                lines.append(f"{key}: <error {type(e).__name__}>")
+                continue
+
+            # ---- tuple: 递归 ----
+            if isinstance(prop, tuple) and prop:
+                idx = 0
+
+                # 1️⃣ show_id
+                if isinstance(prop[0], bool):
+                    show_id = prop[0]
+                    idx = 1
+                else:
+                    show_id = False
+
+                # 2️⃣ fields(dict)
+                if isinstance(prop[-1], dict):
+                    sub_kwargs = prop[-1]
+                    end = len(prop) - 1
+                else:
+                    sub_kwargs = {}
+                    end = len(prop)
+
+                # 3️⃣ attrs
+                sub_args = prop[idx:end]
+
+                res = _format_repr(
+                    child,
+                    *sub_args,
+                    **sub_kwargs
+                )
+
+                if show_id:
+                    res = res.replace(">", f"{_at_id(child)}>")
+
+                val = res.replace("\n", "\n\t")
+
+            # ---- callable ----
+            elif callable(prop):
+                val = _safe_call(prop, child)
+
+            # ---- str ----
+            elif isinstance(prop, str):
+                val = prop
+
+            # ---- None ----
+            elif prop is None:
+                val = None
+
+            else:
+                raise TypeError(
+                    f"{obj.__class__.__name__}._format_repr: invalid field '{key}'"
+                )
+
+            lines.append(f"{key}: {val}")
+
+    # ========================
+    # 处理 args
+    # ========================
+    for arg in args:
+        if isinstance(arg, str):
+            prefix_all_call = False
+            try:
+                val = getattr(obj, arg)
+                lines.append(f"{arg}: {val}")
+            except Exception as e:
+                lines.append(f"{arg}: <error {type(e).__name__}>")
+
+        elif callable(arg):
+            if prefix_all_call:
+                obj_notes.append(_safe_call(arg, obj))
+            else:
+                lines.append(_safe_call(arg, obj))
+
+        elif isinstance(arg, dict):
+            prefix_all_call = False
+            handle_dict(arg)
+
+        else:
+            raise ValueError(f"Invalid arg type: {type(arg)}")
+
+    # ⚠️ kwargs 只处理一次
+    handle_dict(kwargs)
+
+    # ========================
+    # header
+    # ========================
+    note_str = ""
+    if obj_notes:
+        note_str = " " + ", ".join(map(str, obj_notes))
+
+    header = f"<{obj.__class__.__name__}{note_str}>"
+
+    # ========================
+    # body 拼接
+    # ========================
+    if not lines:
+        return header
+
+    # 单行候选
+    inline_body = ", ".join(lines)
+    inline_repr = f"{header} {{ {inline_body} }}"
+
+    # ========================
+    # 自动缩放
+    # ========================
+    if len(inline_repr) <= _MAX_LEN_A_LINE:
+        return inline_repr
+
+    # 多行（统一缩进）
+    body = "\n\t".join(lines)
+    return f"{header} {{\n\t{body}\n}}"
