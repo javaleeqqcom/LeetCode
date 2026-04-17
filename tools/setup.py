@@ -2,8 +2,8 @@ from setuptools import setup, Extension
 from Cython.Build import cythonize
 
 ext = Extension(
-    name="tools.iter_node_tools", 
-    sources=["tools/iter_node_tools.pyx"],
+    name="tools.safe_iter_kit", 
+    sources=["tools/safe_iter_kit.pyx"],
     language="c++",  # <--- 告訴編譯器使用 MSVC 的 C++ 模式，這才能找到 <vector>
     extra_compile_args=["/std:c++17"],   # ✅ 关键
 )

@@ -4,10 +4,12 @@
 # ===============================
 from cpython.ref cimport PyObject
 from libcpp.vector cimport vector
+from libcpp.deque cimport deque
 from libcpp.pair cimport pair
-from libc.stdint cimport SIZE_MAX
 
+from collections import deque as pydeque
 from typing import List,Tuple
+from args_parser_tools import _formated_string # _to_string 需要
 __DEBUG__ = True
 # ===============================
 # C struct（核心）
@@ -25,7 +27,7 @@ cdef _is_null(PyObject* ptr):
     return False
 
 cdef enum:
-    MAX_SIZE = (<size_t>-1) - 1 # 最大容量
+    UPP_SIZE = <size_t>(-2) # 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
 # ===============================
 # SafeIterBase
 # ===============================
@@ -49,11 +51,16 @@ cdef class SafeIterBase:
         return self._repeat_num
 
     # ===== 核心：重复检测 =====
-    cdef bint _check_safe(self,PyObject* node): # node 必须用 Object 而不能用指针，否则无法让 _seen 自动持有
+    cdef size_t _check_safe(self,PyObject* node): # node 必须用 Object 而不能用指针，否则无法让 _seen 自动持有
+        """
+        检查 node 是否在 _seen 中记录过：
+        若已记录过，返回 <size_t>-1；
+        否则返回节点在 _revisit 追加的索引值也就是 _seen[node]。
+        """
         cdef size_t first_idx
         cdef RevisitEntry entry
         if _is_null(node):
-            return False
+            return <size_t>(-1)
         key = <object>node # 关键！指针 -> PyObj
         if key in self._seen:
             first_idx = self._seen[key]
@@ -61,23 +68,23 @@ cdef class SafeIterBase:
             entry.node = node      # 存储指针，不增加引用计数
             self._revisit.push_back(entry)
             # 标记首次重复
-            if self._revisit[first_idx].uf_index == SIZE_MAX:
+            if <size_t>(-1) == self._revisit[first_idx].uf_index:
                 self._revisit[first_idx].uf_index = first_idx
                 self._repeat_num += 1
-            return False
+            return <size_t>(-1)
         else:
             first_idx = self._revisit.size()
             self._seen[key] = first_idx # node 通过 _seen 的引用计数维持不在 SafeIterBase 析构前消亡
-            entry.uf_index = SIZE_MAX
+            entry.uf_index = <size_t>(-1)
             entry.node = node
             self._revisit.push_back(entry)
-            if self._revisit.size() >= MAX_SIZE:
+            if self._revisit.size() >= UPP_SIZE:
                 raise RuntimeError("SafeIterBase: Max size exceeded capacity.")
-            return True
+            return first_idx
 
     # ===== flatten =====
     @staticmethod
-    cdef list _flatten(SafeIterBase it, size_t max_len=SIZE_MAX):
+    cdef list _flatten(SafeIterBase it, size_t max_len=UPP_SIZE):
         cdef list out = []
         cdef int i = 0
         cdef object node
@@ -147,7 +154,7 @@ cdef class KitBase:
     def unwrap(cls, other):
         """
         提取包装类内部的原始节点。
-        - 如果 other 是 KitBase2 子类实例，返回其内部 _node。
+        - 如果 other 是 KitBase 子类实例，返回其内部 _node。
         - 否则直接返回 other 本身（可能为 None）。
         """
         if isinstance(other, KitBase):
@@ -185,6 +192,51 @@ cdef class KitBase:
     def __bool__(self) -> bool:
         return self.raw is not None
 
+    def __repr__(self) -> str:
+        return KitBase._format_repr(self)
+
+    @staticmethod
+    def _format_repr(obj, *attributes, **children):
+        """
+        统一格式化函数
+        :param obj: 当前实例 (self)
+        :param attributes: 需要显示的属性名，包含 "id" 则显示地址
+        :param children: 子节点对象，如 left=self.left, right=self.right
+        """
+        # 1. 处理本节点信息
+        lines = [line for line in f"self: {obj.raw}".splitlines()]
+        
+        # 2. 处理子节点
+        for key, prop in children.items():
+            # 假设 KitBase 在全局作用域，或此处改用通用的 unwrap 逻辑
+            prop_raw = KitBase.unwrap(prop) if prop is not None else None
+            
+            if prop_raw is None:
+                lines.append(f"{key}: None")
+            else:            
+                attr_list = []
+                for attr in attributes:
+                    if attr == "id":
+                        val = f"0x{id(prop_raw):012X}"
+                    elif hasattr(prop_raw, attr):
+                        val = getattr(prop_raw, attr)
+                    else:
+                        # 建议用 f-string 报错，并包含 key 信息方便定位
+                        raise AttributeError(f"Node '{key}' ({type(prop_raw)}) has no attribute '{attr}'")
+                    attr_list.append(f"{attr}: {val}")
+                
+                # 修正点：子节点属性通常建议在同一行显示，或者增加额外缩进
+                # 如果 attributes 很多，可以使用 ", ".join 保持紧凑
+                attrs_str = ", ".join(attr_list)
+                prop_str = f"{key}: {{<class '{prop_raw.__class__.__name__}'>: {{{attrs_str}}}}}"
+                lines.append(prop_str)
+                
+        # 3. 统一处理换行和缩进
+        # 每一行前面都加一个 \t
+        body = "\n\t".join(lines)
+        
+        return f"<class '{obj.__class__.__name__}'>: {{\n\t{body}\n}}"
+
 # ===============================
 # LinkIterBase
 # ===============================
@@ -201,7 +253,7 @@ cdef class LinkIterBase(SafeIterBase):
         next_node = getattr(<object>self._cur, "next") # next_node 必须赋值为 PyObject 类型否则会报错：`Storing unsafe C derivative of temporary Python reference`
         self._cur = <PyObject*>next_node
         # 必须确保早停，__next__ 才会检测重复 _cur 不重复
-        if not self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
+        if <size_t>(-1) == self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
             self._cur = <PyObject*>None
     @property
     def circle_index(self)->int:
@@ -210,9 +262,9 @@ cdef class LinkIterBase(SafeIterBase):
         return -1
     cpdef object get_next(self, Py_ssize_t index , bint allowed_null):
         return SafeIterBase._get_next(self, index, allowed_null)
-    cpdef list iter_flatten_raw(self, size_t max_len=SIZE_MAX):
+    cpdef list iter_flatten_raw(self, size_t max_len=UPP_SIZE):
         return SafeIterBase._flatten(self, max_len)
-from args_parser_tools import _formated_string # _to_string 需要
+
 # ===============================
 # LinkIterKit（用户层）
 # ===============================
@@ -244,7 +296,7 @@ cdef class LinkIterKit(KitBase):
         cdef LinkIterBase it = LinkIterBase(self.raw)
         return it.iter_flatten_raw()
     # ===== flatten + stop index =====
-    def flatten_stopIDX(self, size_t max_len=SIZE_MAX)->Tuple[List, int]:
+    def flatten_stopIDX(self, size_t max_len=UPP_SIZE)->Tuple[List, int]:
         cdef LinkIterBase it = LinkIterBase(self.raw) if isinstance(self, LinkIterKit) else LinkIterBase(self)
         cdef list nodes = it.iter_flatten_raw(max_len)
         if _is_null(it._cur):
@@ -256,7 +308,7 @@ cdef class LinkIterKit(KitBase):
         cdef LinkIterBase it = LinkIterBase(self.raw)
         return LinkIterKit(it.get_next(<Py_ssize_t>idx, self._allowed_null))
     @classmethod
-    def _to_string(cls, head, prep_property: str = "val" , size_t max_len = SIZE_MAX) -> str:
+    def _to_string(cls, head, prep_property: str = "val" , size_t max_len=UPP_SIZE) -> str:
         """安全打印链表，自动标记环（> 和 ^）"""
         # 注意要用 unwrap 去包装节点
         nodes, stop_index = LinkIterKit(head).flatten_stopIDX( max_len = max_len)       
@@ -285,21 +337,26 @@ cdef class LinkIterKit(KitBase):
                 str_lst.append("^")
         return f"<class 'ListNodeKit'>: [{','.join(str_lst)}]"
 
-# -------------------------- 树的遍历 ------------------------------      
-# 如下代码需补全后方可运行！
-exit(0)
-from libcpp.algorithm cimport lower_bound
-from libcpp.deque cimport deque
-from collections import deque as pydeque
+    # 低级打印，仅显示本节点情况和左右子节点的id
+    def __repr__(self) -> str:
+        return self._format_repr(self, next=self.next)
+
+# -------------------------- 树的遍历 ------------------------------
+from libcpp.deque cimport deque as cpp_deque
+from collections import deque as py_deque
+
+cdef extern from "<algorithm>" namespace "std":
+    T lower_bound[T](T first, T last, const T& value) nogil
+
 cdef enum OpCode:
     OP_END = 0
     OP_L   = 1
     OP_R   = 2
     OP_C   = 4
     OP_SHIFT = 4
-    OP_U   = 0x44444444
+    OP_U   = 0x44444444   # 用于判断是否即时更新
 
-cdef unsigned int str2OpCode(s:str):
+cdef unsigned int str2OpCode(s: str):
     assert len(s) < 4
     cdef unsigned int res = 0
     for c in s.lower()[::-1]:
@@ -314,41 +371,61 @@ cdef unsigned int str2OpCode(s:str):
             raise ValueError(f"invalid op: {s}")
     return res
 
-# 定義簡化名稱
-ctypedef pair[PyObject*, bint] NodeStatus
-cdef class TreeIterBase(SafeIterBase):
-    cdef:
-        vector[NodeStatus]    stack_checked   # 存储对应的 checked 标志
-        deque[NodeStatus]     queue_checked
-        list stack_vid      # 与 stack_checked 保持同步 push
-        object queue_vid 
+# ctypedef pair[PyObject*, bint] NodeStatus   # (node指针, 是否已检查过)
+ctypedef struct NodeStatus:
+    PyObject* node
+    bint checked
 
-        list vid_list           # 存储 visit_index 与 _revisit 保持同步
+
+cdef class TreeIterBase(SafeIterBase):
+    """
+    二叉树通用迭代器，支持前/中/后/层序遍历，通过操作字符串驱动。
+    - use_queue=True 使用队列（层序），否则使用栈（深度优先）
+    - ops: 操作编码，低4位为第一个操作，依次类推。每个操作可以是 L/R/C
+    - early_stop: 遇到重复节点是否立即停止（True）或跳过重复继续（False）
+    - max_depth: 最大深度（根深度1），超过则忽略该节点
+    """
+    cdef:
+        bint use_queue
+        cpp_deque[NodeStatus] queue_checked
+        py_deque     queue_vid
+        vector[NodeStatus]    stack_checked
+        list stack_vid
+
+        list vid_list               # 与 _revisit 同步的 visit_index
+        vector[size_t] iter_out_uf_idx # 遍历输出节点（通过 next iter 调用的）对应在 _revisit 中的索引
         unsigned int _ops
-        
         size_t _max_depth
-        readonly size_t detectable_depth
+        size_t detectable_depth
         bint _instant_updates
 
     def __cinit__(self):
-        self.stack = []
-        self.vid_list = []
+        self.use_queue = False
         self._ops = 0
-        self._allowed_null = True
-        self.queue_vid = pydeque()
-        ...
+        self._max_depth=UPP_SIZE
+        self.detectable_depth = 0
+        self._instant_updates = False
+        self.vid_list = []
+        self.queue_vid = py_deque()
+        self.stack_vid = list()
 
-    def __init__(self, object root, unsigned int ops, bint use_queue, bint early_stop=False, size_t max_depth=SIZE_MAX):
-        super().__init__()
+    def __init__(self, object root, unsigned int ops, bint use_queue,
+                 bint early_stop=False, size_t max_depth=UPP_SIZE):
+        super().__init__(early_stop)
         self._ops = ops
         self.use_queue = use_queue
         self._max_depth = max_depth
+        self._instant_updates = (ops & OP_U) != 0   # OP_U 表示即时更新模式
+        # 将根节点压入容器（未检查）
         root = KitBase.unwrap(root)
-        self._push(root,1,False)
+        if root is not None:
+            self._push(root, 1, False)
+        self._prepare_next()
 
-    cdef void _push(self, node, int visit_index , bint checked):
-        if not node: return # 自动跳过空节点
-        depth = visit_index.bit_length()
+    cdef void _push(self, node, size_t vid, bint checked):
+        """压入节点，如果深度超过 max_depth 则忽略"""
+        if node is None: return
+        depth = vid.bit_length()
         if depth > self.detectable_depth:
             self.detectable_depth = <size_t>depth
             if depth > self._max_depth: return
@@ -360,38 +437,44 @@ cdef class TreeIterBase(SafeIterBase):
             self.stack_vid.append(visit_index)
             self.stack_checked.push_back(<pair>(<PyObject*>node,checked))
 
-    cdef int _pop(self, NodeStatus* ele):
+    cdef size_t _pop(self, NodeStatus* out):
+        """弹出节点，返回 vid，并通过 out 返回 NodeStatus"""
         if self.use_queue:
-            ele[0] = self.queue_checked.front()
+            out[0] = self.queue_checked.front()
             self.queue_checked.pop_front()
             return self.queue_vid.popleft()
         else:
-            ele[0] = self.stack_checked.back()
+            out[0] = self.stack_checked.back()
             self.stack_checked.pop_back()
             return self.stack_vid.pop()
 
-    def is_empty(self):
+    cdef bint _is_empty(self):
         if self.use_queue:
             if not self.queue_vid:
                 assert self.queue_checked.empty()
                 return True
         else:
-            ...
+            if not self.stack_vid:
+                assert self.stack_checked.empty()
+                return True
+        return False
 
     def _prepare_next(self):
         cdef NodeStatus ele
         cdef bint checked
         cdef unsigned int ops
+        cdef size_t uf_idx
 
         while True:
-            if self.is_empty(): break
+            if self._is_empty(): break
 
             vid = self._pop(&ele)
-            node: object = <object>ele.first
+            node: object = <object>ele.node
 
             if not checked:
                 self.vid_list.append(vid) # _check_safe 无论T/F，_revisit 的容量+1，同步保存 vid。将来改进静态链表大数可直接加入 revisit
-                if self._check_safe(ele.first):
+                uf_idx = self._check_safe(ele.node)
+                if <size_t>(-1) != uf_idx:
                     ops = self._ops   # ✅ 每个节点重新拷贝
                     while ops:
                         if ops&0xF == OP_L:
@@ -407,23 +490,25 @@ cdef class TreeIterBase(SafeIterBase):
                 else: continue # 不安全，继续 POP
             # 已检查安全，或即时更新，设置 POP 节点为当前节点，跳出循环
             self._cur = ele.first
+            self.iter_out_uf_idx.push_back(uf_idx) # 记录迭代节点在 _revisit 中的索引
             return
         # 容器空或早停，置为空节点
-        self._cur = <PyObject*>(None)
+        self._cur = <PyObject*>None
 
-    cdef list flatten_raw(self, size_t max_len = SIZE_MAX):
-        return SafeIterBase._flatten(self,max_len)
+    cdef list flatten_raw(self, size_t max_len=UPP_SIZE):
+        """返回原生节点列表（按遍历顺序）"""
+        return SafeIterBase._flatten(self, max_len)
 
-    cdef tuple flatten(self, size_t max_len = SIZE_MAX):
+    cdef tuple flatten(self, size_t max_len=UPP_SIZE):
         """
-        按预设迭代次序返回 (遍历列表,重复索引列表)。
-        - 遍历列表: [(堆索引, 原生节点),...]
-        - 重复索引列表: [(堆索引, 指向遍历列表的索引),...]
+        返回 (节点列表, 重复信息列表)
+        - 节点列表: [(visit_index, 原生节点), ...]
+        - 重复信息列表: [(visit_index, 指向节点列表的索引), ...]
         - 重复索引列表与遍历列表的堆索引无交集
         - early_stop、max_depth 需在构造函数中指定
         :param max_len: 遍历最大节点数（-1表示不限制）
         """
-        cdef size_t i = 0, j = 0
+        cdef size_t i, j = 0
         cdef RevisitEntry ele
         cdef vector[pair[size_t, size_t]].iterator it
         
@@ -439,8 +524,8 @@ cdef class TreeIterBase(SafeIterBase):
             ele = self._revisit[i]
             
             # 优化分支逻辑：合并相同行为
-            # 只有当 ele.uf_index 为 i 或 SIZE_MAX 时，才执行插入 nodes[j]
-            if i == ele.uf_index or ele.uf_index == SIZE_MAX:
+            # 只有当 ele.uf_index 为 i 或 <size_t>(-1) 时，才执行插入 nodes[j]
+            if i == ele.uf_index or ele.uf_index == <size_t>(-1):
                 if i == ele.uf_index:
                     nodes_uf_vec.push_back(pair[size_t, size_t](i, j))
                 
@@ -456,142 +541,136 @@ cdef class TreeIterBase(SafeIterBase):
                 
         return nodes[:j], repeat_indices
 
+    # 仅为了测试验证代码所用，因此不需要高性能，依靠 self.revisit_nodes 的输出
     @property
-    def rep_nodes_idx(self) -> List[int]:  # 注意是大整数类
-        return [self.vid_list[uf_index] for uf_index, node in self.revisit_nodes]
-
-# 新版本删除 HeapIter，直接路由代码量更少
-
-class TreeIterKit(KitBase):
-    cdef int heap_index # 将来改为静态链表大整数类，若初始值超过 size_t 范围，则首个 idx 用 vector<size_t> 存储
-
-    """二叉树调试增强工具，提供安全遍历、环检测、美观打印"""
-    def __init__(self, node: KitBase|object|None = None, heap_index: int = 1):
+    def rep_nodes_idx(self):
+        """返回重复访问节点的堆索引列表"""
+        return [self.vid_list[uf_idx] for uf_idx, node in self.revisit_nodes]
+    
+cdef class TreeIterKit(KitBase):
+    """二叉树用户包装类，提供安全遍历、环检测、美观打印"""
+    cdef readonly int heap_index
+    def __cinit__(self):
+        self.heap_index = 0
+    def __init__(self, node=None, int heap_index=1):
         super().__init__(node)
-        assert hasattr(self.raw,"left") and hasattr(self.raw,"right"),"The node parameter entered by TreeIterKit must have 'left', 'right'."
-        # 可以补充其他必要的类型检查
-        self.heap_index = heap_index 
+        # 检查节点是否具有 left/right 属性（可选，不做强制）
+        self.heap_index = heap_index # 注意 heap_index 是指数递增的堆索引，需要用大整数类（Python的 int 即可）
 
-    def get_heap(self, heap_index: int, allowed_null: bool = False) -> 'TreeIterKit':
+    cdef TreeIterKit get_heap(self, int heap_index, bint allowed_null=False):
         """按堆索引获取节点（从1开始），路径断裂或遇环时抛出 IndexError"""
         if heap_index < 1:
             raise IndexError("Heap index cannot be less than 1.")
         cur = self.raw
         seen = set()
-        for bit in bin(heap_index)[3:]: # 去掉 '0b1' 从高位向低位迭代
+        # 将 heap_index 转换为二进制路径（去掉最高位的1）
+        bits = bin(heap_index)[3:]  # 例如 6 -> '110' -> 去掉 '0b1' 得 '10'
+        for bit in bits:
             if cur is None:
-                if allowed_null: return None
-                raise IndexError(f"The node pointed to by the heap index does not exist, index value: {heap_index}")
-            elif cur in seen:
-                raise IndexError("The heap index path is in a loop.")
-            seen.add(cur)
-            if bit == '0': # 左子树
-                cur = cur.left
+                if allowed_null:
+                    return None
+                raise IndexError(f"Node does not exist at heap index {heap_index}")
+            if id(cur) in seen:
+                raise IndexError("Cycle detected while following heap path")
+            seen.add(id(cur))
+            if bit == '0':
+                cur = getattr(cur, 'left', None)
             else:
-                cur = cur.right
-        return cur
+                cur = getattr(cur, 'right', None)
+        # 返回包装类
+        return TreeIterKit(cur, heap_index)
 
-    def __getitem__(self, index: Py_ssize_t) -> 'TreeIterKit':
-        """按层序遍历顺序索引（从0开始），返回包装节点"""
+    def __getitem__(self, Py_ssize_t index):
+        if index < 0:
+            raise IndexError("The index should not be negative.") # 索引应当非负
         it = self.layer_iter(early_stop=False)
         node = SafeIterBase._get_next(it, index, False)
-        assert isinstance(node, TreeIterKit), f"设计错误：SafeIterBase3._getitem 丢失了节点包装类型的保持状态, 实际类型为 {type(node)}"
-        return node
+        if node is None:
+            raise IndexError(f"Index {index} out of range")
+        uf_idx = it.iter_out_uf_idx[index]
+        return TreeIterKit(node, it.vid_list[uf_idx])   # visit_index 在遍历时由迭代器维护，这里暂时设为0
 
-    cdef list flatten_raw(self, early,max_len: Py_ssize_t = -1):
-        it = TreeIterBase(self.raw,early_stop=early_stop,max_depth=max_depth)
-        return SafeIterBase._flatten(it,max_len)
+    # ---------- 各种遍历迭代器 ----------
+    def layer_iter(self, bint early_stop=False, size_t max_depth=UPP_SIZE):
+        """层序遍历迭代器 (操作字符串 "LR")"""
+        return TreeIterBase(self.raw, str2OpCode("LR"), use_queue=True,
+                            early_stop=early_stop, max_depth=max_depth)
 
-    cdef tuple flatten(self, early_stop: bool = False, size_t max_depth = SIZE_MAX, size_t max_len = SIZE_MAX):
-        """
-        ... 按层序遍历的来
-        """
-        it = TreeIterBase(self, str2OpCode("LR"), use_queue=True,
-                       early_stop=early_stop, max_depth=max_depth)
-        return it.flatten(max_len)
+    def NLR_iter(self, bint early_stop=False, size_t max_depth=UPP_SIZE):
+        """前序遍历迭代器 (NLR) -> 操作字符串 "RL"（先压右再压左）"""
+        return TreeIterBase(self.raw, str2OpCode("RL"), use_queue=False,
+                            early_stop=early_stop, max_depth=max_depth)
 
-    cdef tuple flatten_raw(self, early_stop: bool = False, size_t max_depth = SIZE_MAX, size_t max_len = SIZE_MAX):
-        """
-        ... 按层序遍历的来
-        """
-        it = TreeIterBase(self, str2OpCode("LR"), use_queue=True,
-                       early_stop=early_stop, max_depth=max_depth)
-        return it.flatten_raw(max_len)
-
-    cdef TreeIterBase layer_iter(self, early_stop: bool = False, size_t max_depth = SIZE_MAX):
-        """层序遍历迭代器 (ULR)"""
-        return TreeIterBase(self, str2OpCode("LR"), use_queue=True,
-                         early_stop=early_stop, max_depth=max_depth)
-
-    cdef TreeIterBase NLR_iter(self, early_stop: bool = False, size_t max_depth = SIZE_MAX):
-        """前序遍历迭代器 (NLR) -> 操作字符串 "RLU" """
-        return TreeIterBase(self, str2OpCode("RL"), use_queue=False,
-                         early_stop=early_stop, max_depth=max_depth)
-
-    cdef TreeIterBase LNR_iter(self, early_stop: bool = False, size_t max_depth = SIZE_MAX):
+    def LNR_iter(self, bint early_stop=False, size_t max_depth=UPP_SIZE):
         """中序遍历迭代器 (LNR) -> 操作字符串 "RCL" """
-        return TreeIterBase(self, str2OpCode("RCL"), use_queue=False,
-                         early_stop=early_stop, max_depth=max_depth)
+        return TreeIterBase(self.raw, str2OpCode("RCL"), use_queue=False,
+                            early_stop=early_stop, max_depth=max_depth)
 
-    cdef TreeIterBase LRN_iter(self, early_stop: bool = False, size_t max_depth = SIZE_MAX):
+    def LRN_iter(self, bint early_stop=False, size_t max_depth=UPP_SIZE):
         """后序遍历迭代器 (LRN) -> 操作字符串 "CRL" """
-        return TreeIterBase(self, str2OpCode("CRL"), use_queue=False,
-                         early_stop=early_stop, max_depth=max_depth)
+        return TreeIterBase(self.raw, str2OpCode("CRL"), use_queue=False,
+                            early_stop=early_stop, max_depth=max_depth)
 
     def __iter__(self):
         return self.layer_iter()
 
-    @staticmethod
-    cdef str _to_string(
-        object root,
-        prep_property: str = "val",
-        size_t max_depth = 10, # 10 层已经达到最大 512 个节点，文本量巨大
-        size_t max_node_len = SIZE_MAX,
-        bint full_traversal = False
-    ):
-        """
-        生成树的字符串表示（树形图 + 索引映射）。
-        :param root: 根节点（包装或原生）
-        :param prep_property: 取值属性名，如 'val'
-        :param max_depth: 最大显示深度
-        :param max_node_len: 最多显示节点数（-1无限制）
-        :param full_traversal: True则遍历所有节点（跳过重复），False则遇重复停止
-        """
-        # 未来优化：对于超高层数二叉树，可以分块打印，避免文本量巨大。
+    # ---------- flatten 方法 ----------
+    def flatten(self, bint early_stop=False, size_t max_depth=UPP_SIZE, size_t max_len=UPP_SIZE):
+        """层序遍历，返回 (节点列表, 迭代器)"""
+        it = self.layer_iter(early_stop=early_stop, max_depth=max_depth)
+        nodes = SafeIterBase._flatten(it, max_len)
+        # 将节点包装为 TreeIterKit（保持原有 visit_index 信息？nodes 中已是原生节点，我们需要包装）
+        wrapped_nodes = [TreeIterKit(node, getattr(node, 'visit_index', 0)) for node in nodes]
+        return wrapped_nodes, it
 
-        # 因为 _to_string 是类方法，不能依赖 TreeIterKit 对象，最低只需依赖基类 TreeBase
+    def flatten_raw(self, bint early_stop=False, size_t max_depth=UPP_SIZE, size_t max_len=UPP_SIZE):
+        """返回原生节点列表和迭代器"""
+        it = self.layer_iter(early_stop=early_stop, max_depth=max_depth)
+        nodes = SafeIterBase._flatten(it, max_len)
+        return nodes, it
+
+    # 低级打印，仅显示本节点情况和左右子节点的id
+    def __repr__(self) -> str:
+        return self._format_repr(self, left=self.left, right=self.right)
+
+    @staticmethod
+    cdef str _to_string(object root, str prep_property="val",
+                        size_t max_depth=10, size_t max_node_len=UPP_SIZE,
+                        bint full_traversal=False):
+        """静态方法，实现树形图生成"""
         cdef TreeIterBase it = TreeIterBase(
             root, str2OpCode("LR"), use_queue=True,
-            early_stop= <bint>(not full_traversal),
-            max_depth = max_depth
+            early_stop= not full_traversal,
+            max_depth=max_depth
         )
-        vid_nodes, rep_idx = it.flatten(max_len= max_node_len)
-
-        if not vid_nodes:
+        nodes, repeat_indices = it.flatten(max_len=max_node_len)
+        if not nodes:
             return "<class 'TreeNodeKit'>: empty"
 
+        # 构建重复标记
+        repeat_mark = {}
+        for revisit_vid, pos in repeat_indices:
+            orig_vid = nodes[pos][0]
+            repeat_mark[orig_vid] = f"*{orig_vid}"
+            repeat_mark[revisit_vid] = f"^{orig_vid}"
 
-        # 构建重复索引标注
-        repeat_mark = {} 
-        # 遍历 重复访问索引、指向有效节点索引
-        for revisit_index, nodes_idx in rep_idx: 
-            repeat_index = vid_nodes[nodes_idx][0]
-            repeat_mark[repeat_index] = f"*{repeat_index}" # 可能会重复多次，但无所谓覆盖
-            repeat_mark[revisit_index] = f"^{repeat_index}"
-
-        # 收集索引 -> 值
-        idx_val = {kn.visit_index: getattr(kn.raw, prep_property) for kn in vid_nodes}
+        # 收集索引->值映射
+        idx_val = {}
+        for vid, node in nodes:
+            if node is not None:
+                val = getattr(node, prep_property, None)
+                idx_val[vid] = val
 
         if not idx_val:
             return "<class 'TreeNodeKit'>: empty"
 
         max_idx = max(max(idx_val.keys()), max(repeat_mark.keys()) if repeat_mark else 0)
-        # 构建层序列表用于 binarytree
+        # 构建层序列表
         level_list = [""] * max_idx
         for idx, val in idx_val.items():
-            level_list[idx - 1] = str(idx)
+            level_list[idx-1] = str(idx)
         for idx, mark in repeat_mark.items():
-            level_list[idx - 1] = mark
+            level_list[idx-1] = mark
 
         # 生成树形图
         try:
@@ -602,21 +681,61 @@ class TreeIterKit(KitBase):
             tree_str = "Error: binarytree build failed"
 
         parts = []
-        repeat_idxs = [kn.visit_index for kn in it.revisit_nodes]
+        # 获取重复节点列表（visit_index）
+        repeat_vids = it.rep_nodes_idx
         if full_traversal:
-            if repeat_idxs:
-                parts.append(f'  "warning_duplicate_idx": {repeat_idxs}')
+            if repeat_vids:
+                parts.append(f'  "warning_duplicate_idx": {repeat_vids}')
         else:
-            if repeat_idxs:
-                assert 1 == len(repeat_idxs), "使用了 full_traversal=False, 但发现重复索引数量 > 1"
-                parts.append(f'  "stop_by_duplicate_idx": {repeat_idxs[0]}')
+            if repeat_vids:
+                parts.append(f'  "stop_by_duplicate_idx": {repeat_vids[0]}')
 
         tree_part = '  "tree_by_idx": """{}{}"""'.format(
             tree_str,
-            '...\n' if (it.detectable_depth or it.cur) else ''
+            '...\n' if (it.detectable_depth > max_depth or it._cur != <PyObject*>None) else ''
         )
         parts.append(tree_part)
         parts.append(f'  "idx:val": {idx_val}')
-
         body = ",\n".join(parts)
         return f"<class 'TreeNodeKit'>: {{\n{body}\n}}"
+
+    # ------------ 兼容测试程序 -----------------
+    @property
+    def visit_index(self) -> int:
+        """完全二叉树索引（从1开始）"""
+        return self.heap_index # object.__getattribute__(self,"heap_index")
+
+    @property
+    def depth(self) -> int:
+        """节点深度（根深度为1）"""
+        if not self.raw:
+            return 0
+        return self.heap_index.bit_length()
+
+    @property
+    def left(self) -> 'TreeIterKit':
+        node = self.raw
+        if node is None:
+            raise AttributeError("Empty tree nodes cannot use `.left` property")
+        return self.__class__(node.left if node else None, self.heap_index << 1)
+
+    @left.setter
+    def left(self, value: 'TreeIterKit | T_LR | None'):
+        node = self.raw
+        if node is None:
+            raise AttributeError("Empty tree nodes cannot set `.left` property")
+        node.left = self.unwrap(value)
+
+    @property
+    def right(self) -> 'TreeIterKit':
+        node = self.raw
+        if node is None:
+            raise AttributeError("Empty tree nodes cannot use `.right` property")
+        return self.__class__(node.right if node else None, (self.heap_index << 1) | 1)
+
+    @right.setter
+    def right(self, value: 'TreeIterKit | object | None'):
+        node = self.raw
+        if node is None:
+            raise AttributeError("Empty tree nodes cannot set `.right` property")
+        node.right = self.unwrap(value)

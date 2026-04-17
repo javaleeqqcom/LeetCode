@@ -9,6 +9,7 @@ build/
 __pycache__/
 tools/*.cpp
 tools/*.html
+temp.*
 
 # 移除已经 git 的 file_or_folder 文件或目录，允许使用通配符规则
 # git rm -r --cached file_or_folder

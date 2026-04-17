@@ -51,11 +51,16 @@ cdef class SafeIterBase:
         return self._repeat_num
 
     # ===== 核心：重复检测 =====
-    cdef bint _check_safe(self,PyObject* node): # node 必须用 Object 而不能用指针，否则无法让 _seen 自动持有
+    cdef size_t _check_safe(self,PyObject* node): # node 必须用 Object 而不能用指针，否则无法让 _seen 自动持有
+        """
+        检查 node 是否在 _seen 中记录过：
+        若已记录过，返回 SIZE_MAX = <size_t>-1；
+        否则返回节点在 _revisit 追加的索引值也就是 _seen[node]。
+        """
         cdef size_t first_idx
         cdef RevisitEntry entry
         if _is_null(node):
-            return False
+            return SIZE_MAX
         key = <object>node # 关键！指针 -> PyObj
         if key in self._seen:
             first_idx = self._seen[key]
@@ -66,7 +71,7 @@ cdef class SafeIterBase:
             if self._revisit[first_idx].uf_index == SIZE_MAX:
                 self._revisit[first_idx].uf_index = first_idx
                 self._repeat_num += 1
-            return False
+            return SIZE_MAX
         else:
             first_idx = self._revisit.size()
             self._seen[key] = first_idx # node 通过 _seen 的引用计数维持不在 SafeIterBase 析构前消亡
@@ -75,7 +80,7 @@ cdef class SafeIterBase:
             self._revisit.push_back(entry)
             if self._revisit.size() >= MAX_SIZE:
                 raise RuntimeError("SafeIterBase: Max size exceeded capacity.")
-            return True
+            return first_idx
 
     # ===== flatten =====
     @staticmethod
@@ -203,7 +208,7 @@ cdef class LinkIterBase(SafeIterBase):
         next_node = getattr(<object>self._cur, "next") # next_node 必须赋值为 PyObject 类型否则会报错：`Storing unsafe C derivative of temporary Python reference`
         self._cur = <PyObject*>next_node
         # 必须确保早停，__next__ 才会检测重复 _cur 不重复
-        if not self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
+        if SIZE_MAX == self._check_safe(self._cur): # 经过 _check_safe 后的 next_node 对象确保了引用计数安全
             self._cur = <PyObject*>None
     @property
     def circle_index(self)->int:

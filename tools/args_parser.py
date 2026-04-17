@@ -8,6 +8,7 @@ from args_parser_tools import _is_base_type,_extract_actual_type,_formated_strin
 from iter_node_tools import TreeNodeKitBase
 from LinkIterKit import LinkIterKit as ListNodeKitBase
 
+
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
@@ -41,6 +42,10 @@ class ListNode:
     def __init__(self, val:_BASE_TYPE=0, next:Optional[ListNode]=None):
         self.val = val
         self.next = next
+    # 方便调试，且与 leetcode 不冲突
+    def __repr__(self) -> str:
+        val_str = _formated_string(self.val)
+        return f"<class 'ListNode'>: {{id:{id(self):012X}, val:{val_str}}}"
 
 # ====== 转换函数 ======
 def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
@@ -97,6 +102,14 @@ class TreeNode:
         self.val = val
         self.left = left
         self.right = right
+    # 方便调试，且与 leetcode 不冲突
+    def __repr__(self) -> str:
+        val_str = _formated_string(self.val)
+        return "<class 'TreeNode'>: {{id:{:012X},\n\tval:{},\n\t{},\n\t{}}}".format(
+            id(self), val_str,
+            f"left.val: {self.left.val}" if self.left else "left: None",
+            f"right.val: {self.right.val}" if self.right else "right: None"
+        )
 
 # 在 args_parser.py 中添加 TreeNodeKit 类（继承自 TreeNodeKitBase）
 class TreeNodeKit(TreeNodeKitBase): #[TreeNode]):
