@@ -5,9 +5,9 @@ from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedD
 #     from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
 # except:
 from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,_format_repr,_at_id # 此部分代表过于冗长故放在 args_parser_tools
-from iter_node_tools import TreeNodeKitBase
-from LinkIterKit import LinkIterKit as ListNodeKitBase
-from LinkIterKit import KitBase
+# from iter_node_tools import TreeNodeKitBase,ListNodeKitBase
+from safe_iter_kit import LinkIterKit as ListNodeKitBase
+from safe_iter_kit import TreeIterKit as TreeNodeKitBase
 
 from collections import deque
 import inspect
@@ -92,8 +92,8 @@ class ListNodeKit(ListNodeKitBase): #[ListNode]):
     
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
-    nodes,circle = ListNodeKit(node).flatten()
-    assert circle != -1, "参数 ListNode 代表的链表有环！"
+    nodes,it = ListNodeKit(node).flatten()
+    assert it.repeat_num > 0, "参数 ListNode 代表的链表有环！"
     return [node.val for node in nodes]
 
 # Definition for a binary tree node.

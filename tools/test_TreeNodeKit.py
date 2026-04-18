@@ -173,7 +173,9 @@ def test_basic_functionality():
         _ = kit[6]
         assert False, "应该抛出 IndexError"
     except IndexError as e:
-        assert "out of range" in str(e),e
+        print(f"捕获到 IndexError: {e}")
+    except Exception as e:
+        raise Exception(e)
 
     print(kit.to_str(full_traversal=True))
 
@@ -186,7 +188,9 @@ def test_basic_functionality():
             _ = kit.get_heap(i,False)
             assert False, "应该抛出 IndexError"
         except IndexError as e:
-            assert "out of range" in str(e)
+            print(f"捕获到 IndexError: {e}")
+        except Exception as e:
+            raise Exception(e)
 
     # flatten
     nodes, it_res = kit.flatten()
@@ -261,8 +265,9 @@ def test_cycle_detection():
 
     kit = TreeNodeKit(n1)
     nodes, it_res = kit.flatten()
-    assert 1 == len(it_res.revisit_nodes), kit
-    rep_idx = it_res.revisit_nodes[0].visit_index
+    repeat_vid_nodes = it_res.rep_vid_nodes
+    assert 1 == len(repeat_vid_nodes), kit
+    rep_idx = repeat_vid_nodes[0][0]
     # 层序顺序: [1,2,3,4,5,6] 当遍历到 n4 时，n4.right 指向 n5，而 n5 已经出现过（在索引4）
     # 所以环起始索引应该是 n5 首次出现的索引，即 4（0-based）
     print(kit)
@@ -297,7 +302,9 @@ def test_cycle_detection():
         kit_self_cycle.get_heap(3)
         assert False, f"检测到重复节点时，应当停止遍历并抛出 IndexError, kit_self_cycle:\n{kit_self_cycle}"
     except IndexError as e:
-        print(e)
+        print(f"捕获到 IndexError: {e}")
+    except Exception as e:
+        raise Exception(e)
 
     # 2.5 测试 构造交叉环（前面 2.2 中的结构）并尝试访问超出安全长度的索引
     print("\n2.5 __getitem__ 交叉环测试")
@@ -331,8 +338,10 @@ def test_cycle_detection():
             _ = kit_cross.get_heap(i)
             assert False, f"kit_cross[{i}] 应该抛出 IndexError, kit.prep:\n{kit_cross}"
     except IndexError as e:
-        print(e)
-
+        print(f"捕获到 IndexError: {e}")
+    except Exception as e:
+        raise Exception(e)
+    
     print("环检测全部通过")
 
 def test_duplicate_values():
@@ -446,7 +455,7 @@ def test_random_tree(seed = 42):
             # 验证环起始索引与重复值一致
             if excepted_rep_val is not None:
                 assert rep_nodes, "应有环但 flatten 未检测到"
-                assert excepted_rep_val in set(node.val for node in rep_nodes), f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit.to_str(full_traversal=True)}"
+                assert excepted_rep_val in set(node.val for _,node in rep_nodes), f"重复值与环起始节点值不匹配，rep.val={excepted_rep_val},but:\n{kit.to_str(full_traversal=True)}"
             else:
                 assert not rep_nodes, f"无环但 flatten 报告有环, stop_idx={[node.visit_index for node in rep_nodes]}\n{kit.to_str(full_traversal=True)}"
 

@@ -3,7 +3,8 @@ import random
 from args_parser import ListNode, ListNodeKit , List2ListNode
 # from iter_node_tools import ListNodeKitBase
 # from listkit import ListNodeKitBase
-from LinkIterKit import LinkIterKit as ListNodeKitBase
+# from LinkIterKit import LinkIterKit as ListNodeKitBase
+from safe_iter_kit import LinkIterKit as ListNodeKitBase
 __MIX_TEST__ = False
 OLD_VERSION = False
 

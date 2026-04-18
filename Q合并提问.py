@@ -19,6 +19,7 @@ source_files =[
   "tools/iter_node_tools 极限优化方案.md",
   "tools/safe_iter_kit.pyx",
   "Q报错如下.txt",
+  "另附测试相关代码.txt"
 ]
 
 source_texts = []
@@ -28,15 +29,16 @@ for file in source_files:
 
 template_text = """附件pyx的代码已经经过严格测试通过。
 {}
-如下代码的链表部分已经通过测试（注释掉树的部分）
+如下代码的链表部分已经通过压力测试
 ```safe_iter_kit.pyx
 {}
 ```
-编译报错如下：
+执行报错如下：
 ```
 {}
 ```
-""".format(*source_texts)
+注意get_heap 已经改为不使用 SafeIterBase，注意 iter_node_tools.pyx 是完全正确的，__next__、_prepare_next、__getitem__ 都是照抄原来的代码应该没错，请重点分析 get_heap。
+{}""".format(*source_texts)
 
 import sys
 import subprocess

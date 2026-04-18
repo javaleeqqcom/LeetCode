@@ -19,14 +19,14 @@ cdef struct RevisitEntry:
     size_t uf_index
     PyObject* node
 
-# 預先獲取 Py_None 的指標（這就是 None 的唯一位址）
-cdef PyObject* NONE = <PyObject*>None
-cdef inline _is_null(PyObject* ptr):
-    if __DEBUG__ and ptr == NULL: # 防御性编程，虽然统一用 NONE 指针表达空节点，但以防意外判断 NULL
+cdef PyObject* const NONE = <PyObject*>None
+cdef inline bint _is_null(PyObject* ptr):
+    if __DEBUG__ and ptr == NULL:
         return True
     if ptr == NONE:
         return True
     return False
+
 
 cdef const size_t UPP_SIZE=<size_t>(-2) # 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
 # ===============================
