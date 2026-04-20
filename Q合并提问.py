@@ -19,6 +19,7 @@ source_files =[
   r"src\bigint_vid.h",
   r"src\safe_iter_base.h",
   r"tools\safe_iter_base.c",
+  r"tools\safe_iter_base.pyx",
   r"src\container.h",
   r"tools\kit_base.pyx"
 ]
@@ -36,6 +37,7 @@ for file in source_files:
 template_text = """附件pyx的代码已经经过严格测试通过。
 但是二叉树的迭代亟需优化（链表以不需要且通过测试）
 我已经写了如下代码（./src 已加入路径）：
+{}
 {}
 {}
 {}
@@ -62,7 +64,7 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 - 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
 - RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
 - TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
-6. 请说明需要新增的代码和修改的代码
+6. 请先补全已有代码，并探讨下一步
 """.format(*source_texts)
 
 import sys

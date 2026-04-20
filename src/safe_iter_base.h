@@ -8,25 +8,11 @@
 #include "container.h"
 
 /* ---------- RevisitEntry（基础版，不含 vid） ---------- */
-#ifndef RevisitEntry
 typedef struct {
     size_t uf_index;      // -1 表示首次出现，>=0 表示重复指向的索引
     PyObject* node;       // 原生节点指针（不增加引用计数）
-    // BigInt vid; // 仅树需要用到，因此这里仅注释，当使用树时，应手动定义 RevisitEntry 覆盖，并且必须包含前两个变量
+    // 禁止定义 BigInt vid 因为只有树才会用到，此处定义 RevisitEntry 是为了能够统一提取 uf_index，因为结构体排在前面的元素内存一致
 } RevisitEntry;
-
-typedef struct {
-    PyObject* node;
-    // 树节点才会用到的部分
-    // int checked;
-    // BigInt vid;   
-} IterNode;
-typedef struct {
-    size_t uf_index;      // -1 表示首次出现，>=0 表示重复指向的索引
-    PyObject* node;       // 原生节点指针（不增加引用计数）
-    // BigInt vid; // 仅树需要用到，因此这里仅注释，当使用树时，应手动定义 RevisitEntry 覆盖，并且必须包含前两个变量
-} RevisitEntry;
-#endif
 
 
 /* ---------- 哈希表项（用于 _seen） ---------- */
@@ -44,15 +30,13 @@ typedef struct {
 
     PyObject* cur;
 
-    /* 🔥 新增：函数指针（避免虚函数/分支） */
-    PyObject* (*get_next)(PyObject* node);
+    // RevisitEntry 去耦合专用（链表、树 用不同的函数）由 pyx 提供
+    PyObject* (*get_node_ptr)(void* entry_ele); // void 是 IterNode 及其派生类型
+    void (*push_revisit)(struct SafeIter* it, void* entry_ele);
 } SafeIter;
 
-/* 声明 utarray 的元素类型（用于 utarray 内部） */
-static UT_icd RevisitEntry_icd = {sizeof(RevisitEntry), NULL, NULL, NULL};
-
 /* 函数声明 */
-void safe_iter_init(SafeIter* it);
+void safe_iter_init(SafeIter* it, UT_icd *RevisitEntry_icd);
 void safe_iter_cleanup(SafeIter* it);
 size_t safe_iter_check_safe(SafeIter* it, PyObject* node);
 
