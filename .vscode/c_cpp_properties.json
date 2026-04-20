@@ -3,7 +3,10 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "C:/Users/john/anaconda3/envs/py314/include",
+                "C:/Users/john/anaconda3/pkgs/m2w64-headers-git-5.0.0.4636.c0ad18a-2/Library/mingw-w64/x86_64-w64-mingw32/include",
+                "D:/Users/java_lee/Documents/GitHub/LeetCode/src"
             ],
             "defines": [
                 "_DEBUG",

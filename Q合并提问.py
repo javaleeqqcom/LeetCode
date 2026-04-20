@@ -16,29 +16,54 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  "tools/iter_node_tools 极限优化方案.md",
-  "tools/safe_iter_kit.pyx",
-  "Q报错如下.txt",
-  "另附测试相关代码.txt"
+  r"src\bigint_vid.h",
+  r"src\safe_iter_base.h",
+  r"tools\safe_iter_base.c",
+  r"src\container.h",
+  r"tools\kit_base.pyx"
 ]
 
 source_texts = []
 for file in source_files:
   with open(file,"r",encoding="utf-8") as fp:
-    source_texts.append(filter_empty(fp.readlines(),NOT_EMPTY_LINES)) # 去掉空行的空格
+    lines = fp.readlines()
+    print(f"read file: {file} ,lines = {len(lines)}")
+    source_texts.append(
+      f"```{file}\n{filter_empty(lines,NOT_EMPTY_LINES)}```"
+      ) # 去掉空行的空格
+
 
 template_text = """附件pyx的代码已经经过严格测试通过。
+但是二叉树的迭代亟需优化（链表以不需要且通过测试）
+我已经写了如下代码（./src 已加入路径）：
 {}
-如下代码的链表部分已经通过压力测试
-```safe_iter_kit.pyx
 {}
-```
-执行报错如下：
-```
 {}
-```
-注意get_heap 已经改为不使用 SafeIterBase，注意 iter_node_tools.pyx 是完全正确的，__next__、_prepare_next、__getitem__ 都是照抄原来的代码应该没错，请重点分析 get_heap。
-{}""".format(*source_texts)
+{}
+{}
+1. 注意需要考虑将来伪泛型的架构，我查了一下：
+- Cython 的 fused 并不支持加入到 vector
+- Cython 的 IF 已经被认为准备弃用
+- 函数指针方案会增加运行开销
+2. 为了测试方便编程，保持基类对链表的兼容性的同时，修改二叉树。
+3. 请补全将 safe_iter_kit.pyx 拆分为如下部分：
+- safe_iter_base.c （用宏编程当链表时去掉大整数的内存占用，需要包含所有涉及 RevisitEntry 定义的方法）
+- safe_iter_base.pyx （包装.c，其中 vid 视为透明，增加 __next__、_flatten 、 _get_next等方法）
+- container.h （我已经实现在 tools\container.c，调用库的确保正确）
+- kit_base.pyx （包装基类）
+- link_iter_kit.pyx （链表部分， __next__ 、_flatten、 _get_next 下放到子类 LinkIterBase 实现，需要引用 kit_base.pyx 下 tree_iter_kit 类似）
+- tree_iter_kit.pyx （二叉树部分，含 __next__ 、_flatten 用 需要使用 vid ，因此需要设置 VISITED_INDEX 宏，需要引用 container.h）
+4. 因此最终方案：
+- 大整数完全依附于 SafeIterBase，因此一并 C 化
+- 注意只有 tree_iter_kit.pyx 需要使用 container.h 、 bigint_vid.h 、 early_stop，因此下放到子类
+5. 架构重点：
+- 因此需要将  stack（queue）统一为容器结构体，通过函数指针实现  stack（queue）的泛型，加入到 SafeIterBase
+- SafeIterBase 尽量做到链表和树共用一套编译后的代码，通过 utarray.h 的泛型实现
+- 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
+- RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
+- TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
+6. 请说明需要新增的代码和修改的代码
+""".format(*source_texts)
 
 import sys
 import subprocess
@@ -74,3 +99,7 @@ if copy_to_clipboard(template_text):
   print("✅ 已成功复制到剪贴板。")
 else:
   print("❌ 复制失败，请检查系统环境。")
+
+
+# - 原 safe_iter_kit.pyx 有一个风险点，对于树，其 stack 和 queue 并没有持有原生节点的引用计数
+# - 因此需要修改为入 stack（queue） 就增加引用，而 check_safe 仅当为重复（in _seen 为真）时减少引用计数，销毁时按 _seen 减少引用计数
