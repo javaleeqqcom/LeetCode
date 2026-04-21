@@ -19,9 +19,8 @@ source_files =[
   r"src\bigint_vid.h",
   r"src\safe_iter_base.h",
   r"tools\safe_iter_base.c",
-  r"tools\safe_iter_base.pyx",
-  r"src\container.h",
-  r"tools\kit_base.pyx"
+  r"tools\safe_iter.pyx",
+  r"src\container.h"
 ]
 
 source_texts = []
@@ -42,7 +41,6 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 {}
 {}
 {}
-{}
 1. 注意需要考虑将来伪泛型的架构，我查了一下：
 - Cython 的 fused 并不支持加入到 vector
 - Cython 的 IF 已经被认为准备弃用
@@ -50,11 +48,8 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 2. 为了测试方便编程，保持基类对链表的兼容性的同时，修改二叉树。
 3. 请补全将 safe_iter_kit.pyx 拆分为如下部分：
 - safe_iter_base.c （用宏编程当链表时去掉大整数的内存占用，需要包含所有涉及 RevisitEntry 定义的方法）
-- safe_iter_base.pyx （包装.c，其中 vid 视为透明，增加 __next__、_flatten 、 _get_next等方法）
 - container.h （我已经实现在 tools\container.c，调用库的确保正确）
-- kit_base.pyx （包装基类）
-- link_iter_kit.pyx （链表部分， __next__ 、_flatten、 _get_next 下放到子类 LinkIterBase 实现，需要引用 kit_base.pyx 下 tree_iter_kit 类似）
-- tree_iter_kit.pyx （二叉树部分，含 __next__ 、_flatten 用 需要使用 vid ，因此需要设置 VISITED_INDEX 宏，需要引用 container.h）
+- safe_iter.pyx （Cython 迭代类和包装类）
 4. 因此最终方案：
 - 大整数完全依附于 SafeIterBase，因此一并 C 化
 - 注意只有 tree_iter_kit.pyx 需要使用 container.h 、 bigint_vid.h 、 early_stop，因此下放到子类
@@ -66,16 +61,8 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 - 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
 - TreeIterBase版的RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
 - TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
-- SafeIterBase 所需的 prepare_next 函数指针原调用方式麻烦，用到 Context 架构，能否改为 prepare_next 作为成员变量，基类赋值为 NULL，由Cython 继承类设置：
-```
-# 定义一个兼容 C 的全局/静态函数作为桥梁
-cdef void c_prepare_bridge(SafeIter* it, void* context) with gil:
-    # context 其实就是我们的 Python 对象实例
-    cdef object self = <object>context
-    self._prepare_next() # 调用真正的业务逻辑
-```
-以避免复杂的 ctx 传参
-6. 请先优化已有代码（self._prepare_next ），并初步实现 链表类 .pyx
+- SafeIterBase 所需的 prepare_next 定义一个兼容 C 的全局/静态函数作为桥梁，用到 Context 架构
+6. 请先优化已有代码，根据注释中的报错修复代码，并初步实现 链表类 .pyx
 """.format(*source_texts)
 
 import sys

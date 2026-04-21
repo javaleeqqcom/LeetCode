@@ -34,6 +34,10 @@ typedef struct SafeIter {
     UT_array* revisit;
     size_t repeat_num;
     RevisitEntry cur;
+
+    // ------- 将 Cython定义的 _prepare_next 桥接到 SafeIterBase.c 的 prepare 方法中 -----------
+    void* ctx; 
+    prepare_next_fn prepare; 
 } SafeIter;
 
 /* 函数声明 */
@@ -73,10 +77,10 @@ static inline const RevisitEntry* safe_iter_get_revisit(const SafeIter* it, size
 // 子类实现 __next__ 所需要的函数
 // C函数 + context指针 的函数指针
 typedef void (*prepare_next_fn)(SafeIter*, void* );
-inline RevisitEntry safe_iter_next(SafeIter* ,void* , prepare_next_fn);
+inline RevisitEntry safe_iter_next(SafeIter* it);
 
 // 不持有 Python Object 的情况下高速迭代
-RevisitEntry safe_iter_skip_next(SafeIter* ,void* ,prepare_next_fn ,Py_ssize_t );
+RevisitEntry safe_iter_skip_next(SafeIter*);
 
 RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len);
 

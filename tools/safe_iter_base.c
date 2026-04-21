@@ -80,30 +80,26 @@ size_t safe_iter_check_safe(SafeIter* it, void* entry_ele) {
 }
 
 // 保持指针态，返回 RevisitEntry 而非 object，以便各类 flatten 高效处理
-RevisitEntry safe_iter_next(SafeIter* it,void* ctx,
-                           prepare_next_fn prepare_next )
+// 需要在 Cython 端中实现 prepare_next ：用于准备下一个 it->cur ，需确保：
+// - 不用检查 it->cur 非空，因为 safe_iter_next 检查过了
+// - 需自行调用 _check_safe 确保查重安全
+// - 需要自行确保 it->cur 的 PyObject 引用计数安全
+RevisitEntry safe_iter_next(SafeIter* it)
 {
     RevisitEntry res = it->cur;
     if (_is_null(res.node)) {
         return res;
     }
-    // prepare_next 必须实现：用于准备下一个 it->cur ，需确保：
-    // - 不用检查 it->cur 非空，因为 safe_iter_next 检查过了
-    // - 需自行调用 _check_safe 确保查重安全
-    // - 需要自行确保 it->cur 的 PyObject 引用计数安全
-    prepare_next(it, ctx); // 运行 Cython 代入
+    it->prepare(it, it->ctx); 
     return res;
 }
 
 // ===== safe_iter_skip_next =====
-RevisitEntry safe_iter_skip_next(SafeIter* it,void* ctx,
-                              prepare_next_fn prepare_next,
-                              Py_ssize_t index
-                             ) {
+RevisitEntry safe_iter_skip_next(SafeIter* it,Py_ssize_t index) {
     if(index < 0){ return null_entry();}
     // 空或迭代次数达到Index则跳出循环（当 index == 0 时，无需迭代，取 it->cur即可）
     for (Py_ssize_t i = 0; !_is_null(it->cur.node) && i < index ; i++) {
-        safe_iter_next(it, ctx, prepare_next);
+        safe_iter_next(it);
     }
     return it->cur;
 }
