@@ -79,52 +79,60 @@ size_t safe_iter_check_safe(SafeIter* it, void* entry_ele) {
     }
 }
 
-// 如下 -------- 改为 c（保持指针态，返回 RevisitEntry 而非 object，以便各类 flatten 高效处理）
-RevisitEntry safe_iter_next(SafeIter* it, void (*prepare_next)(SafeIter*)) {
-    RevisitEntry res = it->cur; // 先拷贝当前 cur 作为返回
+// 保持指针态，返回 RevisitEntry 而非 object，以便各类 flatten 高效处理
+RevisitEntry safe_iter_next(SafeIter* it,void* ctx,
+                           prepare_next_fn prepare_next )
+{
+    RevisitEntry res = it->cur;
     if (_is_null(res.node)) {
-        return res; // 节点为空
+        return res;
     }
     // prepare_next 必须实现：用于准备下一个 it->cur ，需确保：
     // - 不用检查 it->cur 非空，因为 safe_iter_next 检查过了
     // - 需自行调用 _check_safe 确保查重安全
     // - 需要自行确保 it->cur 的 PyObject 引用计数安全
-    prepare_next(it); 
+    prepare_next(it, ctx); // 运行 Cython 代入
     return res;
 }
 
 // ===== safe_iter_skip_next =====
-RevisitEntry safe_iter_skip_next(SafeIter* it,
-                              void (*prepare_next)(SafeIter*),
+RevisitEntry safe_iter_skip_next(SafeIter* it,void* ctx,
+                              prepare_next_fn prepare_next,
                               Py_ssize_t index
                              ) {
     if(index < 0){ return null_entry();}
     // 空或迭代次数达到Index则跳出循环（当 index == 0 时，无需迭代，取 it->cur即可）
     for (Py_ssize_t i = 0; !_is_null(it->cur.node) && i < index ; i++) {
-        safe_iter_next(it, prepare_next);
+        safe_iter_next(it, ctx, prepare_next);
     }
     return it->cur;
 }
 
 // ===== safe_iter_flatten_entrys: 使用迭代器 it 迭代至多 max_len 次，并收集 RevisitEntry 数组 =====
-UT_array safe_iter_flatten_entrys(SafeIter* it, void (*prepare_next)(SafeIter*), Py_ssize_t max_len) {
-    UT_array result = ... // 预分配 min(max_len, 1024) 个空间吧
+UT_array* safe_iter_flatten_entrys(SafeIter* it,void* ctx,
+                                  prepare_next_fn prepare_next,
+                                  Py_ssize_t max_len) {
+    UT_array* result;
+    UT_icd icd = { sizeof(RevisitEntry), NULL, NULL, NULL };
+
+    utarray_new(result, &icd);
     if (!result) {
         PyErr_NoMemory();
-        *out_len = 0;
         return NULL;
     }
 
-    for (size_t i = 0; i < size; i++) {
-        result[i] = safe_iter_next(it, prepare_next);
+    size_t limit = _limit_size(max_len);
+
+    for (size_t i = 0; i < limit; i++) {
+        if (_is_null(it->cur.node)) break;
+
+        utarray_push_back(result, &it->cur);
+        advance(it);
     }
-    // 如果实际 size 远远小于 预分配空间，看 UT_array 是否支持动态缩容，否则就算了
 
     return result;
 }
-
-// 请实现，可用于 _string 避免 objcet 更高效的遍历
-const RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len) {
+RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len) {
     size_t n = safe_iter_size(it);
     size_t count = it->repeat_num;
 
@@ -141,10 +149,8 @@ const RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len)
     }
 
     size_t k = 0;
-
     for (size_t i = 0; i < n; i++) {
-        const RevisitEntry* entry = safe_iter_get_revisit(it,i);
-
+        const RevisitEntry* entry = safe_iter_get_revisit(it, i);
         if (entry->uf_index == i) {
             result[k++] = *entry;
         }

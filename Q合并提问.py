@@ -66,7 +66,16 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 - 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
 - TreeIterBase版的RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
 - TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
-6. 请先补全已有代码（如 safe_iter_flatten_entrys ）修复（self._prepare_next 作为函数指针的错误，如在 .c 中分别定义链表和树的实现，或者用别的方法），并初步实现 链表类 .pyx
+- SafeIterBase 所需的 prepare_next 函数指针原调用方式麻烦，用到 Context 架构，能否改为 prepare_next 作为成员变量，基类赋值为 NULL，由Cython 继承类设置：
+```
+# 定义一个兼容 C 的全局/静态函数作为桥梁
+cdef void c_prepare_bridge(SafeIter* it, void* context) with gil:
+    # context 其实就是我们的 Python 对象实例
+    cdef object self = <object>context
+    self._prepare_next() # 调用真正的业务逻辑
+```
+以避免复杂的 ctx 传参
+6. 请先优化已有代码（self._prepare_next ），并初步实现 链表类 .pyx
 """.format(*source_texts)
 
 import sys

@@ -71,15 +71,14 @@ static inline const RevisitEntry* safe_iter_get_revisit(const SafeIter* it, size
 }
 
 // 子类实现 __next__ 所需要的函数
-inline RevisitEntry safe_iter_next(SafeIter* it, void (*prepare_next)(SafeIter*));
+// C函数 + context指针 的函数指针
+typedef void (*prepare_next_fn)(SafeIter*, void* );
+inline RevisitEntry safe_iter_next(SafeIter* ,void* , prepare_next_fn);
 
 // 不持有 Python Object 的情况下高速迭代
-RevisitEntry safe_iter_skip_next(SafeIter* it,
-                              void (*prepare_next)(SafeIter*),
-                              Py_ssize_t index
-                             );
+RevisitEntry safe_iter_skip_next(SafeIter* ,void* ,prepare_next_fn ,Py_ssize_t );
 
-// 需要增加 revisit_nodes
+RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len);
 
 // --------------- 其他 inline 函数 ---------------------------
 /* 判空 */
