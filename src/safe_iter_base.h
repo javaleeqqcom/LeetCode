@@ -29,17 +29,11 @@ typedef struct SeenEntry {
 } SeenEntry;
 
 /* ---------- SafeIter 核心结构 ---------- */
-typedef struct {
+typedef struct SafeIter {
     SeenEntry* seen;
     UT_array* revisit;
     size_t repeat_num;
-
     RevisitEntry cur;
-
-    // RevisitEntry 去耦合专用（链表、树 用不同的函数）由 pyx 提供
-    PyObject* (*get_node_ptr)(void* entry_ele); // void 是 IterNode 及其派生类型
-    void (*push_revisit)(struct SafeIter* it, void* entry_ele);
-
 } SafeIter;
 
 /* 函数声明 */
@@ -50,7 +44,7 @@ void safe_iter_free(SafeIter* it);
 size_t safe_iter_check_safe(SafeIter* it, void* entry_ele);
 
 /* 辅助内联函数：获取 revisit 数组元素个数 */
-static inline size_t safe_iter_size(const SafeIter* it) {
+static inline const size_t safe_iter_size(const SafeIter* it) {
     return utarray_len(it->revisit);
 }
 // 返回空 RevisitEntry
@@ -72,8 +66,8 @@ static inline RevisitEntry* safe_iter_last_revisit(SafeIter* it) {
 // 并删除 safe_iter_last_revisit
 
 /* 获取 revisit 第 idx 个元素的指针 */
-static inline RevisitEntry* safe_iter_get_revisit(SafeIter* it, size_t idx) {
-    return (RevisitEntry*)utarray_eltptr(it->revisit, idx);
+static inline const RevisitEntry* safe_iter_get_revisit(const SafeIter* it, size_t idx) {
+    return (const RevisitEntry*)utarray_eltptr(it->revisit, idx);
 }
 
 // 子类实现 __next__ 所需要的函数
@@ -95,7 +89,7 @@ static inline int _is_null(PyObject* node) {
 
 const size_t UPP_SIZE=(size_t)(-2); // 区分 size_t 最大值时可取得的上限（若不减2有从 <size_t>-1 溢出变为 0 的死循环风险）
 static inline const size_t _limit_size(Py_ssize_t size){
-    return min(UPP_SIZE, (size_t)size);
+    return Py_MIN(UPP_SIZE, (size_t)size);
 }
 
 #endif /* SAFE_ITER_BASE_H */

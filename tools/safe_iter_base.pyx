@@ -8,37 +8,45 @@ from typing import List,Tuple
 
 __DEBUG__ = True
 
+cdef extern from "utarray.h":
+    ctypedef struct UT_array:
+        pass
+
 cdef extern from "bigint_vid.h":
     cdef struct BigInt:
-        pass
+        size_t small
+        size_t pre
+        unsigned short bitLen
+
     BigInt bigint_new(size_t num)
-    # 需补全 UT_array 的定义
-    # void bigint_lshift(UT_array* arr, size_t index)
-    # ...
+    void bigint_lshift(UT_array* arr, size_t index)
+    BigInt bigint_or1(BigInt cur)
     
 cdef extern from "safe_iter_base.h":
-    ctypedef struct SafeIter:
-    # 请修复声明
-        SeenEntry* seen;
-        UT_array* revisit;
-        size_t repeat_num;
-        RevisitEntry cur;
-
-        // RevisitEntry 去耦合专用（链表、树 用不同的函数）由 pyx 提供
-        PyObject* (*get_node_ptr)(void* entry_ele); // void 是 IterNode 及其派生类型
-        void (*push_revisit)(struct SafeIter* it, void* entry_ele);
-
-    ctypedef struct BaseEntry:
+    ctypedef struct SeenEntry:
         pass
+    ctypedef struct SafeIter:
+        SeenEntry* seen # "SeenEntry" is not defined
+        UT_array* revisit # "UT_array" is not defined
+        size_t repeat_num
+        RevisitEntry cur
+        
+    ctypedef struct BaseEntry:
+        PyObject* node
     
     ctypedef struct RevisitEntry:
-        pass
+        PyObject* node
+        size_t uf_index
 
+    # Cython 不接受 void* 当函数指针
+    ctypedef void (*ut_init_f)(void*)
+    ctypedef void (*ut_copy_f)(void*, const void*)
+    ctypedef void (*ut_dtor_f)(void*)
     ctypedef struct UT_icd:
         size_t sz
-        void* init
-        void* copy
-        void* dtor
+        ut_init_f init
+        ut_copy_f copy
+        ut_dtor_f dtor
 
     void safe_iter_init(SafeIter* it, UT_icd *RevisitEntry_icd)
     void safe_iter_free(SafeIter* it)
@@ -46,19 +54,16 @@ cdef extern from "safe_iter_base.h":
     size_t safe_iter_check_safe(SafeIter* it, void* entry_ele)
     # 获取 revisit 数组元素个数
     size_t safe_iter_size(const SafeIter* it)
-    # 获取第 idx 个元素的指针（只读）
-    const RevisitEntry* safe_iter_get_entry(const SafeIter* it, size_t idx)
+    # 获取第 idx 个元素的指针
+    RevisitEntry* safe_iter_get_revisit(SafeIter* it, size_t idx)
 
-# 请修复如下声明BEGIN
-    # 子类实现 __next__ 所需要的函数
-    PyObject* safe_iter_next(SafeIter* it, void* entry_ele,
-                            void (*prepare_next)(SafeIter*))
-    # 不持有 Python Object 的情况下高速迭代
-    PyObject* safe_iter_skip_next(SafeIter* it,
-                                void (*prepare_next)(SafeIter*),
-                                Py_ssize_t index
-                                )
-# 请修复如下声明END
+    # 函数指针声明
+    ctypedef void (*prepare_next_fn)(SafeIter*)
+    RevisitEntry safe_iter_next(SafeIter* it, prepare_next_fn prepare_next)
+
+    RevisitEntry safe_iter_skip_next(SafeIter* it,
+                                    prepare_next_fn prepare_next,
+                                    Py_ssize_t index)
 
     # 判断 node 是否为空节点
     bint _is_null(PyObject* node)
@@ -71,7 +76,7 @@ ctypedef RevisitEntry RevisitLinkEntry
 
 cdef struct IterTreeELE:
     PyObject* node
-    bint checked
+    bint checked  # 与 RevisitEntry 的内存结构保持一致
     BigInt vid
 
 cdef struct RevisitTreeEntry:
@@ -98,28 +103,22 @@ cdef class SafeIterBase:
     cdef inline size_t _check_safe(self, void* ele):
         return safe_iter_check_safe(&self._it, ele)
 
-    cdef _flatten_base(self, Py_ssize_t max_len):
-        cdef size_t n = safe_iter_size(&self._it)
-        cdef size_t i
-
-        result = []
-        repeat = []
-
-        for i in range(n):
-            entry = safe_iter_get_entry(&self._it, i)
-            if entry.uf_index == i:
-                repeat.append(i)
-            result.append(<object>entry.node)
-
-        return result, repeat
-
     def __iter__(self):
         return self
 
+# Argument of type "() -> void" cannot be assigned to parameter "prepare_next" of type "(SafeIter*) -> void" in function "safe_iter_next"
+# Type "() -> void" cannot be assigned to type "(SafeIter*) -> void"
+# Function accepts too many positional parameters; expected 0 but received 1
     def __next__(self):
-        # 调用 safe_iter_next 转 object （因为是面向 Python）
+        cdef RevisitEntry res = safe_iter_next(&self._it, self._prepare_next)
 
-    def _prepare_next(self):
+        if _is_null(res.node):
+            raise StopIteration
+
+        return <object>res.node
+
+    @staticmethod
+    cdef void _prepare_next(SafeIter* self):
         """
         子类必须实现：用于准备下一个 self._cur ，需确保：
         - 不用检查 self._cur 非空，因为 __next__ 检查过了
@@ -127,31 +126,44 @@ cdef class SafeIterBase:
         - 需要自行确保 self._cur 的 PyObject 引用计数安全
         """
         raise NotImplementedError("_prepare_next method should be implemented by the SafeIterBase inheritance class.")
+
     # ===== flatten =====
 
-    # 请修复如下函数：
     @staticmethod
-    cdef list _flatten(SafeIterBase it, Py_ssize_t max_len=-2):
+    cdef list _flatten_raw(SafeIterBase it, Py_ssize_t max_len=-1):
         cdef list out = []
-        cdef int i = 0
-        cdef object node
-        cdef _max_len = _limit_size(max_len)
-        # 改为调用 safe_iter_next 而不是用 for 以便高效处理
-        for node in it:
-            out.append(node)
-            i += 1
-            if _max_len >= 0 and i >= _max_len:
-                break
+        cdef RevisitEntry cur
+
+        for i in range(_limit_size(max_len)):
+            cur = safe_iter_next(&it._it, it._prepare_next)
+            if _is_null(cur.node): break
+            out.append(<object>cur.node)
+
+        return out
+
+    // 需要修复 或者在 .c 中实现
+    @staticmethod
+    cdef RevisitEntry* _flatten_revisit(SafeIterBase it, Py_ssize_t max_len=-1):
+        cdef RevisitEntry* out = new(it._it.repeat_num)
+        cdef RevisitEntry cur
+
+        for i in range(_limit_size(max_len)):
+            cur = safe_iter_next(&it._it, it._prepare_next)
+            if _is_null(cur.node): break
+            out.append?(cur)
+
         return out
 
     # ===== get_next =====
     @staticmethod
     cdef inline object _skip_next(SafeIterBase it, Py_ssize_t index, bint early_stop, bint allowed_null):
         cdef Py_ssize_t i = 0
-        cdef PyObject* res
+        cdef RevisitEntry res
         if index < 0:
             raise IndexError("SafeIterBase._skip_next: {index} can not be negative")
-        res = safe_iter_skip_next(...)
+        res = safe_iter_skip_next(&it._it, it._prepare_next, index)
+        if not _is_null(res.node):
+            return <object>res.node
         if(res): # 返回非空指针
             return <object>res
         # 如果迭代因环而停止，抛出异常
@@ -164,18 +176,15 @@ cdef class SafeIterBase:
     
     # 也可以搞个 C 版的 revisit_nodes，因为其容量确定为 repeat_num，无需动态增长
     @property
-    def revisit_nodes(self)->List[Tuple[int,object]]:
+    def revisit_nodes(self):
         cdef list result = []
-        cdef Py_ssize_t i
-        cdef RevisitEntry entry
-        # 顯式使用 range，Cython 會優化為 C 循環
+        cdef size_t n = safe_iter_size(&self._it)
+        cdef size_t i
+        cdef RevisitEntry* entry
 
-        # 请修复
-        # Cannot access member "_revisit" for type "SafeIterBase"
-        # Member "_revisit" is unknown
-        for i in range(self._revisit.size()):
-            entry = self._revisit[i]
-            if i == <Py_ssize_t>entry.uf_index:
-                # 將 PyObject* 轉回 object
-                result.append((entry.uf_index,<object>entry.node))
+        for i in range(n):
+            entry = safe_iter_get_revisit(&self._it, i)
+            if entry.uf_index == i:
+                result.append((i, <object>entry.node))
+
         return result

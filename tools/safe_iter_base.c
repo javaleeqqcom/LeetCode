@@ -41,7 +41,7 @@ size_t safe_iter_check_safe(SafeIter* it, void* entry_ele) {
     if (entry) {
         // 🔁 重复
         size_t first_idx = entry->uf_index;
-        
+
         // 先将 entry_ele 按 it->revisit 元素大小复制 push 进 it->revisit
         utarray_push_back(it->revisit, entry_ele);
         // 然后修改其刚插入尾元素的 uf_index，指向首次出现 node 的下标 first_idx
@@ -106,21 +106,50 @@ RevisitEntry safe_iter_skip_next(SafeIter* it,
     return it->cur;
 }
 
-RevisitEntry* ...revisit_flatten(SafeIter it, Py_ssize_t max_len=-2):
-    cdef UT_array out = []
-    cdef int i = 0
-    cdef PyObject node
-    cdef _max_len = _limit_size(max_len)
-    # 改为调用 safe_iter_next 而不是用 for 以便高效处理
-    for node in it:
-        out.append(node)
-        i += 1
-        if _max_len >= 0 and i >= _max_len:
-            break
-    return out
+// ===== safe_iter_flatten_entrys: 使用迭代器 it 迭代至多 max_len 次，并收集 RevisitEntry 数组 =====
+UT_array safe_iter_flatten_entrys(SafeIter* it, void (*prepare_next)(SafeIter*), Py_ssize_t max_len) {
+    UT_array result = ... // 预分配 min(max_len, 1024) 个空间吧
+    if (!result) {
+        PyErr_NoMemory();
+        *out_len = 0;
+        return NULL;
+    }
+
+    for (size_t i = 0; i < size; i++) {
+        result[i] = safe_iter_next(it, prepare_next);
+    }
+    // 如果实际 size 远远小于 预分配空间，看 UT_array 是否支持动态缩容，否则就算了
+
+    return result;
+}
 
 // 请实现，可用于 _string 避免 objcet 更高效的遍历
-RevisitEntry* ...revisit_nodes(SafeIter* it):
-    RevisitEntry* list result = 申请 it.repete_num 个
-    ...
+const RevisitEntry* safe_iter_revisit_nodes(const SafeIter* it, size_t* out_len) {
+    size_t n = safe_iter_size(it);
+    size_t count = it->repeat_num;
+
+    if (count == 0) {
+        *out_len = 0;
+        return NULL;
+    }
+
+    RevisitEntry* result = (RevisitEntry*)malloc(sizeof(RevisitEntry) * count);
+    if (!result) {
+        PyErr_NoMemory();
+        *out_len = 0;
+        return NULL;
+    }
+
+    size_t k = 0;
+
+    for (size_t i = 0; i < n; i++) {
+        const RevisitEntry* entry = safe_iter_get_revisit(it,i);
+
+        if (entry->uf_index == i) {
+            result[k++] = *entry;
+        }
+    }
+
+    *out_len = k;
     return result;
+}
