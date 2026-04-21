@@ -58,11 +58,13 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 4. 因此最终方案：
 - 大整数完全依附于 SafeIterBase，因此一并 C 化
 - 注意只有 tree_iter_kit.pyx 需要使用 container.h 、 bigint_vid.h 、 early_stop，因此下放到子类
+- C语言写的迭代类，为了方便定义节点在 _revisit 中的下标，改为以 RevisitEntry 为单位返回，如此可方便需要返回节点本身和位置的 flatten 高效迭代。
+- 注意利用结构体成员顺序进行C多态，使得“继承类”的 _revisit 等元素可以被基类识别其共同前缀成员。
 5. 架构重点：
 - 因此需要将  stack（queue）统一为容器结构体，通过函数指针实现  stack（queue）的泛型，加入到 SafeIterBase
 - SafeIterBase 尽量做到链表和树共用一套编译后的代码，通过 utarray.h 的泛型实现
 - 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
-- RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
+- TreeIterBase版的RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
 - TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
 6. 请先补全已有代码，并探讨下一步
 """.format(*source_texts)
