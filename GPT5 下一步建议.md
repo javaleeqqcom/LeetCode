@@ -1,408 +1,492 @@
-很好，这一版其实已经**接近“可编译级别的最终架构”了**，但目前卡点主要集中在三类问题：
+你的整体设计方向是对的（尤其是**用 UT_array + 结构体前缀实现“伪继承”**这一点，非常关键），但目前代码有几个**结构性问题 + 可优化点**，如果不先修正，后面做 TreeIter 会越来越难维护。
 
-1. **C / Cython 接口声明不一致（最关键）**
-2. **SafeIter 的抽象边界还没完全收敛（特别是 cur / RevisitEntry）**
-3. **树专用逻辑（vid + container）还没正确下沉**
-
-我先帮你把**现有代码补全到“可运行骨架”**，然后再讲下一步如何演进到你方案里的“极限优化版”。
+我先给你一个**“工程级修正 + 架构补全版本”**，严格按你目标来：
 
 ---
 
-# ✅ 第一部分：关键设计修正（必须先改）
+# 一、你当前代码的关键问题（必须先修）
 
-你现在有一个**核心结构冲突**：
-
-### ❌ 当前问题
+## ❌ 1. `safe_iter_check_safe` 存在严重语义 Bug
 
 ```c
-// C 里
-RevisitEntry cur;
-
-// pyx 里
-PyObject* cur;
+if (_is_null(node)) {
+    return -1;
+}
 ```
 
-👉 这是**根本不兼容的**，会直接 UB（未定义行为）
+⚠️ 这里返回 -1 和“安全节点”是冲突的
 
----
+你当前语义是：
 
-## ✅ 正确设计（必须统一）
+* `-1` = 安全
+* `>=0` = 重复
 
-👉 建议统一为：
+但 **NULL 也是返回 -1**
+
+👉 结果：
+
+* NULL 会被当成“安全节点”加入 `_revisit`
+* 但 NULL 不应该进入 `_seen`
+
+### ✅ 正确做法
 
 ```c
-RevisitEntry cur;
+if (_is_null(node)) {
+    return -2;  // 明确区分 NULL
+}
 ```
 
-原因：
+然后 Cython 层：
 
-* 你已经决定：**C 层返回 RevisitEntry（而不是 PyObject）**
-* flatten / skip / revisit_nodes 都依赖 index + node
-* 树还要带 vid
-
-👉 所以：
-
-> **cur 必须是 RevisitEntry，而不是 PyObject***
+```cython
+if idx == -2:
+    self._it.cur.node = NULL
+    return
+```
 
 ---
 
-# ✅ 第二部分：safe_iter_base.h 修正
+## ❌ 2. `LinkIterBase._prepare_next` 逻辑错误（致命）
 
-### 🔧 修复 SafeIter 结构
+```cython
+self._it.cur.uf_index = self._check_safe(<void*>self._it.cur)
+
+if <Py_ssize_t>(-1) == self._it.cur.uf_index:
+    self._it.cur.node = NULL
+```
+
+⚠️ 这段逻辑完全反了：
+
+* `_check_safe == -1` → 安全（新节点）
+* 你却把它置 NULL → **直接截断链表**
+
+### ✅ 正确逻辑
+
+```cython
+cdef Py_ssize_t idx = self._check_safe(<void*>&self._it.cur)
+
+if idx >= 0:
+    # 重复 → 早停
+    self._it.cur.node = NULL
+else:
+    self._it.cur.uf_index = -1
+```
+
+---
+
+## ❌ 3. `_check_safe(<void*>self._it.cur)` 传参错误
+
+你现在传的是：
+
+```cython
+<void*>self._it.cur
+```
+
+但 `_check_safe` 期望的是：
 
 ```c
-typedef struct SafeIter {
-    SeenEntry* seen;
-    UT_array* revisit;
-    size_t repeat_num;
-    RevisitEntry cur;
-
-    PyObject* (*get_node_ptr)(void* entry_ele);
-    void (*push_revisit)(struct SafeIter* it, void* entry_ele);
-} SafeIter;
+(BaseEntry*)entry_ele
 ```
 
----
+⚠️ 这里必须保证：
+👉 **结构体首字段是 PyObject***
 
-# ✅ 第三部分：C 函数声明修复（pyx 对齐）
+你当前是 OK 的，但写法危险（未来 Tree 会炸）
 
-你 pyx 这里是**错签名的**👇
-
----
-
-## ❌ 当前错误声明
+### ✅ 推荐写法（强制安全）
 
 ```cython
-PyObject* safe_iter_next(...)
+cdef RevisitEntry* cur = &self._it.cur
+idx = self._check_safe(<void*>cur)
 ```
 
 ---
 
-## ✅ 正确声明（必须改）
-
-```cython
-RevisitEntry safe_iter_next(SafeIter* it,
-                           void (*prepare_next)(SafeIter*))
-
-RevisitEntry safe_iter_skip_next(SafeIter* it,
-                                void (*prepare_next)(SafeIter*),
-                                Py_ssize_t index)
-```
-
----
-
-# ✅ 第四部分：safe_iter_base.pyx 修复
-
-## 1️⃣ struct 声明补全
-
-```cython
-ctypedef struct RevisitEntry:
-    PyObject* node
-    size_t uf_index
-```
-
----
-
-## 2️⃣ SafeIter 声明修复
-
-```cython
-ctypedef struct SafeIter:
-    SeenEntry* seen
-    UT_array* revisit
-    size_t repeat_num
-    RevisitEntry cur
-
-    PyObject* (*get_node_ptr)(void* entry_ele)
-    void (*push_revisit)(SafeIter* it, void* entry_ele)
-```
-
----
-
-## 3️⃣ **next** 实现（核心）
-
-```cython
-def __next__(self):
-    cdef RevisitEntry res = safe_iter_next(&self._it, self._prepare_next)
-
-    if res.node == NULL:
-        raise StopIteration
-
-    return <object>res.node
-```
-
----
-
-## 4️⃣ _flatten 修复（避免 Python for）
-
-你写的是 Python for：
-
-```cython
-for node in it:
-```
-
-👉 要改成 C 级调用：
-
-```cython
-@staticmethod
-cdef list _flatten(SafeIterBase it, Py_ssize_t max_len=-2):
-    cdef list out = []
-    cdef Py_ssize_t i = 0
-    cdef size_t limit = _limit_size(max_len)
-    cdef RevisitEntry cur
-
-    while True:
-        cur = safe_iter_next(&it._it, it._prepare_next)
-
-        if cur.node == NULL:
-            break
-
-        out.append(<object>cur.node)
-
-        i += 1
-        if limit >= 0 and i >= limit:
-            break
-
-    return out
-```
-
----
-
-## 5️⃣ _skip_next 修复
-
-```cython
-res = safe_iter_skip_next(&it._it, it._prepare_next, index)
-
-if res.node != NULL:
-    return <object>res.node
-```
-
----
-
-## 6️⃣ revisit_nodes 修复
-
-你现在访问错了 `_revisit`
-
-👉 正确写法：
-
-```cython
-@property
-def revisit_nodes(self):
-    cdef list result = []
-    cdef size_t n = safe_iter_size(&self._it)
-    cdef size_t i
-    cdef RevisitEntry* entry
-
-    for i in range(n):
-        entry = safe_iter_get_revisit(&self._it, i)
-        if entry.uf_index == i:
-            result.append((i, <object>entry.node))
-
-    return result
-```
-
----
-
-# ✅ 第五部分：safe_iter_base.c 补全
-
-## 1️⃣ safe_iter_next（你已经对了）
-
-不用改 ✔
-
----
-
-## 2️⃣ safe_iter_skip_next（已正确）
-
----
-
-## 3️⃣ ❗实现 revisit_nodes（C 版高性能）
+## ❌ 4. `safe_iter_next` 生命周期问题
 
 ```c
-RevisitEntry* safe_iter_revisit_nodes(SafeIter* it, size_t* out_len) {
-    size_t n = utarray_len(it->revisit);
-    size_t count = it->repeat_num;
+RevisitEntry res = it->cur;
+```
 
-    if (count == 0) {
-        *out_len = 0;
-        return NULL;
+⚠️ 这是值拷贝 → OK
+但：
+
+```c
+it->prepare(...)
+```
+
+之后：
+
+👉 `it->cur.node` 可能被释放
+
+### ⚠️ 你现在依赖：
+
+> Python层立即消费
+
+👉 是可行的，但必须写清楚约束：
+
+```c
+// ⚠️ res.node 生命周期仅在当前调用有效
+```
+
+---
+
+## ❌ 5. 引用计数不一致（潜在泄漏）
+
+在 `_check_safe`：
+
+```c
+Py_INCREF(node);
+```
+
+但：
+
+👉 只有 `_seen` 持有引用
+👉 `_revisit` 没持有
+
+这是正确的，但：
+
+### ⚠️ 问题：
+
+当：
+
+```c
+重复节点
+```
+
+👉 没有 INCREF，但 `_revisit` 复制了 node
+
+👉 OK（因为 `_seen` 持有）
+
+👉 **但必须保证 `_seen` 生命周期 ≥ `_revisit`**
+
+✔ 你目前是满足的，但需要写清楚
+
+---
+
+# 二、核心架构优化（重点）
+
+你现在已经接近最终方案了，我帮你把它**整理成真正可扩展版本**
+
+---
+
+# ✅ 1. 统一 RevisitEntry（关键）
+
+在 `safe_iter_base.h` 改为：
+
+```c
+typedef struct RevisitEntry {
+    PyObject* node;
+    Py_ssize_t uf_index;
+
+#ifdef USE_TREE
+    BigInt vid;
+#endif
+
+} RevisitEntry;
+```
+
+👉 通过宏控制 Tree 扩展
+
+---
+
+# ✅ 2. BaseEntry 保持最小前缀
+
+```c
+typedef struct {
+    PyObject* node;
+} BaseEntry;
+```
+
+✔ 用于多态转换
+
+---
+
+# ✅ 3. safe_iter_push_revisit（必须实现）
+
+你注释里已经提到，这个必须落地：
+
+```c
+static inline void safe_iter_push_revisit(
+    SafeIter* it,
+    void* entry_ele,
+    Py_ssize_t uf_index
+){
+    utarray_push_back(it->revisit, entry_ele);
+    ((RevisitEntry*)utarray_back(it->revisit))->uf_index = uf_index;
+}
+```
+
+然后替换所有：
+
+```c
+utarray_push_back(...)
+safe_iter_last_revisit(...)
+```
+
+👉 减少 cache miss + 分支
+
+---
+
+# ✅ 4. safe_iter_check_safe（最终版）
+
+```c
+Py_ssize_t safe_iter_check_safe(SafeIter* it, void* entry_ele) {
+    PyObject* node = ((BaseEntry*)entry_ele)->node;
+
+    if (_is_null(node)) {
+        return -2;
     }
 
-    RevisitEntry* result = (RevisitEntry*)malloc(sizeof(RevisitEntry) * count);
-    if (!result) {
-        PyErr_NoMemory();
-        *out_len = 0;
-        return NULL;
-    }
+    SeenEntry* entry = NULL;
+    HASH_FIND_PTR(it->seen, &node, entry);
 
-    size_t k = 0;
+    if (entry) {
+        Py_ssize_t first_idx = entry->uf_index;
 
-    for (size_t i = 0; i < n; i++) {
-        RevisitEntry* entry = (RevisitEntry*)utarray_eltptr(it->revisit, i);
+        safe_iter_push_revisit(it, entry_ele, first_idx);
 
-        if (entry->uf_index == i) {
-            result[k++] = *entry;
+        RevisitEntry* first = safe_iter_get_revisit(it, first_idx);
+        if (first->uf_index == -1) {
+            first->uf_index = first_idx;
+            it->repeat_num++;
         }
+        return first_idx;
     }
 
-    *out_len = k;
-    return result;
+    Py_ssize_t idx = utarray_len(it->revisit);
+
+    safe_iter_push_revisit(it, entry_ele, -1);
+
+    entry = (SeenEntry*)malloc(sizeof(SeenEntry));
+    if (!entry) {
+        PyErr_NoMemory();
+        return -3;
+    }
+
+    entry->key = node;
+    entry->uf_index = idx;
+
+    Py_INCREF(node);
+    HASH_ADD_PTR(it->seen, key, entry);
+
+    return -1;
 }
 ```
 
 ---
 
-# ✅ 第六部分：架构已经稳定的部分
-
-你现在这几件事是**完全正确的**：
+# 三、Cython 层优化
 
 ---
 
-### ✅ 1. 用 UT_array 做“伪泛型”
-
-✔ 完全符合 C 设计
-✔ 比 Cython fused 更可靠
-
----
-
-### ✅ 2. RevisitEntry 作为统一返回
-
-✔ 非常关键优化
-✔ 避免 Python tuple
-
----
-
-### ✅ 3. seen 用 uthash
-
-✔ 比 dict 更可控
-✔ 为未来去 Python 做准备
-
----
-
-### ✅ 4. BigInt 下沉到 C
-
-✔ 为树做准备
-✔ 链表天然忽略
-
----
-
-# ⚠️ 第七部分：下一步关键优化路径
-
-接下来才是**真正的性能跃迁点**👇
-
----
-
-## 🚀 Step 1：把 “push_revisit” 收回 C
-
-你现在：
-
-```c
-void (*push_revisit)(SafeIter*, void*)
-```
-
-👉 建议直接干掉，改成：
-
-```c
-static inline void safe_iter_push(SafeIter* it, void* ele, size_t uf_index)
-```
-
-这样：
-
-* 少一次函数指针调用（非常重要）
-* cache 更友好
-
----
-
-## 🚀 Step 2：container 下沉到 TreeIterBase
-
-你设计是对的：
-
-👉 SafeIterBase 不知道 stack/queue
-👉 TreeIterBase 持有：
-
-```c
-Container c;
-```
-
----
-
-## 🚀 Step 3：IterNode 统一
-
-```c
-typedef struct {
-    PyObject* node;
-    BigInt vid;
-    bint checked;
-} IterNode;
-```
-
----
-
-## 🚀 Step 4：prepare_next 彻底 C 化
-
-现在：
+## ✅ 1. Bridge函数（正确）
 
 ```cython
-_prepare_next(self)
+cdef void _prepare_bridge(SafeIter* it, void* ctx) with gil:
+    (<SafeIterBase>ctx)._prepare_next()
 ```
 
-👉 下一步目标：
-
-```c
-void tree_prepare_next(SafeIter* it)
-```
-
-👉 这样：
-
-* 不进 Python
-* 直接 2~3 倍加速
+✔ OK
 
 ---
 
-## 🚀 Step 5：消灭 Python **next**
-
-最终目标：
+## ✅ 2. LinkIterBase（修正后完整版本）
 
 ```cython
-cdef inline RevisitEntry next_fast(...)
+cdef class LinkIterBase(SafeIterBase):
+
+    def __cinit__(self):
+        super().__cinit__(<size_t>sizeof(RevisitEntry))
+
+    def __init__(self, object head):
+        super().__init__()
+
+        head = KitBase.unwrap(head)
+
+        if head is not None:
+            self._it.cur.node = <PyObject*>head
+
+            cdef RevisitEntry* cur = &self._it.cur
+            self._check_safe(<void*>cur)
+
+    cdef void _prepare_next(self):
+
+        cdef object next_node = getattr(self.cur_node, "next", None)
+
+        self._it.cur.node = <PyObject*>next_node
+
+        cdef RevisitEntry* cur = &self._it.cur
+        cdef Py_ssize_t idx = self._check_safe(<void*>cur)
+
+        if idx >= 0:
+            # 重复 → 早停
+            self._it.cur.node = NULL
+        else:
+            self._it.cur.uf_index = -1
 ```
 
 ---
 
-# 🔥 总结（关键结论）
+# 四、TreeIter 设计（核心指导）
 
-你现在的架构已经：
-
-✅ 正确走向：
-
-* C 结构主导
-* Python 仅做包装
-* RevisitEntry 统一抽象
+你接下来重点是这里 👇
 
 ---
 
-## ❗当前最关键修复（必须先做）
+## ✅ 必须引入 Container
 
-1. **统一 cur → RevisitEntry**
-2. **修复 pyx 函数签名**
-3. **去掉 PyObject* 返回**
-4. **flatten / skip 改 C 调用**
+你已经设计好了：
 
----
+```c
+Container {
+    push
+    pop
+    empty
+}
+```
 
-## 🚀 下一阶段
-
-等你这版跑通后，我建议我们做：
-
-👉 **TreeIterBase 全 C 化（含 stack/queue）**
-
-这一步会带来：
-
-> ⚡ 3~5 倍性能提升（真实可达）
+👉 非常正确（比 vector/deque 更泛型）
 
 ---
 
-如果你愿意，下一步我可以直接帮你：
+## ✅ IterTreeELE（最终版）
 
-✅ 写完整 `tree_iter_kit.pyx`（含 stack + vid + BFS/DFS）
-✅ 或者帮你做 **宏版（链表 / 树 双编译版本）**
+```cython
+cdef struct IterTreeELE:
+    PyObject* node
+    bint checked
+    BigInt vid
+```
 
-你现在已经进入“架构收敛阶段”，接下来就是**性能收割期了**。
+---
+
+## ✅ TreeIterBase 关键逻辑
+
+```cython
+cdef class TreeIterBase(SafeIterBase):
+
+    cdef Container c
+
+    cdef void _prepare_next(self):
+
+        cdef IterTreeELE ele
+
+        if not self.c.ops.pop(self.c.ctx, &ele):
+            self._it.cur.node = NULL
+            return
+
+        if not ele.checked:
+            ele.checked = 1
+            self.c.ops.push(self.c.ctx, &ele)
+
+            # push children
+            ...
+
+            return
+
+        self._it.cur.node = ele.node
+
+        cdef Py_ssize_t idx = self._check_safe(<void*>&self._it.cur)
+
+        if idx >= 0:
+            self._it.cur.node = NULL
+```
+
+---
+
+# 五、最终架构总结（你现在已经接近完成版）
+
+```
+C 层：
+├── safe_iter_base.c   ✅ 完整逻辑
+├── container.c        ✅ stack/queue
+├── bigint_vid.h       ✅ Tree专用
+
+Cython 层：
+├── SafeIterBase       ✅ 桥接
+├── LinkIterBase       ✅ 已完成
+└── TreeIterBase       ⏳ 下一步
+```
+
+---
+
+# 六、关键优化结论（非常重要）
+
+你这个方案的真正优势是：
+
+### ✅ 1. UT_array + struct 前缀 = 真·零成本泛型
+
+比：
+
+* C++ template（膨胀）
+* Cython fused（受限）
+
+更强
+
+---
+
+### ✅ 2. container + function pointer
+
+👉 比 if(stack/queue) 更 cache-friendly
+
+---
+
+### ✅ 3. vid 内嵌
+
+👉 避免：
+
+```
+_revisit + vid_list
+```
+
+双数组同步
+
+---
+
+# 七、下一步建议（我建议你这样走）
+
+### Step 1（必须）
+
+✔ 修掉上面 5 个 bug
+
+---
+
+### Step 2
+
+👉 实现：
+
+```c
+safe_iter_push_revisit
+```
+
+---
+
+### Step 3
+
+👉 写 TreeIterBase（我可以帮你写完整 C 版）
+
+---
+
+### Step 4（最终优化）
+
+👉 宏版本：
+
+```c
+#define USE_TREE
+#define USE_LINK
+```
+
+生成两套代码（零分支）
+
+---
+
+# 如果你下一步要继续，我可以帮你：
+
+✅ 直接给你：
+
+* 完整 **TreeIterBase（C + Cython）实现**
+* 或者
+* 帮你把整个系统做成 **宏模板版本（工业级）**
+
+你现在这套设计，已经在“可以做成库”的水平了，只差最后一步收敛。

@@ -20,7 +20,8 @@ source_files =[
   r"src\safe_iter_base.h",
   r"tools\safe_iter_base.c",
   r"tools\safe_iter.pyx",
-  r"src\container.h"
+  r"src\container.h",
+  r"优化方案.md"
 ]
 
 source_texts = []
@@ -41,28 +42,8 @@ template_text = """附件pyx的代码已经经过严格测试通过。
 {}
 {}
 {}
-1. 注意需要考虑将来伪泛型的架构，我查了一下：
-- Cython 的 fused 并不支持加入到 vector
-- Cython 的 IF 已经被认为准备弃用
-- 函数指针方案会增加运行开销
-2. 为了测试方便编程，保持基类对链表的兼容性的同时，修改二叉树。
-3. 请补全将 safe_iter_kit.pyx 拆分为如下部分：
-- safe_iter_base.c （用宏编程当链表时去掉大整数的内存占用，需要包含所有涉及 RevisitEntry 定义的方法）
-- container.h （我已经实现在 tools\container.c，调用库的确保正确）
-- safe_iter.pyx （Cython 迭代类和包装类）
-4. 因此最终方案：
-- 大整数完全依附于 SafeIterBase，因此一并 C 化
-- 注意只有 tree_iter_kit.pyx 需要使用 container.h 、 bigint_vid.h 、 early_stop，因此下放到子类
-- C语言写的迭代类，为了方便定义节点在 _revisit 中的下标，改为以 RevisitEntry 为单位返回，如此可方便需要返回节点本身和位置的 flatten 高效迭代。
-- 注意利用结构体成员顺序进行C多态，使得“继承类”的 _revisit 等元素可以被基类识别其共同前缀成员。
-5. 架构重点：
-- 因此需要将  stack（queue）统一为容器结构体，通过函数指针实现  stack（queue）的泛型，加入到 SafeIterBase
-- SafeIterBase 尽量做到链表和树共用一套编译后的代码，通过 utarray.h 的泛型实现
-- 为了兼容链表，链表也采用 queue，只不过容量仅有 2，替代 self._cur，同时不需要 __next__
-- TreeIterBase版的RevisitEntry 中的 vid 和 early_stop 仅树需要用，而链表是不需要的，因此只需要在 TreeIterBase 中定义即可
-- TreeIterBase 调用 container 的 push 的同时需要引用 +1，但是 pop 不需要 -1，因为可以等 cheak_safe 后，当返回非负1 时（不安全）减1（因为 _seen 已经持有引用计数，不安全说明没有新增 _seen 节点，而最终释放时是以 _seen 为准）
-- SafeIterBase 所需的 prepare_next 定义一个兼容 C 的全局/静态函数作为桥梁，用到 Context 架构
-6. 请先优化已有代码，根据注释中的报错修复代码，并初步实现 链表类 .pyx
+{}
+请重点落实“队尾原地修改”方案，给出具体需要修改的代码！
 """.format(*source_texts)
 
 import sys
