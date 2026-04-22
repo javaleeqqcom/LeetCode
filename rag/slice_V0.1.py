@@ -160,22 +160,58 @@ class VectorStore:
 # Ollama Embedding 封装
 # ===============================
 
+from typing import List
 import requests
 
 class OllamaEmbeddingFunction:
-    def __call__(self, texts: List[str]) -> List[List[float]]:
+    def __init__(self, model=EMBED_MODEL):
+        self.model = model
+
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        return self.embed_documents(input)
+
+    def name(self) -> str:
+        return f"ollama-{self.model}"
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
         embeddings = []
         for t in texts:
             res = requests.post(
                 "http://localhost:11434/api/embeddings",
                 json={
-                    "model": EMBED_MODEL,
+                    "model": self.model,
                     "prompt": t
                 }
             )
-            embeddings.append(res.json()["embedding"])
+            if res.status_code != 200:
+                raise RuntimeError(f"HTTP错误: {res.status_code}, {res.text}")
+
+            data = res.json()
+
+            # ✅ 防御性检查
+            if "embedding" not in data:
+                raise RuntimeError(f"Ollama返回异常: {data}")
+
+            embeddings.append(data["embedding"])
+
         return embeddings
 
+    def embed_query(self, query: str) -> List[float]:
+        return self.embed_documents([query])[0]
+
+    # ===== 可选（防未来版本爆炸）=====
+    def embed_with_retries(self, input: List[str]) -> List[List[float]]:
+        return self.embed_documents(input)
+
+    def default_space(self) -> str:
+        return "cosine"
+
+    def supported_spaces(self) -> List[str]:
+        return ["cosine", "l2"]
+
+    @classmethod
+    def build_from_config(cls, config: dict):
+        return cls(**config)
 
 # ===============================
 # 输出（人工审查用）

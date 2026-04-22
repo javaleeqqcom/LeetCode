@@ -16,12 +16,9 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"src\bigint_vid.h",
-  r"src\safe_iter_base.h",
-  r"tools\safe_iter_base.c",
-  r"tools\safe_iter.pyx",
-  r"src\container.h",
-  r"优化方案.md"
+  r"plan_documents\RAG模型计划.md",
+  r"rag\slice_V0.1.py",
+  r"Q报错如下.txt",
 ]
 
 source_texts = []
@@ -34,16 +31,11 @@ for file in source_files:
       ) # 去掉空行的空格
 
 
-template_text = """附件pyx的代码已经经过严格测试通过。
-但是二叉树的迭代亟需优化（链表以不需要且通过测试）
-我已经写了如下代码（./src 已加入路径）：
+template_text = """
 {}
 {}
 {}
-{}
-{}
-{}
-请重点落实“队尾原地修改”方案，给出具体需要修改的代码！
+请解决报错
 """.format(*source_texts)
 
 import sys
