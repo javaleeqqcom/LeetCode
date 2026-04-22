@@ -2,16 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-UT_icd IterNode_icd = {
-    sizeof(IterNode),
-    NULL,   // init
-    NULL,   // copy
-    NULL    // dtor
-};
-
-/* 声明 utarray 的元素类型（用于 utarray 内部） */
-static UT_icd RevisitEntry_icd = {sizeof(RevisitEntry), NULL, NULL, NULL};
-
+// 仅方便编程所用，实际编程时需先用 typedef 指定 IterNode 类型
 #ifndef IterNode
 typedef struct {
     PyObject* node;
@@ -20,6 +11,13 @@ typedef struct {
     BigInt vid;   
 } IterNode;
 #endif
+
+UT_icd IterNode_icd = {
+    sizeof(IterNode),
+    NULL,   // init
+    NULL,   // copy
+    NULL    // dtor
+};
 
 // ------------------ STACK 实现 ------------------
 typedef struct {

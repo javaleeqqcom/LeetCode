@@ -6,10 +6,12 @@
 #include "bigint_vid.h"
 
 /* ================= IterNode ================= */
-// IterNode 必须在引用前定义
+// 更优方案，将树的 IterNode 改为与 check_seq 相同的结构，取消 IterNode
 
 /* utarray descriptor */
 extern UT_icd IterNode_icd;
+extern ? safe_iter_push_raw;
+extern ...
 
 /* ================= Container Ops ================= */
 
@@ -18,6 +20,8 @@ typedef struct ContainerOps {
     int  (*pop)(void* ctx, IterNode* out);  // return 0 if empty
     int  (*empty)(void* ctx);
     void (*free)(void* ctx);
+    // 替代 pop 更优方案：增加 safeIter 指针作为参数，调用 inline 的 safe_iter_push_raw，直接将 top 给PUSH 进去，然后 pop。
+    void (*pop_to_utarr)(...) // 方案一：传入 safe_iter_push_raw 实现、方案二：直接传入 SafeIter.check_record 用 UT_array 自动识别类型
 } ContainerOps;
 
 /* ================= Container ================= */

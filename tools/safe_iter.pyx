@@ -31,11 +31,11 @@ cdef extern from "safe_iter_base.h":
 
     ctypedef struct RevisitEntry:
         PyObject* node
-        Py_ssize_t uf_index # -1 表示无重复，>=0 表示指向重复节点的最早索引
+        Py_ssize_t c_index # -1 表示无重复，>=0 表示指向重复节点的最早索引
 
     ctypedef struct SafeIter:
         SeenEntry* seen
-        UT_array* revisit
+        UT_array* check_record
         Py_ssize_t repeat_num
         RevisitEntry cur
         void* ctx
@@ -56,7 +56,7 @@ cdef extern from "safe_iter_base.h":
     
     # 检查是否安全，返回 -1 表示安全，返回 i 表示与 _revist[i] 节点重复。注意该函数不进行PyObject引用计数管理，需手动计数
     Py_ssize_t safe_iter_check_safe(SafeIter* it, const RevisitEntry* entry_ele)
-    # 获取 revisit 数组元素个数
+    # 获取 check_record 数组元素个数
     Py_ssize_t safe_iter_size(const SafeIter* it)
     # 获取第 idx 个元素的指针
     const RevisitEntry* safe_iter_get_revisit(const SafeIter* it, Py_ssize_t idx)
@@ -204,7 +204,7 @@ cdef class SafeIterBase:
         raise NotImplementedError("_prepare_next must be implemented by subclass")
 
     cdef UTArray get_revisit(self):
-        return UTArray.from_ptr(self._it.revisit)
+        return UTArray.from_ptr(self._it.check_record)
 
     # ===== flatten =====
     cdef inline UTArray flatten_entrys(self, Py_ssize_t max_len=-1):
@@ -254,7 +254,7 @@ cdef class SafeIterBase:
         cdef list result = PyList_New(size)
         for i in range(size):
             entry = safe_iter_get_revisit(&self._it, i)
-            if entry.uf_index == i:
+            if entry.c_index == i:
                 PyList_SET_ITEM(result, i, (i, <object>entry.node))
         return result
 
@@ -310,7 +310,7 @@ cdef struct IterTreeELE:
 
 cdef struct RevisitTreeEntry:
     PyObject* node
-    Py_ssize_t uf_index 
+    Py_ssize_t c_index 
     BigInt vid  # vid 必须在末尾，不影响 safe_iter_get_entry
 
 # ===============================
@@ -334,17 +334,17 @@ cdef class LinkIterBase(SafeIterBase):
         cdef object next_node = getattr(self.cur_node, "next", None) # 而本方法一开始的 next_node 就维持节点的引用计数
         self._it.cur.node = <PyObject*>next_node
         # _check_safe 含有增加 next_node 对象的引用计数，无需重复处理
-        self._it.cur.uf_index = self._check_safe(&self._it.cur)
+        self._it.cur.c_index = self._check_safe(&self._it.cur)
         # 必须确保早停，__next__ 才会检测重复 _cur 不重复
-        if <Py_ssize_t>(-1) != self._it.cur.uf_index: 
+        if <Py_ssize_t>(-1) != self._it.cur.c_index: 
             self._it.cur.node = NULL
             
     @property
     cpdef inline Py_ssize_t circle_index(self):
-        """环节点索引（最后一个 revisit 的 uf_index）"""
+        """环节点索引（最后一个 check_record 的 uf_index）"""
         if self.repeat_num > 0:
-            with self.get_revisit() as revisit:
-                return (<const RevisitEntry*>revisit.get(-1)).uf_index
+            with self.get_revisit() as check_record:
+                return (<const RevisitEntry*>check_record.get(-1)).c_index
         return -1
 
 # ===============================
