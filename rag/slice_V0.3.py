@@ -4,6 +4,7 @@ import ast
 import os
 from typing import List, Dict
 import chromadb
+import shutil
 
 # ===============================
 # 配置
@@ -59,10 +60,14 @@ class CodeChunk:
 # ===============================
 
 class CodeChunker:
+    def __init__(self, file_path: str):
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            self.code = f.read()
 
-    def __init__(self, code: str):
-        self.code = code
-        self.lines = code.splitlines()
+        self.file_path = file_path
+        self.file_id = self.file_path.replace("\\", ".").replace("/", ".")
+        self.lines = self.code.splitlines()
 
     def _extend_up_comments(self, lineno: int) -> int:
         """向上扩展注释（无空行）"""
@@ -100,7 +105,7 @@ class CodeChunker:
                 source, s, e = self._get_source(node)
 
                 chunks.append(CodeChunk(
-                    cid=node.name,
+                    cid = f"{self.file_id}:{node.name}",
                     ctype="class",
                     name=node.name,
                     source=source,
@@ -114,7 +119,7 @@ class CodeChunker:
                         source, s, e = self._get_source(item)
 
                         chunks.append(CodeChunk(
-                            cid=f"{node.name}.{item.name}",
+                            cid=f"{self.file_id}:{node.name}.{item.name}",
                             ctype="method",
                             name=item.name,
                             parent=node.name,   # ⭐ 新增
@@ -144,9 +149,10 @@ class CodeChunker:
 # ===============================
 
 class VectorStore:
-
     def __init__(self):
-        self.client = chromadb.Client()
+        self.client = chromadb.PersistentClient(
+            path="./chroma_db"   # 👈 存盘目录
+        )
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=OllamaEmbeddingFunction()
@@ -278,20 +284,19 @@ def save_chunks_json(chunks: List[CodeChunk], out_file="chunks.json"):
 # ===============================
 
 def process_file(file_path: str):
-    with open(file_path, "r", encoding="utf-8") as f:
-        code = f.read()
-    
-    chunk_out_name = os.path.relpath(file_path,os.getcwd()).replace("\\",".")
-    print(f"chunk_out_name : {chunk_out_name}")
-
-    chunker = CodeChunker(code)
+    chunker = CodeChunker(file_path)
     chunks = chunker.chunk()
 
     print(f"[INFO] 切片数量: {len(chunks)}")
 
     # 保存可读版本
-    save_chunks_readable(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunk_out_name}.txt"))
-    save_chunks_json(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunk_out_name}.json"))       # ⭐ 新增
+    save_chunks_readable(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunker.file_id}.txt"))
+    save_chunks_json(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunker.file_id}.json"))       # ⭐ 新增
+
+    # 测试版本，直接删除原库重建
+    if os.path.exists("./chroma_db"):
+        shutil.rmtree("./chroma_db")
+    # 将来改为按文件修改时间自动识别增量更新。
 
     # 存入向量库
     store = VectorStore()

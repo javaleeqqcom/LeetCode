@@ -17,8 +17,12 @@ def filter_empty(lines, not_empty_lines = False):
 NOT_EMPTY_LINES = True
 source_files =[
   r"plan_documents\RAG模型计划.md",
-  r"rag\slice_V0.2.py",
+  r"rag\slice_V0.3.py",
   r"Q执行如下.txt",
+  r"rag\chunker.py",
+  r"rag\embedding.py",
+  r"rag\docs_inclusion.py",
+  r"rag\index_builder.py",
 ]
 
 source_texts = []
@@ -33,9 +37,19 @@ for file in source_files:
 
 template_text = """
 {}
+如下代码成功执行，
 {}
 {}
-那么写入的 ChromaDB 是在内存中还是硬盘中？
+但是：
+- 仅能1次处理1份代码文件
+- slice 的代码名好像不太合适，或者应该将其分为两个代码，一个 py 负责单文件分片，并保存 .txt .json 的分片情况
+另一个 py 负责入库，调用前者。
+因此我将其核心功能拆分为：
+{}
+{}
+如无错漏，请继续实现：
+{}
+{}
 """.format(*source_texts)
 
 import sys

@@ -1,0 +1,93 @@
+[
+  {
+    "root": "tools",
+    "path": "tools\\ai_prompts.py",
+    "file": "ai_prompts.py",
+    "mtime": 1774852171.7146027,
+    "hash": "fd938161ff41e24075767795287b8595"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\args_parser.py",
+    "file": "args_parser.py",
+    "mtime": 1776490465.1542122,
+    "hash": "ad07ec4d79c27ded59ba16b1af5ddb51"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\args_parser_tools.py",
+    "file": "args_parser_tools.py",
+    "mtime": 1776438438.606358,
+    "hash": "79bb3127ac9f5cf9cbffe8f478fd0b2e"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\compacted_json.py",
+    "file": "compacted_json.py",
+    "mtime": 1773570803.8448992,
+    "hash": "d86a420d994e689d75ec48f266945fd4"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\def_conversion.py",
+    "file": "def_conversion.py",
+    "mtime": 1774453358.6307323,
+    "hash": "baf260bd4e5addc008e6941f13ef9141"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\examples_parser.py",
+    "file": "examples_parser.py",
+    "mtime": 1774430851.3554206,
+    "hash": "10327013da4392c80eb66bf46f22a3ae"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\kit_base.pyx",
+    "file": "kit_base.pyx",
+    "mtime": 1776674586.5336838,
+    "hash": "200b482493923c6f1f706d62e2a0c13b"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\link_iter_kit.pyx",
+    "file": "link_iter_kit.pyx",
+    "mtime": 1776766605.1436937,
+    "hash": "5a3c50493d4b7ee6cf84c35abdfeb1d4"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\random_object.py",
+    "file": "random_object.py",
+    "mtime": 1773570490.0419788,
+    "hash": "f158835f5730ed00da2ee326e1e0d1fc"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\safe_iter.pyx",
+    "file": "safe_iter.pyx",
+    "mtime": 1776852281.7684362,
+    "hash": "f9d58dc1d0784ed871c7de01226b3a30"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\safe_iter_kit.pyx",
+    "file": "safe_iter_kit.pyx",
+    "mtime": 1776507636.2799127,
+    "hash": "e67166c287307164de98cc885f7ad1b4"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\solution_runner.py",
+    "file": "solution_runner.py",
+    "mtime": 1775978312.3620646,
+    "hash": "ae43e51ea8469c357e99ec6d3afe6000"
+  },
+  {
+    "root": "tools",
+    "path": "tools\\static_big_integer.py",
+    "file": "static_big_integer.py",
+    "mtime": 1776512948.8739038,
+    "hash": "ff0730784439fc1b5c289711428aba8f"
+  }
+]
