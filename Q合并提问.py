@@ -17,8 +17,8 @@ def filter_empty(lines, not_empty_lines = False):
 NOT_EMPTY_LINES = True
 source_files =[
   r"plan_documents\RAG模型计划.md",
-  r"rag\slice_V0.1.py",
-  r"Q报错如下.txt",
+  r"rag\slice_V0.2.py",
+  r"Q执行如下.txt",
 ]
 
 source_texts = []
@@ -35,7 +35,7 @@ template_text = """
 {}
 {}
 {}
-请解决报错
+那么写入的 ChromaDB 是在内存中还是硬盘中？
 """.format(*source_texts)
 
 import sys

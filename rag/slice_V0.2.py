@@ -11,19 +11,36 @@ import chromadb
 
 COLLECTION_NAME = "code_chunks"
 EMBED_MODEL = "qwen3-embed-0.6b:q8"  # ollama embedding
+CHUNK_OUTPUT_PATH = "./rag_chunk"
 
 # ===============================
 # 数据结构
 # ===============================
 
 class CodeChunk:
-    def __init__(self, cid, ctype, name, source, start_line, end_line):
+    def __init__(self, cid, ctype, name, source, start_line, end_line, parent=None):
         self.id = cid
         self.type = ctype
         self.name = name
         self.source = source
         self.start_line = start_line
         self.end_line = end_line
+        self.parent = parent
+
+    def to_dict(self):
+        text = self.source
+        return {
+            "id": self.id,
+            "type": self.type,
+            "name": self.name,
+            "parent": self.parent,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "line_count": self.end_line - self.start_line + 1,
+            "char_count": len(text),              # ⭐ 新增
+            "preview": text.strip().split("\n")[0][:80],
+            "source": text
+        }
 
     def to_text(self):
         return f"""
@@ -100,6 +117,7 @@ class CodeChunker:
                             cid=f"{node.name}.{item.name}",
                             ctype="method",
                             name=item.name,
+                            parent=node.name,   # ⭐ 新增
                             source=source,
                             start_line=s,
                             end_line=e
@@ -223,6 +241,37 @@ def save_chunks_readable(chunks: List[CodeChunk], out_file="chunks.txt"):
             f.write(c.to_text())
             f.write("\n\n")
 
+def build_hierarchy(chunks: List[CodeChunk]):
+    id_map = {c.id: c for c in chunks}
+
+    for c in chunks:
+        if c.type == "class":
+            c.sub_chunks = []
+
+    for c in chunks:
+        if c.parent and c.parent in id_map:
+            parent = id_map[c.parent]
+            if hasattr(parent, "sub_chunks"):
+                parent.sub_chunks.append(c.id)
+
+    return chunks
+
+import json
+
+def save_chunks_json(chunks: List[CodeChunk], out_file="chunks.json"):
+    chunks = build_hierarchy(chunks)
+
+    data = []
+    for c in chunks:
+        d = c.to_dict()
+        if hasattr(c, "sub_chunks"):
+            d["sub_chunks"] = c.sub_chunks
+        data.append(d)
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    print(f"[INFO] JSON已保存: {out_file}")
 
 # ===============================
 # 主流程
@@ -231,6 +280,9 @@ def save_chunks_readable(chunks: List[CodeChunk], out_file="chunks.txt"):
 def process_file(file_path: str):
     with open(file_path, "r", encoding="utf-8") as f:
         code = f.read()
+    
+    chunk_out_name = os.path.relpath(file_path,os.getcwd()).replace("\\",".")
+    print(f"chunk_out_name : {chunk_out_name}")
 
     chunker = CodeChunker(code)
     chunks = chunker.chunk()
@@ -238,7 +290,8 @@ def process_file(file_path: str):
     print(f"[INFO] 切片数量: {len(chunks)}")
 
     # 保存可读版本
-    save_chunks_readable(chunks)
+    save_chunks_readable(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunk_out_name}.txt"))
+    save_chunks_json(chunks,os.path.join(CHUNK_OUTPUT_PATH,f"{chunk_out_name}.json"))       # ⭐ 新增
 
     # 存入向量库
     store = VectorStore()
