@@ -2,9 +2,9 @@
 import json
 import os
 
-from chunker import CodeChunker
 from embedding import VectorStore
 from docs_inclusion import diff_docs
+from chunker import CodeChunker, save_chunks_readable, save_chunks_json
 
 
 # ===============================
@@ -37,7 +37,6 @@ def build_index(docs_file: str, prev_docs_file: str|None = None):
     store = VectorStore()
 
     total_chunks = 0
-
     for d in docs:
         path = d["path"]
         print(f"\n📄 处理: {path}")
@@ -45,8 +44,18 @@ def build_index(docs_file: str, prev_docs_file: str|None = None):
         try:
             chunker = CodeChunker(path)
             chunks = chunker.chunk()
-            total_chunks += len(chunks)
 
+            # ⭐⭐⭐ 新增：持久化 chunk
+            base_name = path.replace("\\", ".").replace("/", ".")
+            txt_path = f"./rag_chunk/{base_name}.txt"
+            json_path = f"./rag_chunk/{base_name}.json"
+
+            os.makedirs("./rag_chunk", exist_ok=True)
+
+            save_chunks_readable(chunks, txt_path)
+            save_chunks_json(chunks, json_path)
+
+            # 入库
             store.add_chunks(chunks)
 
             print(f"  -> chunks: {len(chunks)}")
@@ -54,7 +63,7 @@ def build_index(docs_file: str, prev_docs_file: str|None = None):
         except Exception as e:
             print(f"❌ 失败: {path}")
             print(e)
-
+            
     print(f"\n✅ 完成，总 chunks: {total_chunks}")
 
 
