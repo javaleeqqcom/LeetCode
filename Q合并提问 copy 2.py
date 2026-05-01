@@ -16,8 +16,10 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"tools\ai_prompts.py",
-  r"tools\solution_runner.py",
+  r"tools\run_cpp_test.py",
+  r"396. Rotate Function\bt.hpp",
+  r"tools\solution.cpp",
+  r"Q执行如下.txt"
 ]
 
 source_texts = []
@@ -31,12 +33,13 @@ for file in source_files:
 
 
 template_text = r"""
-原提示词采用专家模式，不利于拓展
+尝试采用：
 {}
-而且执行代码仅限于Python，需要扩展多种语言支持
+实现Python传递参数给C++执行暴力算法
 {}
-现在需要拓展 C/C++（将来还可以增加 Rust、Go、Java等），以便暴力算法可以更高效地执行
-请分析改进方案
+{}
+但是执行一直卡住：
+{}
 """.format(*source_texts)
 
 import sys

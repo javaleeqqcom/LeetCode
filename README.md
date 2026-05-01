@@ -116,18 +116,14 @@ for idx, node in it:
 #### 自动生成测试用例
 ```text
 [System] 你是 LeetCode 测试用例生成器。
-[User] 题目：删除排序链表中的重复元素 II（给定 head: ListNode），返回删除重复元素后的链表。
-请生成 5 个边界测试用例，格式为 JSON：{"head": [1,2,2,3]}。
+[User] 题目：删除排序链表中的重复元素 II（给定 head: ListNode），返回删除重复元素后的链表。...
+请按如下模板函数生成一个函数，使其返回边界测试用例，以及随机测试用例：
+...
 ```
 框架可调用 RAG 检索已有题目的相似测试模板，并利用 LLM 生成新的用例。
 
 #### 自动编写暴力算法
-```text
-[System] 根据以下题目描述和已知函数签名，编写暴力解法（时间复杂度可高，但保证正确）。
-[User] 函数签名：def deleteDuplicates(self, head: Optional[ListNode]) -> Optional[ListNode]
-题目描述：删除所有重复元素，只保留原始链表中没有重复出现的数字。
-```
-RAG 会检索已有的 `Solution` 类实现模式，并填充至 `brute.py` 模板中。
+- 可以考虑用非学生练习语言编写暴力算法，如学生用 Python 作答时，可以用 C/C++ 编写暴力算法，只要统一以 JSON 格式保存输入和预期输出即可。
 
 ### 演进路线（Phase 2）
 1. **AST Call Graph**：分析代码调用关系（`function A → calls → function B`），使 RAG 理解程序执行流。

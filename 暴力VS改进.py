@@ -10,13 +10,13 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题目录 = Path(r"1320. Minimum Distance to Type a Word Using Two Fingers")
+问题目录 = Path(r"1559. Detect Cycles in 2D Grid")
 sys.path.insert(1, str(问题目录))
-from bt0 import Solution
+from bt import Solution
 
 
 # 初始化暴力解法运行器
-暴力算法 = SolutionRunner(问题目录 / "bt0.py")
+暴力算法 = SolutionRunner(问题目录 / "bt.py")
 
 attached_attentions = [
     "此题适合答案驱动，当为Ture时用模拟方法构造s2，当为False时除了替换字符，还需要用暴力算法验证，也可以不验证，但是不写 expected。"
@@ -37,7 +37,7 @@ if cases_path.exists():
 else:
     from test_cases_generator import test_cases_generator
     
-    cases = test_cases_generator(random_case_num = 100, max_length = 10)
+    cases = test_cases_generator(random_case_num = 1000)
     # print(cases[0])
     # print(cases[10])
     # exit(0)
@@ -55,7 +55,7 @@ else:
 print("expected_results[0]=", cases[0])
 print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "V3.py")
+改进算法 = SolutionRunner(问题目录 / "V4.py")
 
 # 多线程
 print("=== 多线程 ===")

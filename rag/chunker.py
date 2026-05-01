@@ -1,5 +1,5 @@
 # 单文件 → chunks（纯AST）
-# 2026-4-23
+# 2026-4-24
 
 import ast
 import json
@@ -11,15 +11,27 @@ from typing import List,Tuple
 # ===============================
 
 class CodeChunk:
-    def __init__(self, cid, ctype, name, source, start_line, end_line, parent=None,  kind="func"):
+    def __init__(
+        self,
+        cid,
+        ctype,
+        name,
+        source,
+        start_line,
+        end_line,
+        parent=None,
+        kind="func",
+        file_path=None,          # ⭐ 新增
+    ):
         self.id = cid
         self.type = ctype
         self.name = name
-        self.kind = kind   # ⭐ 新增
+        self.kind = kind
         self.source = source
         self.start_line = start_line
         self.end_line = end_line
         self.parent = parent
+        self.file_path = file_path   # ⭐ 核心字段
         self.sub_chunks = []
 
     def to_dict(self):
@@ -29,12 +41,13 @@ class CodeChunk:
             "type": self.type,
             "name": self.name,
             "parent": self.parent,
+            "file_path": self.file_path,   # ⭐ 新增
             "start_line": self.start_line,
             "end_line": self.end_line,
             "line_count": self.end_line - self.start_line + 1,
-            "char_count": len(text),              # ⭐ 新增
+            "char_count": len(text),
             "preview": text.strip().split("\n")[0][:80],
-            "source": text
+            # "source": text
         }
 
     def to_text(self):
@@ -135,7 +148,8 @@ class CodeChunker:
                     name=node.name,
                     source=source,
                     start_line=s,
-                    end_line=e
+                    end_line=e,
+                    file_path=self.file_path
                 ))
 
                 for item in node.body:
@@ -150,7 +164,8 @@ class CodeChunker:
                             source=source,
                             start_line=s,
                             end_line=e,
-                            kind = self._detect_kind_ast(node)
+                            kind = self._detect_kind_ast(node),
+                            file_path=self.file_path    
                         ))
 
             elif isinstance(node, ast.FunctionDef):
@@ -162,7 +177,8 @@ class CodeChunker:
                     name=node.name,
                     source=source,
                     start_line=s,
-                    end_line=e
+                    end_line=e,
+                    file_path=self.file_path
                 ))
 
         return chunks
@@ -230,7 +246,8 @@ class CodeChunker:
                     name=cls_name,
                     source=source,
                     start_line=s,
-                    end_line=e
+                    end_line=e,
+                    file_path=self.file_path
                 ))
 
                 current_class = cls_name
@@ -259,7 +276,8 @@ class CodeChunker:
                     parent=parent,
                     source=source,
                     start_line=s,
-                    end_line=e
+                    end_line=e,
+                    file_path=self.file_path
                 ))
 
         return chunks

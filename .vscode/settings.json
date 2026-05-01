@@ -3,5 +3,6 @@
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python.analysis.extraPaths": [
         "./tools"
-    ]
+    ],
+    "C_Cpp.default.compilerPath": "cl.exe"
 }

@@ -16,8 +16,7 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"tools\ai_prompts.py",
-  r"tools\solution_runner.py",
+  # r"暴力VS改进.py",
 ]
 
 source_texts = []
@@ -31,12 +30,16 @@ for file in source_files:
 
 
 template_text = r"""
-原提示词采用专家模式，不利于拓展
-{}
-而且执行代码仅限于Python，需要扩展多种语言支持
-{}
-现在需要拓展 C/C++（将来还可以增加 Rust、Go、Java等），以便暴力算法可以更高效地执行
-请分析改进方案
+首先解决用C++跑暴力算法的功能：
+1. 可多线程化（可以先写单线程的代码，但是后面要能扩展为多线程）
+1.1 方案一：用Python多解释器调用单个C++循环线程（一个进程分支跑多次循环，避免反复开辟子线程浪费资源）
+1.2 方案二：用 C++ 多进程分配（但是为了迎合未来多语种，每一种语言都写一遍多线程可能工程量巨大，而且你的分身也认为此方案过于复杂，目前不适合考虑）
+2. 动态增加测试用例方案
+2.1 一般测试用例生成函数默认采用 Python（随机分布函数 random 支持友好，编程简洁）
+2.2 未来增加支持 AI-agentic 智能地生成 Rust 测试用例代码，或者直接用 Rust 重构 SolutionRunner。（但是目前我没有学习 Rust 的需求，故仅保留支持升级 Rust 的架构）
+3. 现在需要先修改 _execute_dict_case 和 SolutionRunner 中的部分代码，增加对 C/C++ 的支持：
+3.1 在构造 SolutionRunner 时若未编译 .cpp 或 .c 则自动编译
+3.2 _execute_dict_case 自动执行 .o 或 .exe 采用合适的 IO 接口传参数
 """.format(*source_texts)
 
 import sys
