@@ -33,13 +33,18 @@ for file in source_files:
 
 
 template_text = r"""
-尝试采用：
-{}
-实现Python传递参数给C++执行暴力算法
+现为了新增 C++ 执行的方式，写了如下 demo：
 {}
 {}
-但是执行一直卡住：
 {}
+执行成功：
+{}
+现在需要将该功能集成到现有的项目中，为了让结构更清晰，需要将 solution_runner.py 分为三部分：
+- 原 solution_runner.py 中 .py 解析的部分改为 solution_runner_py.py
+- 为了实现不同语言的多线程，solution_runner.py 的多线程改为 multi_thread_runner.py （以后要改为 Cython 加速版，或者用 Rust 重写）
+- 现在新增的执行 C/C++ 的代码放在 solution_runner_cpp.py 或 solution_runner_cpp.cpp 中（.py 作为胶水调用 .cpp，而.cpp实现单个线程执行多个样例直到输入停止信号，不知道 #include "bt.hpp" 是否能兼容调用 .c 的代码）
+- 将来新增不同的语言，只要能用命令行和stdio 交互，都可以用此方法拓展吧。
+请分析一下该方案的可行性，并给出代码框架。
 """.format(*source_texts)
 
 import sys

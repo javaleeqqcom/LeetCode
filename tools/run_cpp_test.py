@@ -2,6 +2,8 @@ import subprocess
 import json
 import os
 from pathlib import Path
+import threading
+import queue
 
 # ========= 配置 =========
 CPP_FILE = "tools/solution.cpp"
@@ -60,16 +62,38 @@ class CppProcess:
             bufsize=1
         )
 
-    def run_case(self, input_data):
-        # 发送 JSON
+        # 用队列接收输出
+        self.q = queue.Queue()
+
+        def _reader():
+            while True:
+                line = self.proc.stdout.readline()
+                if not line:
+                    break
+                self.q.put(line)
+
+        def _reader_err():
+            while True:
+                line = self.proc.stderr.readline()
+                if not line:
+                    break
+                print("C++ ERR:", line.strip())
+
+        self.t = threading.Thread(target=_reader, daemon=True)
+        self.t.start()
+        
+        threading.Thread(target=_reader_err, daemon=True).start()
+
+    def run_case(self, input_data, timeout=2):
+        # 发送
         line = json.dumps({"input": input_data})
         self.proc.stdin.write(line + "\n")
         self.proc.stdin.flush()
 
-        # 读取返回
-        out = safe_readline(self.proc.stdout)
-        if not out:
-            raise RuntimeError("❌ C++ 无输出")
+        try:
+            out = self.q.get(timeout=timeout)
+        except queue.Empty:
+            raise RuntimeError("❌ C++ 超时无响应")
 
         result = json.loads(out)
 
@@ -85,7 +109,6 @@ class CppProcess:
         except:
             pass
         self.proc.terminate()
-
 
 def main():
     compile_cpp()

@@ -10,7 +10,7 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题目录 = Path(r"1559. Detect Cycles in 2D Grid")
+问题目录 = Path(r"396. Rotate Function")
 sys.path.insert(1, str(问题目录))
 from bt import Solution
 
