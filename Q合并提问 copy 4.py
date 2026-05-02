@@ -17,9 +17,8 @@ def filter_empty(lines, not_empty_lines = False):
 NOT_EMPTY_LINES = True
 source_files =[
   r"Question\396. Rotate Function\bt.hpp",
-  r"tools\run_cpp_test.py",
   r"tools\solution.cpp",
-  # r"Q执行如下.txt"
+  r"Q执行如下.txt"
 ]
 
 source_texts = []
@@ -33,22 +32,10 @@ for file in source_files:
 
 
 template_text = r"""
-现为了新增 C++ 执行的方式，写了如下 demo：
+我已按你说的修改了
 {}
 {}
-{}
-然而想要将该C++的编程题目执行方式集成到项目中，需要解决：
-- 调用去题目耦合化，不能出现`sol.maxRotateFunction`这种依赖具体问题名字的执行，否则换一道题，就要修改一次调用程序。
-- JSON自动参数化，不能依靠手动输入具体的参数，而应当按 JSON 格式传入参数。
-- 兼容多线程，这个应该采用 stdio 和多进程解决，注意要像 demo 那样一个进程执行多轮测试样例，避免进程开销。
-但是该 demo 最严重的问题是，无法其调用必须依赖AI-prompt编写，增加了AI成本，因此该 demo 应当放弃，应重新认识 Python 为何称为胶水语言，因此应改用 pybind11 的方法调用，以兼容原来的架构。
-请重新设计 demo：
-- 摒弃这种落后的调用方式，不准用 stdio 传递参数，因为你这样传递最后还是得 AI 编写 JSON -> C++ 变量\结构体的转换，还不如直接让AI生成测试样例直传Solution，然后用多进程暴力执行。
-- solution.cpp 不能依靠 AI 调整代码
-  - 要么自动识别 Solution 的函数签名（不能写死"maxRotateFunction"）
-  - 要么 solution.cpp 通过宏定义传入函数签名
-  - 如：可以通过识别目标被测程序 bt.cpp 中的函数名
-- 也就是写出的代码要能够实现任意 Solution 的成员函数，就像 solution_runner.py 那样实现智能识别函数和参数。
+但是发现设计不符合原则
 """.format(*source_texts)
 
 import sys

@@ -132,3 +132,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+$inc = (python -m pybind11 --includes) -split " "
+$inc = $inc | ForEach-Object { $_ -replace "-I", "/I" }
+
+$py_inc = python -c "import sysconfig; print(sysconfig.get_paths()['include'])"
+$py_lib = python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
+
+cl /O2 /EHsc /LD tools/solution.cpp `
+    $inc `
+    /I"$py_inc" `
+    /link /LIBPATH:"$py_lib" python314.lib /OUT:solution_cpp.pyd
