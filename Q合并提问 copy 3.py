@@ -18,7 +18,7 @@ NOT_EMPTY_LINES = True
 source_files =[
   r"Question\396. Rotate Function\bt.hpp",
   r"tools\run_cpp_test.py",
-  r"tools\solution.cpp",
+  r"tools\solution_cpp.cpp",
   # r"Q执行如下.txt"
 ]
 

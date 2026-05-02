@@ -5,6 +5,10 @@
 *.log
 *.pyc
 *.pyd
+*.exp
+*.exe
+*.obj
+*.pbd
 build/
 __pycache__/
 tools/*.cpp

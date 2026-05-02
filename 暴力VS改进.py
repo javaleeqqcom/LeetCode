@@ -10,7 +10,8 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题目录 = Path(r"396. Rotate Function")
+问题名称 = "788. Rotated Digits"
+问题目录 = Path(r"Question")/问题名称
 sys.path.insert(1, str(问题目录))
 from bt import Solution
 
@@ -37,7 +38,7 @@ if cases_path.exists():
 else:
     from test_cases_generator import test_cases_generator
     
-    cases = test_cases_generator(random_case_num = 1000)
+    cases = test_cases_generator(1000, max_n = 10000)
     # print(cases[0])
     # print(cases[10])
     # exit(0)
@@ -55,7 +56,7 @@ else:
 print("expected_results[0]=", cases[0])
 print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "V4.py")
+改进算法 = SolutionRunner(问题目录 / "V0.py")
 
 # 多线程
 print("=== 多线程 ===")

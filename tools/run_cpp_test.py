@@ -22,18 +22,37 @@ def safe_readline(pipe, timeout=2):
     else:
         raise RuntimeError("❌ C++ 超时无响应")
 
+def 分析cpp文件中 Solution 的类成员函数及其参数():
+    if 只有一个 public 成员函数时（若学生需要自定义被调用的成员函数，必须声明为 private，因为 平台不可能会直接调用自定义 成员函数）：
+    if 有多个 public 成员函数时（则平台给出的测试用例必然包含函数名），先暂时不考虑这种情况抛出错误，日后再解决。
+
 def compile_cpp():
+
+需先注入具体的函数(调用`分析cpp文件中 Solution 的类成员函数及其参数`)
+
     print("🔧 编译 C++ ...")
 
-    cmd = [
-        "cl",
-        "/EHsc",
-        "/O2",
-        "/utf-8",
-        CPP_FILE,
-        f'/I"{INCLUDE_DIR}"',   # 👈 关键：指定 include 路径
-        f"/Fe:{EXE_FILE}"
-    ]
+    # cmd = [
+    #     "cl",
+    #     "/EHsc",
+    #     "/O2",
+    #     "/utf-8",
+    #     CPP_FILE,
+    #     f'/I"{INCLUDE_DIR}"',   # 👈 关键：指定 include 路径
+    #     f"/Fe:{EXE_FILE}"
+    # ]
+    
+需参考如下进行编译
+$inc = (python -m pybind11 --includes) -split " "
+$inc = $inc | ForEach-Object { $_ -replace "-I", "/I" }
+
+$py_inc = python -c "import sysconfig; print(sysconfig.get_paths()['include'])"
+$py_lib = python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
+
+cl /O2 /EHsc /LD tools/solution_cpp.cpp `
+$inc `
+/I"$py_inc" `
+/link /LIBPATH:"$py_lib" python314.lib /OUT:solution_cpp.pyd
 
     # Windows shell=True 才能正确解析 cl
     result = subprocess.run(
@@ -133,14 +152,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-$inc = (python -m pybind11 --includes) -split " "
-$inc = $inc | ForEach-Object { $_ -replace "-I", "/I" }
-
-$py_inc = python -c "import sysconfig; print(sysconfig.get_paths()['include'])"
-$py_lib = python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
-
-cl /O2 /EHsc /LD tools/solution.cpp `
-    $inc `
-    /I"$py_inc" `
-    /link /LIBPATH:"$py_lib" python314.lib /OUT:solution_cpp.pyd

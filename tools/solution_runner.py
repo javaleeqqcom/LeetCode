@@ -630,7 +630,8 @@ class SolutionRunner:
                 print("")
 
             # 合并结果
-            results:List[_RESULT] = [res for output in output_buff if output for res in output]
+            # results:List[_RESULT] = [res for output in output_buff if output for res in output]
+            # 改用归并排序合并
 
         if summary:
             self.summary_results(results,verbose=True)
