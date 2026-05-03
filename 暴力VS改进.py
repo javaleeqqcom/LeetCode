@@ -56,7 +56,7 @@ else:
 print("expected_results[0]=", cases[0])
 print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "V0.py")
+改进算法 = SolutionRunner(问题目录 / "V2.py")
 
 # 多线程
 print("=== 多线程 ===")

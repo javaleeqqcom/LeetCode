@@ -16,10 +16,11 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"Question\396. Rotate Function\bt.hpp",
+  # r"Question\396. Rotate Function\bt.hpp",
   r"tools\solution_cpp_test.py",
-  r"tools\solution_cpp.cpp",
-  r"Q执行如下.txt"
+  # r"tools\solution_cpp.cpp",
+  r"Q执行如下.txt",
+  "PowerShell.txt"
 ]
 
 source_texts = []
@@ -31,17 +32,12 @@ for file in source_files:
       f"```{file}\n{filter_empty(lines,NOT_EMPTY_LINES)}```"
       ) # 去掉空行的空格
 
-
 template_text = r"""
-现为了新增 C++ 执行的方式，写了如下 demo：
+已按你说的修改
 {}
+但是报错：
 {}
-{}
-为了将该C++的编程题目执行方式集成到项目中，需要解决：
-- 调用去题目耦合化，不能出现`sol.maxRotateFunction`这种依赖具体问题名字的执行，否则换一道题，就要修改一次调用程序。
-- JSON自动参数化，不能依靠手动输入具体的参数，而应当按 JSON 格式传入参数。
-- 兼容多线程，但是尽量不要采用 stdIO 和多进程解决。而是利用 Python 胶水语言特有优势，将不同语言如 C++ 包装成 Python 接口，用原生参数传递，避免 IO 开销。
-但报错：
+并且没有生成文件：
 {}
 """.format(*source_texts)
 

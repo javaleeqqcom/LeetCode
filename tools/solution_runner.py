@@ -12,9 +12,8 @@ import traceback
 # from charset_normalizer.api import from_bytes  # 自动检测编码（与py3.14多线程不兼容）
 from concurrent import futures,interpreters
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
-from heapq import merge
+from heapq import merge # 多路有序列表最优归并（optimal merge pattern）
 from dataclasses import dataclass # 这是 Python 3.7+ 自带的标准库，专门用于此类场景。它会自动帮你生成 __init__、__repr__ 等方法。
-
 
 __DEBUG__ = True
 __FULL_PATH__ = False
@@ -632,6 +631,10 @@ class SolutionRunner:
             # 合并结果
             # results:List[_RESULT] = [res for output in output_buff if output for res in output]
             # 改用归并排序合并
+            valid_lists = [output for output in output_buff if output]
+            results: List[_RESULT] = list(
+                merge(*valid_lists, key=lambda x: x['cid'])
+            )
 
         if summary:
             self.summary_results(results,verbose=True)
@@ -668,6 +671,7 @@ class SolutionRunner:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
         case_id = 0
+        max_cases_digit = len(str(len(run_results)))
         total_count = len(run_results)
         
         for result in run_results:
@@ -677,8 +681,10 @@ class SolutionRunner:
 
                 # print(f"output={output}")
 
-                output['cid'] = f"#{self.relPath.stem}_{case_id}"
-                output['expected'] = output.pop('output')
+                # ✅ zero padding
+                output['cid'] = f"#{self.relPath.stem}_{case_id:0{max_cases_digit}d}"
+                if 'expected' not in output: # 此时须确保 output 存在
+                    output['expected'] = output.pop('output')
                 output.pop('elapsed', None)
                 expected_cases.append(output)
 
