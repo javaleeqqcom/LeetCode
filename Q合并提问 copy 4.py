@@ -16,11 +16,11 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  # r"Question\396. Rotate Function\bt.hpp",
+  r"Question\396. Rotate Function\bt.hpp",
   r"tools\solution_cpp_test.py",
-  # r"tools\solution_cpp.cpp",
-  r"Q执行如下.txt",
-  "PowerShell.txt"
+  r"tools\solution_cpp.cpp",
+  # r"Q执行如下.txt",
+  # "PowerShell.txt"
 ]
 
 source_texts = []
@@ -35,10 +35,9 @@ for file in source_files:
 template_text = r"""
 已按你说的修改
 {}
-但是报错：
 {}
-并且没有生成文件：
 {}
+但是 compile_cpp 需要注入 BIND_TARGET
 """.format(*source_texts)
 
 import sys

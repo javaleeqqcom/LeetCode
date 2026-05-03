@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import sysconfig, subprocess
 
-def compile_cpp(question_path: Path):
+def compile_cpp(question_path: Path, bind_method):
     include_dirs = [
         question_path,
     ]
@@ -30,6 +30,7 @@ def compile_cpp(question_path: Path):
         "cl",
         "/O2", "/EHsc", "/LD",
         "tools/solution_cpp.cpp",
+        f"/D_BIND_METHOD_={bind_method}",  # 👈 注入宏定义
         *include_flags,
         *inc,
         f"/I{py_inc}",
@@ -69,7 +70,7 @@ def get_main_method(obj):
         if not name.startswith("__")
     ]
     if len(methods) != 1:
-        raise ValueError("C++ Solution 必须只有一个 public 方法")
+        raise ValueError(f"C++ Solution 必须只有一个 public 方法，但实际为：\n{methods}")
     return methods[0]
 
 def run_case(obj, method_name, case):
@@ -77,7 +78,7 @@ def run_case(obj, method_name, case):
     return method(*case) if isinstance(case, tuple) else method(case)
 
 def main():
-    compile_cpp(Path("Question/396. Rotate Function"))
+    compile_cpp(Path("Question/396. Rotate Function"),"maxRotateFunction")
 
     mod = load_solution()
     obj = mod.Solution()
