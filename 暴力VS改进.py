@@ -37,7 +37,7 @@ if cases_path.exists():
 else:
     from test_cases_generator import test_cases_generator
     
-    cases = test_cases_generator(1000, max_n = 10000)
+    cases = test_cases_generator(1000, max_n = 100)
     # print(cases[0])
     # print(cases[10])
     # exit(0)
@@ -47,7 +47,7 @@ else:
     if len(cases) == 0:
         raise ValueError("没有生成测试用例！")
     if isinstance(cases[0],dict):
-        cases = 暴力算法.run(cases)
+        cases = 暴力算法.run(cases,thread=12)
         cases = 暴力算法.get_expected_cases(cases)
         print(cases)
         暴力算法.save_test_cases(cases , cases_path)
