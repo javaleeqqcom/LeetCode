@@ -5,7 +5,7 @@ from args_parser import ListNode
 import sys
 
 # 导入辅助函数（避免重复实现）
-from args_parser_tools import _formated_string, KitBase
+from .args_parser_tools import _formated_string, KitBase
 
 class KitBase2(KitBase):
     def __hash__(self) -> int:

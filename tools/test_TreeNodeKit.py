@@ -1,11 +1,12 @@
 # test_TreeNodeKit.py
+# python -m tools.test_listnode_kit
 import random
 import sys
 from typing import List, Optional, Tuple, Set, Any,TypeVar, Dict
 import numpy as np
 
 # 假设 args_parser 已经定义了 TreeNode 和 TreeNodeKit
-from args_parser import TreeNode, TreeNodeKit,List2TreeNode
+from .args_parser import TreeNode, TreeNodeKit,List2TreeNode
 
 _CHECK_REAPET_TREE = True
 _CHECK_EARLY = True

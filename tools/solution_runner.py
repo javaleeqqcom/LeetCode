@@ -39,11 +39,11 @@ if __DEBUG__:
     print(f"tools dir:{_TOOLS_DIR}")
 
 # 直接导入，无需 try-except
-from tools.examples_parser import parse_test_cases
-from tools.args_parser import _BASE_TYPE,_PARAMS,_CASE,_EXECUTE_CALLER,_is_base_type,parse_output_to_standard
-from tools.def_conversion import main_caller_args,main_caller_kwargs
-from tools.compacted_json import CompactedJson
-from tools.ai_prompts import TEST_CASE_GENERATOR,_CUSTOM_CALLER_NAME
+from .examples_parser import parse_test_cases
+from .args_parser import _BASE_TYPE,_PARAMS,_CASE,_EXECUTE_CALLER,_is_base_type,parse_output_to_standard
+from .def_conversion import main_caller_args,main_caller_kwargs
+from .compacted_json import CompactedJson
+from .ai_prompts import TEST_CASE_GENERATOR,_CUSTOM_CALLER_NAME
 
 """
 一个标准的测试样例的格式为：
@@ -86,6 +86,8 @@ def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
     _types = __import__("types")
 
     module = _types.ModuleType('solution_module')
+    module.__package__ = "tools"
+    module.__package__ = "tools"
     module.__dict__.update({
         '__builtins__': __builtins__,
         '__name__': 'solution_module',
@@ -95,6 +97,7 @@ def _create_solution_module(source_code_lst: List[str])-> types.ModuleType:
     _sys_path = module.__dict__['_sys'].path
     if str(_TOOLS_DIR) not in _sys_path:
         _sys_path.insert(0, str(_TOOLS_DIR))
+        # _sys_path.insert(0, str(_TOOLS_DIR.parent))
 
     for source_code in source_code_lst:
         # if source_code is not None:

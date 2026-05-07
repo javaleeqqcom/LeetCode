@@ -9,7 +9,7 @@ from libcpp.pair cimport pair
 
 from collections import deque as pydeque
 from typing import List,Tuple
-from args_parser_tools import _formated_string,_format_repr,_at_id # _to_string 需要
+from .args_parser_tools import _formated_string,_format_repr,_at_id # _to_string 需要
 __DEBUG__ = True
 
 # ===============================

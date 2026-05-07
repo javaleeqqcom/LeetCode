@@ -1,10 +1,7 @@
 # test_listnode_kit.py
 import random
-from args_parser import ListNode, ListNodeKit , List2ListNode
-# from iter_node_tools import ListNodeKitBase
-# from listkit import ListNodeKitBase
-# from LinkIterKit import LinkIterKit as ListNodeKitBase
-from safe_iter_kit import LinkIterKit as ListNodeKitBase
+from .args_parser import ListNode, ListNodeKit , List2ListNode
+from .safe_iter_kit import LinkIterKit as ListNodeKitBase
 __MIX_TEST__ = False
 OLD_VERSION = False
 
@@ -231,7 +228,7 @@ def test_duplicate_values_no_cycle():
 
 def test_iter():
     """测试 ListNodeKit 的 __iter__ 方法（安全迭代）"""
-    from args_parser import List2ListNode
+    from .args_parser import List2ListNode
 
     # 1. 空链表迭代
     print("\n3.1 空链表迭代测试")

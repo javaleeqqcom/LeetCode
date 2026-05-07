@@ -1,13 +1,15 @@
 from __future__ import annotations  # 必须放在文件第一行
 from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
-# try:
-#     from tools.args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,ReprDecorator # 此部分代表过于冗长故放在 args_parser_tools
-#     from tools.iter_node_tools import ListNodeKitBase,TreeNodeKitBase
-# except:
-from args_parser_tools import _is_base_type,_extract_actual_type,_formated_string,_format_repr,_at_id # 此部分代表过于冗长故放在 args_parser_tools
+from .args_parser_tools import (
+    _is_base_type,
+    _extract_actual_type,
+    _formated_string,
+    _format_repr,
+    _at_id
+)
 # from iter_node_tools import TreeNodeKitBase,ListNodeKitBase
-from safe_iter_kit import LinkIterKit as ListNodeKitBase
-from safe_iter_kit import TreeIterKit as TreeNodeKitBase
+from .safe_iter_kit import LinkIterKit as ListNodeKitBase
+from .safe_iter_kit import TreeIterKit as TreeNodeKitBase
 
 from collections import deque
 import inspect
@@ -115,7 +117,6 @@ class TreeNodeKit(TreeNodeKitBase): #[TreeNode]):
     @classmethod
     def from_level_order(cls, level_order: List[_BASE_TYPE]) -> 'TreeNodeKit':
         """TreeNodeKit.from_level_order(level_order=[1,2,3]) : 从层序列表构建树"""
-        from .args_parser import List2TreeNode
         root = List2TreeNode(level_order)
         return cls(root)
 

@@ -4,10 +4,7 @@
 AI 提示词模板库 - 用于测试用例生成等自动化任务
 """
 from typing import List, Dict, Any, Union
-try:
-    from tools.args_parser import _CASE,_BASE_TYPE
-except:
-    from args_parser import _CASE,_BASE_TYPE
+from .args_parser import _CASE,_BASE_TYPE
 
 _DEFAULT_TEST_CASES_GENERATOR_FILE_NAME = "test_cases_generator"
 # 自定义 caller 的命名暂时固定为

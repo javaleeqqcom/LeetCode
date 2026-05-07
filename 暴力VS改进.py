@@ -1,4 +1,4 @@
-try: from args_parser import *; DEBUG=True
+try: from tools.args_parser import *; DEBUG=True
 except: DEBUG = False
 
 if __name__ == "__main__":

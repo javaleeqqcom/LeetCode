@@ -16,9 +16,11 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"tools\solution_runner.py",
-  r"暴力VS改进.py",
   r"tools\args_parser.py",
+  r"tools\args_parser_tools.py",
+  r"tools\safe_iter_kit.pyx",
+  r"tools\__init__.py",
+  r"tools\test_listnode_kit.py",
   r"Q执行如下.txt",
 ]
 
@@ -33,12 +35,14 @@ for file in source_files:
 
 
 template_text = r"""
-代码如下：
-{}
-{}
 之前设计时，代码都放在根目录，可以正常执行，但是现在代码放在：
 {}
-则如下错误：
+{}
+{}
+{}
+则执行
+{}
+会如下错误：
 {}
 """.format(*source_texts)
 

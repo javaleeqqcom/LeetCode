@@ -7,7 +7,7 @@ from libc.stdint cimport SIZE_MAX
 from libc.stdlib cimport free
 from cpython.list cimport PyList_New, PyList_SET_ITEM
 from typing import List, Tuple
-from args_parser_tools import _formated_string, _format_repr
+from .args_parser_tools import _formated_string, _format_repr
 
 __DEBUG__ = True
 

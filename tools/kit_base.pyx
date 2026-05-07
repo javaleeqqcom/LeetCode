@@ -3,7 +3,7 @@
 # 基础导入
 # ===============================
 from libc.stdint cimport SIZE_MAX
-from args_parser_tools import _format_repr # _to_string 需要
+from .args_parser_tools import _format_repr # _to_string 需要
 __DEBUG__ = True
 
 # ===============================

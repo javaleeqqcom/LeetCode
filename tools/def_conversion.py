@@ -1,6 +1,6 @@
 from typing import Optional,List,Callable
 import inspect
-from tools.args_parser import _BASE_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
+from .args_parser import _BASE_TYPE,_ARGS,_KWARGS,parse_standard_input,parse_output_to_standard
 
 # 可能的改进：_EXECUTE_CALLER 标准的函数 简化为 两个输入：
 # 1. instance_or_func ：当 main_method 不存在时，则代入 Solution 对象，依靠 args 中调用；当 main_method 存在时由父函数传入 bind_func
