@@ -5,17 +5,21 @@ import inspect
 from pathlib import Path
 import logging
 import datetime, time
-from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,NotRequired,TypedDict
+from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_hints, get_args, get_origin,NotRequired,TypedDict,Deque
 import ast, re, json
 import types
 import traceback
 # from charset_normalizer.api import from_bytes  # 自动检测编码（与py3.14多线程不兼容）
-from concurrent import futures,interpreters
+from concurrent import futures
+from multiprocessing import Manager
+from queue import Empty
+from collections import deque
+import multiprocessing
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge # 多路有序列表最优归并（optimal merge pattern）
 from dataclasses import dataclass # 这是 Python 3.7+ 自带的标准库，专门用于此类场景。它会自动帮你生成 __init__、__repr__ 等方法。
 
-__DEBUG__ = True
+__DEBUG__ = False
 __FULL_PATH__ = False
 
 # LeetCode 中的学生提交总是以此类命名
@@ -55,6 +59,16 @@ class _RESULT(_CASE): # TypedDict 类
 
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
+
+# ================= 全局共享样例（子进程初始化） =================
+_GLOBAL_CASES = []
+def _init_process_worker(global_cases):
+    """
+    子进程初始化：
+    只在进程创建时复制一次 test_cases
+    """
+    global _GLOBAL_CASES
+    _GLOBAL_CASES = global_cases
 
 def _sanitize_filename(name: str) -> str:
     """安全文件名转换"""
@@ -140,7 +154,9 @@ def _execute_dict_case(
     # 日志格式
     def _add_log(content: str):
         log_lines.append(f"{case['cid']}:\t{content}")
-    
+
+    # 记录时间执行时间
+    start_time = time.perf_counter()
     original_stdout = None
     try:
         _add_log(f"Running '{solution_or_function.__name__ if callable(solution_or_function) else type(solution_or_function)}' with case: {case.get('test_case_key', f"{case['cid']}")}")
@@ -170,7 +186,7 @@ def _execute_dict_case(
         # 将其转化为 LeetCode 的通用的输出类型（原生 JSON 的输入类型）
         output:_BASE_TYPE = parse_output_to_standard(output_val)
         
-        elapsed = time.perf_counter() - time.perf_counter()
+        elapsed = time.perf_counter() - start_time
         # 记录结果
         result_dict['output'] = output
         result_dict['elapsed'] = elapsed
@@ -180,7 +196,7 @@ def _execute_dict_case(
         # 异常时也恢复 stdout
         if original_stdout is not None:
             sys.stdout = original_stdout
-        elapsed = time.perf_counter() - time.perf_counter()
+        elapsed = time.perf_counter() - start_time
         result_dict['error'] = str(e)
         result_dict['traceback'] = traceback.format_exc()
         result_dict['elapsed'] = elapsed
@@ -189,40 +205,47 @@ def _execute_dict_case(
     
     return result_dict, log_lines
 
-# 用于 interpreters.Queue 的队列元素
+# 用于 Deque 的队列元素
 @dataclass
 class _IN_QELE:
     group_id:int
-    cases:List[_CASE]
+    start:int
+    end:int
 @dataclass
 class _OUT_QELE:
     group_id:int
     wcnt:int
     results:List[_RESULT]
 
-def _geom_queue_generator( test_cases: List[_CASE], queue: interpreters.Queue, rate: float = 0.1) -> int:
+def _geom_queue_generator( total_cases: int, queue: MQueue, rate: float = 0.1) -> int:
     """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
     group_id, idx = 0, 0
     # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
-    while idx < len(test_cases):
-        chunk_size = max(1, int((len(test_cases) - idx) * rate))
-        queue.put(_IN_QELE(
-            group_id, 
-            test_cases[idx:idx+chunk_size]
-            ))
+    while idx < total_cases:
+        chunk_size = max(1, int((total_cases - idx) * rate))
+
+        end = min(idx + chunk_size, total_cases)
+
+        queue.put(
+            _IN_QELE(
+                group_id,
+                idx,
+                end
+            )
+        )
         idx += chunk_size
         group_id += 1
     return group_id
 
-def _execute_in_interpreter_worker(
-    interpreter_id: int,
+def _execute_in_process_worker(
+    worker_id: int,
     # source_code_lst: List[Optional[str]],
     source_code_lst: List[str],
     method_name:Optional[str],
     caller_name:str,
-    group_queue: interpreters.Queue,
-    output_queue: interpreters.Queue,
-    early_stop_queue: interpreters.Queue,
+    group_queue: MQueue,
+    output_queue: MQueue,
+    early_stop_event: MEvent,
     log_path:os.PathLike,
     skip_error = False,
     log_wrong = True,
@@ -232,7 +255,7 @@ def _execute_in_interpreter_worker(
     所有参数必须是可共享的基本类型（字符串、整数）
     """
     if __DEBUG__:
-        print(f"线程{interpreter_id}：开始")
+        print(f"线程{worker_id}：开始")
     # ========== 所有导入在子解释器内部完成 ==========
 
     # 记录线程执行时间以统计加速比
@@ -240,9 +263,11 @@ def _execute_in_interpreter_worker(
 
     # 创建子解释器的环境模块
     module = _create_solution_module(source_code_lst)
+    # 获取全局测试样例变量
+    global _GLOBAL_CASES
 
     if __DEBUG__:
-        print(f"\n线程{interpreter_id}: 队列重建成功",end="")
+        print(f"\n线程{worker_id}: 队列重建成功",end="")
 
     # 读取 Solution
     _Solution = module.__dict__[_SOLUTION_TYPE_NAME_]
@@ -255,16 +280,16 @@ def _execute_in_interpreter_worker(
         instance_or_function = getattr(_Solution(),method_name)
     
     if __DEBUG__:
-        print(f"\n线程{interpreter_id}：成功创建 {_SOLUTION_TYPE_NAME_} 实例和方法。",end="")
+        print(f"\n线程{worker_id}：成功创建 {_SOLUTION_TYPE_NAME_} 实例和方法。",end="")
     
     process_case_num = 0
 
     try:
-        while early_stop_queue.empty():
+        while not early_stop_event.is_set():
             try:
                 qval = group_queue.get_nowait()
                 assert isinstance(qval,_IN_QELE),f"Queue value of group_queue must be of type {_IN_QELE}. But value received:{qval}"
-            except interpreters.QueueEmpty:
+            except Empty:
                 if group_queue.empty():
                     break
                 time.sleep(0.001)
@@ -273,7 +298,8 @@ def _execute_in_interpreter_worker(
             results_buff = []
             wrong_count = 0
             
-            for case in qval.cases:
+            cases = _GLOBAL_CASES[qval.start:qval.end]
+            for case in cases:
                 result,log_lines = _execute_dict_case(caller,instance_or_function,case)
 
                 if 'error' in result:
@@ -282,8 +308,8 @@ def _execute_in_interpreter_worker(
                         Warning(f"\n跳过报错用例（已经保存日志到 {error_log_path}）")
                         wrong_count += 1 # error 当然也算“错误”
                     else:
-                        # 出现报错，触发早停，以分组编号作为早停信息
-                        early_stop_queue.put(qval.group_id)
+                        # 出现报错，触发早停
+                        early_stop_event.set()
                         raise Exception(f"\n执行报错（已经保存日志到 {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result): 
                     if log_wrong:
@@ -297,19 +323,19 @@ def _execute_in_interpreter_worker(
             process_case_num += len(results_buff)
             
             if __DEBUG__:
-                print(f"\n解释器 {interpreter_id}: 完成组 {qval.group_id} ({len(results_buff)} 个用例)",end="")
+                print(f"\n解释器 {worker_id}: 完成组 {qval.group_id} ({len(results_buff)} 个用例)",end="")
         
     except Exception as e:
-        early_stop_queue.put(None) # 早停所有线程
-        raise Exception(f"\n解释器 {interpreter_id}: 顶层异常 {type(e).__name__}: {e}")
+        early_stop_event.set() # 早停所有线程
+        raise Exception(f"\n解释器 {worker_id}: 顶层异常 {type(e).__name__}: {e}")
     
     end_time = time.time()
     elapsed = end_time - start_time
     
     if __DEBUG__:
-        print(f"解释器 {interpreter_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
+        print(f"解释器 {worker_id}: 处理 {process_case_num} 个用例耗时：{elapsed:.3f}s")
     
-    return (interpreter_id, process_case_num, elapsed)
+    return (worker_id, process_case_num, elapsed)
 
 class SolutionRunner:
     @classmethod
@@ -490,7 +516,7 @@ class SolutionRunner:
         skip_error = False,
         thread: int = 1,
         timeout_s: Optional[float] = 10,
-        summary: bool = False
+        summary: bool = False,
     ) -> List[_RESULT]:
         """执行测试用例（自动处理实例化）"""
         # ========== 1. 验证输入格式 ==========
@@ -569,29 +595,39 @@ class SolutionRunner:
                 caller_name = "main_caller_args"
 
             # 创建共享队列
-            group_queue = interpreters.create_queue() # 元素为 _IN_QELE 表示：组id，基本样例列表
-            output_queue = interpreters.create_queue()# 元素为 _OUT_QELE 表示：组id，错误数量，结果样例列表
-            early_stop_queue = interpreters.create_queue() # 元素为 int 表示：组id
-            
+            manager = Manager()
+
+            group_queue = manager.Queue()
+            output_queue = manager.Queue()
+            early_stop_event = manager.Event()
+
             # 分割测试用例到队列
-            groups_num = _geom_queue_generator(test_cases, group_queue, rate=1.0/thread)
+            groups_num = _geom_queue_generator(
+                len(test_cases),
+                group_queue,
+                rate=1.0/thread
+            )
             
             if __DEBUG__:
                 print(f"多线程caller = {caller_name}")
 
-            with futures.InterpreterPoolExecutor(max_workers=thread) as executor:
+            with futures.ProcessPoolExecutor(
+                max_workers=thread,
+                initializer=_init_process_worker,
+                initargs=(test_cases,)
+            ) as executor:
                 futures_list:List[futures.Future] = []
                 for i in range(thread):
                     if self.main_method is not None:
                         fut = executor.submit(
-                            _execute_in_interpreter_worker,
+                            _execute_in_process_worker,
                             i,
                             self.source_code_lst,  # 传递代码字符串
                             self.main_method,
                             caller_name,
                             group_queue,
                             output_queue,
-                            early_stop_queue,
+                            early_stop_event,
                             log_path
                             # 不直接传递 test_cases，而是从队列获取
                         )
@@ -610,9 +646,7 @@ class SolutionRunner:
                 output_buff:List[Optional[List[_RESULT]]] = [None]*groups_num
                 output_count,wrong_count = 0,0
                 total_count = len(test_cases)
-                while output_count < total_count and (
-                        early_stop_queue.empty() or any(fut.running() for fut in futures_list)  
-                    ):  # 当出现早停信号时，需要检测是否所有子线程均已停止
+                while output_count < total_count:  # 当出现早停信号时，需要检测是否所有子线程均已停止
                     try:
                         qe = output_queue.get(timeout=timeout_s)
                         assert isinstance(qe,_OUT_QELE) ,f"SolutionRunner.run：output_queue 的元素必须是 {type(_OUT_QELE)}！"
@@ -623,8 +657,8 @@ class SolutionRunner:
                             print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})",end= "\r")
                             # 检查结果错误数量是否满足早停（非运行错误！）
                             if self._check_early_stop( output_count, wrong_count ,early_stop):
-                                early_stop_queue.put(qe.group_id) # 向子线程发出早停信号
-                    except interpreters.QueueEmpty:
+                                early_stop_event.set() # 向子线程发出早停信号
+                    except Empty:
                         continue
                 print("")
 
