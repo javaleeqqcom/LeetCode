@@ -35,9 +35,11 @@ def main_caller_kwargs(bind_func: Callable, kwargs:_KWARGS)->_BASE_TYPE:
     sig = inspect.signature(bind_func)
     assert len(kwargs) == len(sig.parameters), f"传入 kwargs 字典的参数个数与函数 {bind_func.__name__} 参数个数不匹配"
 
+
     # 仅当 input_params 的键与函数参数名完全一致时，才能进行转换，否则需要单独设计 main_caller_kwargs 函数
     formated_kwargs = {
-        key: parse_standard_input(value, sig.parameters[key].annotation,bind_func.__name__ ,key) 
+        # key: parse_standard_input(value, sig.parameters[key].annotation,bind_func.__name__ ,key) # 错误 sig.parameters[key] 是签名类，而 annotation 转为具体，但是 parse_standard_input 内部要求 sig_type 是抽象
+        key: parse_standard_input(value, sig.parameters[key],bind_func.__name__ ,key) 
         for key , value in kwargs.items()
     }
 

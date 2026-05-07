@@ -10,8 +10,7 @@ from typing import List, Union, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 
-问题名称 = "788. Rotated Digits"
-问题目录 = Path(r"Question")/问题名称
+问题目录 = Path(r"Question\3660. Jump Game IX")
 sys.path.insert(1, str(问题目录))
 from bt import Solution
 
@@ -20,12 +19,12 @@ from bt import Solution
 暴力算法 = SolutionRunner(问题目录 / "bt.py")
 
 attached_attentions = [
-    "此题适合答案驱动，当为Ture时用模拟方法构造s2，当为False时除了替换字符，还需要用暴力算法验证，也可以不验证，但是不写 expected。"
+    "请先修复暴力算法并给出样例生成器"
 ]
 
 测试样例提问_file = 暴力算法.relPath/"测试样例提问.txt"
 if not 测试样例提问_file.exists():
-    prompt_str = 暴力算法.get_cases_generator("题目说明.txt",attached_attentions = attached_attentions) # 会自动加相对路径
+    prompt_str = 暴力算法.get_cases_generator("题目.txt",attached_attentions = attached_attentions) # 会自动加相对路径
     with open(测试样例提问_file,"w",encoding="utf-8") as fp:
         fp.write(prompt_str)
     print("等待测试样例提问完成！")
@@ -53,10 +52,10 @@ else:
         print(cases)
         暴力算法.save_test_cases(cases , cases_path)
 
-print("expected_results[0]=", cases[0])
+# print("expected_results[0]=", cases[0])
 print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-改进算法 = SolutionRunner(问题目录 / "V2.py")
+改进算法 = SolutionRunner(问题目录 / "V4.1.py")
 
 # 多线程
 print("=== 多线程 ===")

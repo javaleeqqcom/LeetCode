@@ -247,7 +247,7 @@ def _i_pname2ErrorMsg(i_pname:Union[int,str])->str:
     if isinstance(i_pname,int): return f"第 {i_pname} 个题目参数"
     else: return f"题目参数 {i_pname}"
     
-def parse_standard_input(value:_BASE_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:
+def parse_standard_input(value:_BASE_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:    
     act_type = _extract_actual_type(sig_type.annotation)
     if act_type == value.__class__:
         return value
