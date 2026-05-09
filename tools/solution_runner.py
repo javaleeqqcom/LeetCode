@@ -194,6 +194,9 @@ def _execute_dict_case(
         result_dict['output'] = output
         result_dict['elapsed'] = elapsed
         _add_log(f"<<< OUTPUT (elapsed: {elapsed:.6f}s)\n{_compacted_json.dumps(output, indent=2)}")
+        # 若有期望输出则打印
+        if 'expected' in result_dict:
+            _add_log(f">>> EXPECTED \n{_compacted_json.dumps(result_dict['expected'], indent=2)}")
         
     except Exception as e:
         # 异常时也恢复 stdout

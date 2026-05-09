@@ -3,18 +3,17 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**",
-                "C:/Users/john/anaconda3/envs/py314/include",
-                "C:/Users/john/anaconda3/pkgs/m2w64-headers-git-5.0.0.4636.c0ad18a-2/Library/mingw-w64/x86_64-w64-mingw32/include",
-                "C:/Users/john/anaconda3/envs/py314/Lib/site-packages/pybind11/include",
-                "D:/Users/java_lee/Documents/GitHub/LeetCode/src"
+                "${workspaceFolder}/**"
             ],
             "defines": [
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE"
             ],
-            "compilerPath": "cl.exe"
+            "compilerPath": "C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx86/x86/cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x86"
         }
     ],
     "version": 4

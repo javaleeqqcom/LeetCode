@@ -17,9 +17,8 @@ def filter_empty(lines, not_empty_lines = False):
 NOT_EMPTY_LINES = True
 source_files =[
   r"tools\solution_runner.py",
-  r"暴力VS改进.py",
-  r"Question\3660. Jump Game IX\bt.py",
   r"Q执行如下.txt",
+  # "PowerShell.txt"
 ]
 
 source_texts = []
@@ -31,17 +30,11 @@ for file in source_files:
       f"```{file}\n{filter_empty(lines,NOT_EMPTY_LINES)}```"
       ) # 去掉空行的空格
 
-
 template_text = r"""
-之前采用 Python 3.14 的多GIL多进程，可以实现动态分配任务到多个CPU核心，尽可能使得每个线程同时执行完毕。
-但是因为 numpy 和 Cython 不支持，后改为多进程，
-代码如下：
+已按你说的修改
 {}
+但是：
 {}
-{}
-执行如下：
-{}
-达不到之前使用多解释器线程的加速比 3~6，实测只有 2.24。是否应当考虑用 Rust 重写 solution_runner.py 中的多线程执行部分？据说 Rust 可以兼容 Python /C/C++ 混合编程，具有良好的 混合编程。
 """.format(*source_texts)
 
 import sys
