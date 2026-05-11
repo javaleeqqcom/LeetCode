@@ -54,15 +54,30 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
         return {{"param1": val1, "param2": val2 ,...}}, # 此处以字典类型为例
         # 仅当很容易获知答案时，返回：{{"input": input_params, "expected": 期望输出（_STANDARD_TYPE 类型）}}
     
+
+    # --- 规模参数生成 (Outside the main loop) ---
+    # 推荐采用负指数分布生成规模，并排序，确保 n 随 i 增大而增大
+    # 生成 random_case_num 个规模参数
+    scales = []
+    lam = 3.0 / max_n  # 调整 lambda 以适应 max_n 的范围
+    
+    for _ in range(random_case_num):
+        # 使用负指数分布生成随机数，确保小规模数据多，大规模数据少
+        sample = random.expovariate(lam)
+        # 将生成的浮点数限制在有效范围内并转为整数
+        n = max(2, min(max_n, int(sample))) # 示例范围
+        scales.append(n)
+    
+    # 这样可以保证测试用例从小规模到大规模排列，避免大用例卡死
+    scales.sort()
+    
     # 生成随机用例
     res=[]
-    for(i in 0..random_case_num):
-        # [可选：规模参数随 i 增大而增大]
-        规模参数 = min(int(random.expovariate(max_n**(-0.5))),max_n) # 示例（采用负指数分布时）
-        ...
-
+    # --- 随机用例生成 (Random Cases) ---
+    for i, n in enumerate(scales):
+        其他参数...
         cases.append({{
-            "input":单随机样例生成器 f(规模参数...),
+            "input":单随机样例生成器 f(规模参数 n 等...),
             "cid":i
         }})
     return fixed_cases + res
@@ -102,9 +117,26 @@ def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int .
         # obj = inner_Solution(...) # 若定义了 inner_Solution ，可以利用其辅助构建用例
         ...
     
+    # --- 规模参数生成 (Outside the main loop) ---
+    # 采用负指数分布生成规模，并排序，确保 n 随 i 增大而增大
+    # 生成 random_case_num 个规模参数
+    scales = []
+    lam = 3.0 / max_n  # 调整 lambda 以适应 max_n 的范围
+    
+    for _ in range(random_case_num):
+        # 使用负指数分布生成随机数，确保小规模数据多，大规模数据少
+        sample = random.expovariate(lam)
+        # 将生成的浮点数限制在有效范围内并转为整数
+        # 长度=1的只需生成一次
+        n = max(2, min(max_n, int(sample)))
+        scales.append(n)
+    
+    # 关键步骤：在外面生成并排序
+    # 这样可以保证测试用例从小规模到大规模排列，避免大用例卡死
+    scales.sort()
+    
     # 生成随机用例（注意若使用了 inner_Solution ，则需注意其复杂度，若`复杂度(规模)`过高，可能会影响测试效率）
-    for(i in 0..random_case_num):
-        # [可选：规模参数随 i 增大而增大]
+    for i, n in enumerate(scales):
         ...
 
         res.append({{

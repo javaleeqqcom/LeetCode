@@ -14,6 +14,7 @@ from .safe_iter_kit import TreeIterKit as TreeNodeKitBase
 from collections import deque
 import inspect
 import math,os,random # leetcode 平台会自动嵌入一些常用库，学生无需导入也能执行
+import numpy as np
 
 type _BASE_TYPE = Union[
     int,float,bool,None,str, 
@@ -28,7 +29,7 @@ _PARAMS = Union[_ARGS,_KWARGS]
 
 class _CASE(TypedDict):
     input: _PARAMS
-    cid: Union[int,str]
+    cid: NotRequired[Union[int,str]]
     expected: NotRequired[_BASE_TYPE]
     output: NotRequired[_BASE_TYPE]
 

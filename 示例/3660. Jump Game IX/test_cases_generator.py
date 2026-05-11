@@ -48,9 +48,3 @@ def test_cases_generator(random_case_num: int, max_n: int = 10**5) -> List[Dict[
         })
     
     return cases
-
-if __name__ == "__main__":
-    lam = 1/100
-    s = [random.expovariate(lam) for _ in range(100)]
-    s.sort()
-    print(s)

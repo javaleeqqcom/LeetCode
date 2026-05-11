@@ -16,10 +16,10 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"tools\solution_runner.py",
-  r"暴力VS改进.py",
-  r"Q执行如下.txt",
-  # "PowerShell.txt"
+  r"tools\ai_prompts.py",
+  r"tools\cases_generator.py",
+  r"Question\3660. Jump Game IX\case_generator.py",
+  r"单用例调用版.py",
 ]
 
 source_texts = []
@@ -31,17 +31,16 @@ for file in source_files:
       f"```{file}\n{filter_empty(lines,NOT_EMPTY_LINES)}```"
       ) # 去掉空行的空格
 
+
 template_text = r"""
-之前采用Py3.14新增的无GIL锁的多线程，在12线程下的加速比至少3，最高可达6。
-然而因为不支持 Numpy 和 Cython，现改为共享内存的多进程：
+原提示词采用专家模式，不利于拓展，并且要求AI写的程序包含多个测试用例，增加了AI负担
+{}
+现在拟改为：AI 仅负责生产单个测试用例，而由固定程序生成多个用例的规模数组：
 {}
 {}
-但是加速比极低，多线程加速失去意义：
 {}
-是否应当考虑用 Rust 重写 solution_runner.py 的执行器部分？例如架构（仅供参考）
-Rust：执行多种语言、多线程加速
-Python：负责提取 inspect 函数参数；C/C++ 的编译调用（编译后用 Rust 执行）
-如此甚至可以用 C 写暴力算法（AI改写），来测试 Python 的学生作答。
+现在需要拓展 C/C++（将来还可以增加 Rust、Go、Java等），以便暴力算法可以更高效地执行
+请检查上述代码是否正确，并思考 RAG 改造方案。
 """.format(*source_texts)
 
 import sys

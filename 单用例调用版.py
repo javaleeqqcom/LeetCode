@@ -2,21 +2,21 @@ if __name__ == "__main__":
     try: from tools.args_parser import *; DEBUG=True
     except: DEBUG = False
 
-    MULTI_SPPED = True
+    MULTI_SPPED = False
     import os,sys
     print(f"当前工作目录：{os.getcwd()}")
         
     # ------------ 三选一进行调用来测试 -------------------
     from tools.solution_runner import SolutionRunner
+    from tools.cases_generator import cases_generator_lognorm
     from typing import List, Union, Tuple, Dict, Any
     # 导入 Path 库
     from pathlib import Path
     import numpy as np
 
-    问题目录 = Path(r"Question\3629. Minimum Jumps to Reach End via Prime Teleportation")
+    问题目录 = Path(r"Question\3660. Jump Game IX")
     sys.path.insert(1, str(问题目录))
     from bt import Solution
-
 
     # 初始化暴力解法运行器
     暴力算法 = SolutionRunner(问题目录 / "bt.py")
@@ -33,15 +33,14 @@ if __name__ == "__main__":
         print("等待测试样例提问完成！")
         exit(0)
 
-
     cases_path = 暴力算法.auto_path_cases()
     if cases_path.exists():
         print(f"从文件中读取测试用例：{cases_path}")
         cases = 暴力算法.read_test_case(cases_path)
     else:
-        from test_cases_generator import test_cases_generator
+        from case_generator import case_generator
         
-        cases = test_cases_generator(1000, max_n = 1000)
+        cases = cases_generator_lognorm(case_generator,1000, EX = 20)
         # print(cases[0])
         # print(cases[10])
 
@@ -76,9 +75,9 @@ if __name__ == "__main__":
     # print("expected_results[0]=", cases[0])
     print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-    改进算法 = SolutionRunner(问题目录 / "V3.3.py")
+    改进算法 = SolutionRunner(问题目录 / "V5.0.py")
 
     # 多线程
     print("=== 多线程 ===")
     print(f"改进算法 是否有 custom_caller ：{改进算法.has_custom_caller}")
-    results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True)
+    results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True,early_stop=10)

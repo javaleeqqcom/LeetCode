@@ -2,7 +2,7 @@ if __name__ == "__main__":
     try: from tools.args_parser import *; DEBUG=True
     except: DEBUG = False
 
-    MULTI_SPPED = True
+    MULTI_SPPED = False
     import os,sys
     print(f"当前工作目录：{os.getcwd()}")
         
@@ -13,7 +13,7 @@ if __name__ == "__main__":
     from pathlib import Path
     import numpy as np
 
-    问题目录 = Path(r"Question\3629. Minimum Jumps to Reach End via Prime Teleportation")
+    问题目录 = Path(r"Question\2770. Maximum Number of Jumps to Reach the Last Index")
     sys.path.insert(1, str(问题目录))
     from bt import Solution
 
@@ -76,9 +76,9 @@ if __name__ == "__main__":
     # print("expected_results[0]=", cases[0])
     print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-    改进算法 = SolutionRunner(问题目录 / "V3.3.py")
+    改进算法 = SolutionRunner(问题目录 / "V2.2.py")
 
     # 多线程
     print("=== 多线程 ===")
     print(f"改进算法 是否有 custom_caller ：{改进算法.has_custom_caller}")
-    results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True)
+    results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True,early_stop=10)

@@ -1,3 +1,5 @@
+如下测试代码执行器：
+```tools\solution_runner.py
 # tools/solution_runner.py
 import os,sys,io
 import math
@@ -11,14 +13,14 @@ import types
 import traceback
 # from charset_normalizer.api import from_bytes  # 自动检测编码（与py3.14多线程不兼容）
 from concurrent import futures
-from multiprocessing import shared_memory # 实现跨进程共享内存
+# from multiprocessing import Manager
 from queue import Empty
 from collections import deque
 import multiprocessing
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge # 多路有序列表最优归并（optimal merge pattern）
 from dataclasses import dataclass # 这是 Python 3.7+ 自带的标准库，专门用于此类场景。它会自动帮你生成 __init__、__repr__ 等方法。
-__DEBUG__ = True
+__DEBUG__ = False
 __FULL_PATH__ = False
 # LeetCode 中的学生提交总是以此类命名
 _SOLUTION_TYPE_NAME_ = "Solution"
@@ -53,42 +55,14 @@ class _RESULT(_CASE): # TypedDict 类
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
 # ================= 全局共享样例（子进程初始化） =================
-_GLOBAL_CASES = None
-_GLOBAL_CASES_SHM = None
-_GLOBAL_GROUP_QUEUE = None
-_GLOBAL_OUTPUT_QUEUE = None
-_GLOBAL_EARLY_STOP_EVENT = None
-def _init_process_worker(
-    shm_name: str,
-    shm_size: int,
-    group_queue,
-    output_queue,
-    early_stop_event,
-):
+_GLOBAL_CASES = []
+def _init_process_worker(global_cases):
     """
     子进程初始化：
-    连接共享内存中的 test_cases
+    只在进程创建时复制一次 test_cases
     """
     global _GLOBAL_CASES
-    global _GLOBAL_CASES_SHM
-    global _GLOBAL_GROUP_QUEUE
-    global _GLOBAL_OUTPUT_QUEUE
-    global _GLOBAL_EARLY_STOP_EVENT
-
-    _GLOBAL_GROUP_QUEUE = group_queue
-    _GLOBAL_OUTPUT_QUEUE = output_queue
-    _GLOBAL_EARLY_STOP_EVENT = early_stop_event
-
-    shm = shared_memory.SharedMemory(name=shm_name)
-    if shm.buf is None:
-        raise MemoryError("_init_process_worker: Can not connect to shared memory.")
-
-    _GLOBAL_CASES_SHM = shm
-
-    raw = bytes(shm.buf[:shm_size])
-
-    _GLOBAL_CASES = json.loads(raw.decode("utf-8"))
-
+    _GLOBAL_CASES = global_cases
 def _sanitize_filename(name: str) -> str:
     """安全文件名转换"""
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
@@ -241,6 +215,9 @@ def _execute_in_process_worker(
     source_code_lst: List[str],
     method_name:Optional[str],
     caller_name:str,
+    group_queue: multiprocessing.Queue,
+    output_queue: multiprocessing.Queue,
+    early_stop_event: multiprocessing.Event,
     log_path:os.PathLike,
     skip_error = False,
     log_wrong = True,
@@ -258,11 +235,6 @@ def _execute_in_process_worker(
     module = _create_solution_module(source_code_lst)
     # 获取全局测试样例变量
     global _GLOBAL_CASES
-    global _GLOBAL_GROUP_QUEUE
-    global _GLOBAL_OUTPUT_QUEUE
-    global _GLOBAL_EARLY_STOP_EVENT
-    assert _GLOBAL_CASES is not None and _GLOBAL_GROUP_QUEUE is not None and _GLOBAL_OUTPUT_QUEUE is not None and _GLOBAL_EARLY_STOP_EVENT is not None, "GLOBAL shared variables not initialized"
-
     if __DEBUG__:
         print(f"\n线程{worker_id}: 队列重建成功",end="")
     # 读取 Solution
@@ -277,12 +249,12 @@ def _execute_in_process_worker(
         print(f"\n线程{worker_id}：成功创建 {_SOLUTION_TYPE_NAME_} 实例和方法。",end="")
     process_case_num = 0
     try:
-        while not _GLOBAL_EARLY_STOP_EVENT.is_set():
+        while not early_stop_event.is_set():
             try:
-                qval = _GLOBAL_GROUP_QUEUE.get_nowait()
+                qval = group_queue.get_nowait()
                 assert isinstance(qval,_IN_QELE),f"Queue value of group_queue must be of type {_IN_QELE}. But value received:{qval}"
             except Empty:
-                if _GLOBAL_GROUP_QUEUE.empty():
+                if group_queue.empty():
                     break
                 time.sleep(0.001)
                 continue
@@ -306,7 +278,7 @@ def _execute_in_process_worker(
                     wrong_count += 1
                 results_buff.append(result)
             # 将 (分组id，该组错误数量，改组结果列表) 加入到输出队列
-            _GLOBAL_OUTPUT_QUEUE.put(_OUT_QELE(qval.group_id, wrong_count, results_buff))
+            output_queue.put(_OUT_QELE(qval.group_id, wrong_count, results_buff))
             process_case_num += len(results_buff)
             if __DEBUG__:
                 print(f"\n解释器 {worker_id}: 完成组 {qval.group_id} ({len(results_buff)} 个用例)",end="")
@@ -457,7 +429,7 @@ class SolutionRunner:
             raise ValueError(f"测试用例 {case['cid']} 缺少 'input' 键")
         if isinstance(case['input'], dict):
             return True
-        elif isinstance(case['input'], (tuple,list)):
+        elif isinstance(case['input'], tuple):
             return False
         else:
             raise ValueError(f"测试用例 {case['cid']} 的 'input' 必须是字典或元组")
@@ -547,91 +519,56 @@ class SolutionRunner:
                 group_queue,
                 rate=1.0/thread
             )
-            # 输出结果汇总缓冲
-            output_buff:List[Optional[List[_RESULT]]] = [None]*groups_num
             if __DEBUG__:
                 print(f"多线程caller = {caller_name}")
-
-            # =========================
-            # 创建共享 test_cases
-            # =========================
-
-            cases_bytes = json.dumps(
-                test_cases,
-                ensure_ascii=False,
-            ).encode("utf-8")
-
-            shm = shared_memory.SharedMemory(
-                create=True,
-                size=len(cases_bytes)
-            )
-            if shm.buf is None:
-                raise MemoryError("SolutionRunner.run: Can not connect to shared memory.")
-
-            try:
-                shm.buf[:len(cases_bytes)] = cases_bytes
-                shm_name = shm.name
-                shm_size = len(cases_bytes)
-
-                with futures.ProcessPoolExecutor(
-                    max_workers=thread,
-                    initializer=_init_process_worker,
-                    initargs=(
-                        shm_name,
-                        shm_size,
-                        group_queue,
-                        output_queue,
-                        early_stop_event,
-                    )
-                ) as executor:
-                    futures_list:List[futures.Future] = []
-                    for i in range(thread):
-                        if self.main_method is not None:
-                            fut = executor.submit(
-                                _execute_in_process_worker,
-                                i,
-                                self.source_code_lst,  # 传递代码字符串
-                                self.main_method,
-                                caller_name,
-                                log_path
-                                # 不直接传递 test_cases，而是从队列获取
-                            )
-                            futures_list.append(fut)
-                        else:
-                            raise Exception("暂不支持无 self.main_method 的情况")
-                    # 收集结果（带超时）
+            with futures.ProcessPoolExecutor(
+                max_workers=thread,
+                initializer=_init_process_worker,
+                initargs=(test_cases,)
+            ) as executor:
+                futures_list:List[futures.Future] = []
+                for i in range(thread):
+                    if self.main_method is not None:
+                        fut = executor.submit(
+                            _execute_in_process_worker,
+                            i,
+                            self.source_code_lst,  # 传递代码字符串
+                            self.main_method,
+                            caller_name,
+                            group_queue,
+                            output_queue,
+                            early_stop_event,
+                            log_path
+                            # 不直接传递 test_cases，而是从队列获取
+                        )
+                        futures_list.append(fut)
+                    else:
+                        raise Exception("暂不支持无 self.main_method 的情况")
+                # 收集结果（带超时）
+                try:
+                    worker_results = [f.result(timeout=timeout_s) for f in futures_list]
+                    print(f"所有工作线程完成，结果为 (组ID，处理的样例数量，花费时间秒)：{worker_results}")
+                except TimeoutError:
+                    print(f"⚠️ 执行超时 ({timeout_s}s)")
+                # 收集输出队列结果
+                output_buff:List[Optional[List[_RESULT]]] = [None]*groups_num
+                output_count,wrong_count = 0,0
+                total_count = len(test_cases)
+                while output_count < total_count:  # 当出现早停信号时，需要检测是否所有子线程均已停止
                     try:
-                        worker_results = [f.result(timeout=timeout_s) for f in futures_list]
-                        print(f"所有工作线程完成，结果为 (组ID，处理的样例数量，花费时间秒)：{worker_results}")
-                    except TimeoutError:
-                        print(f"⚠️ 执行超时 ({timeout_s}s)")
-                    # 收集输出队列结果
-                    output_count,wrong_count = 0,0
-                    total_count = len(test_cases)
-                    while output_count < total_count:  # 当出现早停信号时，需要检测是否所有子线程均已停止
-                        try:
-                            qe = output_queue.get(timeout=timeout_s)
-                            assert isinstance(qe,_OUT_QELE) ,f"SolutionRunner.run：output_queue 的元素必须是 {type(_OUT_QELE)}！"
-                            if qe.group_id is not None:
-                                output_buff[qe.group_id] = qe.results
-                                output_count += len(qe.results)
-                                wrong_count += qe.wcnt
-                                print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})",end= "\r")
-                                # 检查结果错误数量是否满足早停（非运行错误！）
-                                if self._check_early_stop( output_count, wrong_count ,early_stop):
-                                    early_stop_event.set() # 向子线程发出早停信号
-                        except Empty:
-                            continue
-                    print("")
-
-            except Exception as e: # 以后再增加多情况捕获
-                print(e)
-
-            # 释放共享内存
-            finally:
-                shm.close()
-                shm.unlink()
-            
+                        qe = output_queue.get(timeout=timeout_s)
+                        assert isinstance(qe,_OUT_QELE) ,f"SolutionRunner.run：output_queue 的元素必须是 {type(_OUT_QELE)}！"
+                        if qe.group_id is not None:
+                            output_buff[qe.group_id] = qe.results
+                            output_count += len(qe.results)
+                            wrong_count += qe.wcnt
+                            print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})",end= "\r")
+                            # 检查结果错误数量是否满足早停（非运行错误！）
+                            if self._check_early_stop( output_count, wrong_count ,early_stop):
+                                early_stop_event.set() # 向子线程发出早停信号
+                    except Empty:
+                        continue
+                print("")
             # 合并结果
             # results:List[_RESULT] = [res for output in output_buff if output for res in output]
             # 改用归并排序合并
@@ -639,7 +576,6 @@ class SolutionRunner:
             results: List[_RESULT] = list(
                 merge(*valid_lists, key=lambda x: x['cid'])
             )
-            
         if summary:
             self.summary_results(results,verbose=True)
         return results
@@ -714,4 +650,87 @@ class SolutionRunner:
             return None
         # AI 未指定，或者网络等错误
         # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
-        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
+        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)```
+但是：
+```Q执行如下.txt
+(py314) PS D:\Users\java_lee\Documents\GitHub\LeetCode> & C:/Users/john/anaconda3/envs/py314/python.exe d:/Users/java_lee/Documents/GitHub/LeetCode/暴力VS改进.py
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+当前工作目录：D:\Users\java_lee\Documents\GitHub\LeetCode
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+C:\Users\john\anaconda3\envs\py314\Lib\site-packages\binarytree\__init__.py:30: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution
+concurrent.futures.process._RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\queues.py", line 262, in _feed
+    obj = _ForkingPickler.dumps(obj)
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\reduction.py", line 51, in dumps
+    cls(buf, protocol).dump(obj)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\queues.py", line 56, in __getstate__
+    context.assert_spawning(self)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\context.py", line 374, in assert_spawning
+    raise RuntimeError(
+    ...<2 lines>...
+        )
+RuntimeError: Queue objects should only be shared between processes through inheritance
+when serializing tuple item 4
+when serializing dict item 'args'
+when serializing concurrent.futures.process._CallItem state
+when serializing concurrent.futures.process._CallItem object
+"""
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\暴力VS改进.py", line 52, in <module>
+    cases12 = 暴力算法.run(cases,thread=12)
+              ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "d:\Users\java_lee\Documents\GitHub\LeetCode\tools\solution_runner.py", line 646, in run
+    worker_results = [f.result(timeout=timeout_s) for f in futures_list]
+                      ~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\concurrent\futures\_base.py", line 443, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\concurrent\futures\_base.py", line 395, in __get_result
+    raise self._exception
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\queues.py", line 262, in _feed
+    obj = _ForkingPickler.dumps(obj)
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\reduction.py", line 51, in dumps
+    cls(buf, protocol).dump(obj)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\queues.py", line 56, in __getstate__
+    context.assert_spawning(self)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\john\anaconda3\envs\py314\Lib\multiprocessing\context.py", line 374, in assert_spawning
+    raise RuntimeError(
+    ...<2 lines>...
+        )
+RuntimeError: Queue objects should only be shared between processes through inheritance
+when serializing tuple item 4
+when serializing dict item 'args'
+when serializing concurrent.futures.process._CallItem state
+when serializing concurrent.futures.process._CallItem object```
+请修正代码，将替换之处列出。
+要求用真正的全局共享 _GLOBAL_CASES，而不能每个进程都拷贝，导致性能低下。
