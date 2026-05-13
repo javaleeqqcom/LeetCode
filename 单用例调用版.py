@@ -8,7 +8,7 @@ if __name__ == "__main__":
         
     # ------------ 三选一进行调用来测试 -------------------
     from tools.solution_runner import SolutionRunner
-    from tools.cases_generator import cases_generator_lognorm
+    from tools.cases_generator import build_test_cases,sample_lognormal_scales,quantize_scales
     from typing import List, Union, Tuple, Dict, Any
     # 导入 Path 库
     from pathlib import Path
@@ -39,8 +39,9 @@ if __name__ == "__main__":
         cases = 暴力算法.read_test_case(cases_path)
     else:
         from case_generator import case_generator
-        
-        cases = cases_generator_lognorm(case_generator,1000, EX = 20)
+        size_list = sample_lognormal_scales(2000,mean_scale=20)+1
+        scales = quantize_scales(size_list, min_scale=1, max_scale=10**5)
+        cases = build_test_cases(case_generator,scales)
         # print(cases[0])
         # print(cases[10])
 
@@ -69,7 +70,7 @@ if __name__ == "__main__":
         if isinstance(cases[0],dict):
             cases = 暴力算法.run(cases,thread=1)
             cases = 暴力算法.get_expected_cases(cases)
-            print(cases)
+            # print(cases)
             暴力算法.save_test_cases(cases , cases_path)
 
     # print("expected_results[0]=", cases[0])
