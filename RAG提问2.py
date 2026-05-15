@@ -16,14 +16,11 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"tools\ai_prompts.py",
-  r"tools\cases_generator.py",
+  r"test_jump_game_ix.ipynb",
   r"Question\3660. Jump Game IX\case_generator.py",
-  r"单用例调用版.py",
-  r"Q执行如下.txt",
-  r"rag\debug_retriever.py",
-  r"agents\analyze_agent.py",
-  r"agents\analysis_schema.py",
+  r"Question\3660. Jump Game IX\case_generator_ai.py",
+  r"rag\docs_inclusion.py",
+  r"rag\index_builder.py",
 ]
 
 source_texts = []
@@ -37,26 +34,18 @@ for file in source_files:
 
 
 template_text = r"""
-原提示词采用专家模式，不利于拓展，并且要求AI写的程序包含多个测试用例，增加了AI负担
+我執行了：
 {}
-现在改为：AI 仅负责生产单个测试用例，而由固定程序生成多个用例的规模数组：
+但是生成的：
 {}
+過於精妙了，這不像是 30B-q8 的中等模型能答得出來的，檢查發現其與我手工編輯的：
 {}
+高度相似，而且我確定該版本代碼未錄入 RAG數據庫，檢查發現是 case_generator_prompt.md 泄露了 `3660. Jump Game IX\case_generator.py` 的代碼習慣。
+這是錯誤的做法，因爲該代碼高度特異，只對該題目效果好，應該改爲將該代碼錄入 RAG向量數據庫，首先要選一個目錄結構專門保存錄入RAG的代碼（如 `prompts\case_generator_python\3660.py`，當然可以改爲更規範的目錄）
+然後用如下程序收集要錄入的代碼片段（自動哈希，避免重複錄入）：
 {}
-并且我已经初步实现了查询 RAG 数据库，demo 如下：
+并用如程序執行錄入（暫未區分 case_generator 和 conversion 的RAG數據庫，會混在一起，因此可能需要改進，增加指定的RAG目錄名）
 {}
-{}
-请使用如LangChain重构 ai_prompts.py，使其仅负责生成单个测试用例->调用学生代码并返回可JSON化输出的过程：
-- 学生作答代码（或伪代码）需要提供给AI-agent，并且以后缀 `.py`、`.cpp`等区分语言类型
-- 而 case_generator.py 可以统一用 Python，因为其输出的是可 JSON 化的测试用例数据结构
-- 暂时仅考虑唯一调用函数的形式，对于多调用（构造类对象后，多次调用不同成员函数的题目），仅保留接口，以后再完善
-- 优先采用 Args 参数的 input（元组），仅当有非常复杂的参数才考虑使用 KwArgs 参数（input 值是字典）
-- 主动根据题目和AI信息查询RAG数据库匹配合适的 md 说明文档以及参考模板代码
-- 当检测到要解答的函数包含不可JSON对象，如链表时，需要写转换函数 conversion（必须与作答语言相同，如 python的链表对象不可能作用于 C++），conversion 输入可JSON化的 Args数组，转化后代入调用要作答的函数，获取输出也要转换回可JSON对象
-在测试阶段，我会采用本地ollama的LLM，避免浪费云计算资源。我已经写了如下代码（但是还没尝试运行）：
-{}
-{}
-请补全测试本次样例的学生提问代码，并展示结果，可以考虑用 .ipynb 来调试。
 """.format(*source_texts)
 
 import sys

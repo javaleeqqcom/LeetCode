@@ -67,31 +67,12 @@ def sample_lognormal_scales(num:int = 1000 , mean_scale: float = 10 ,second_mome
     size_list.sort()
     return size_list
 
-def _apply_round_fun(arr: np.ndarray, round_fun):
-
-    try:
-        result = round_fun(arr)
-        result = np.asarray(result)
-
-        if result.shape == arr.shape:
-            return result
-
-    except Exception:
-        pass
-
-    return np.fromiter(
-        (round_fun(float(x)) for x in arr),
-        dtype=float,
-        count=arr.size
-    )
-
 def quantize_scales(scale_list: Union[np.ndarray,List],
                min_scale: int = 0,
                max_scale: int = 10**5,
                max_repeat_array:np.ndarray|None = None,
                max_repeat_fn = math.factorial,
                max_repeat_domain = 10,
-               round_fun=np.round,
                ) -> np.ndarray:
     """
     Convert continuous computational scales into discrete integer scales.
@@ -130,25 +111,12 @@ def quantize_scales(scale_list: Union[np.ndarray,List],
             Repetition constraints are applied only for:
                 0 <= n < max_repeat_domain
 
-        round_fun:
-            Integer quantization function.
-
-            Used to transform continuous scales into discrete values.
-
-            This can be used to enforce special constraints such as:
-            - odd numbers only
-            - powers of two
-            - aligned block sizes
-            - bucketed scales
-
-            Both scalar functions and NumPy-style vectorized functions are supported.
-
     Returns:
         np.ndarray(dtype=int64):
             Sorted integer scales.
     """
     # 1. 变换为整数并裁切
-    nums = _apply_round_fun(np.asarray(scale_list),round_fun).astype(int).clip(min_scale, max_scale)
+    nums = np.asarray(scale_list).astype(int).clip(min_scale, max_scale)
 
     # 2. 构建限制数组
     if max_repeat_array is None:
@@ -172,7 +140,6 @@ def quantize_size_2D(
     size_list: Union[np.ndarray,List],
     bound=((1, -1), (1, -1)),
     beta=(5, 5),
-    round_fun=np.round,
 ) -> np.ndarray:
     """
     Project one-dimensional computational scales into two-dimensional shapes.
@@ -208,19 +175,6 @@ def quantize_size_2D(
                 (1,1): highly variable ratios
                 (1,5): thin rectangular shapes
 
-        round_fun:
-            Integer quantization function.
-
-            Used to transform continuous scales into discrete values.
-
-            This can be used to enforce special constraints such as:
-            - odd numbers only
-            - powers of two
-            - aligned block sizes
-            - bucketed scales
-
-            Both scalar functions and NumPy-style vectorized functions are supported.
-
     Returns:
         ndarray(shape=(N,2)):
             Integer shape pairs.
@@ -255,8 +209,8 @@ def quantize_size_2D(
     # 3. integer quantization
     # -------------------------
 
-    n1 = _apply_round_fun(np.asarray(n1),round_fun).astype(int)
-    n2 = _apply_round_fun(np.asarray(n2),round_fun).astype(int)
+    n1 = n1.round().astype(int)
+    n2 = n2.round().astype(int)
 
     # -------------------------
     # 4. apply bounds

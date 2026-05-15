@@ -16,73 +16,54 @@ _CUSTOM_CALLER_NAME = "custom_caller"
 # 测试用例生成器 - 系统提示词
 # ============================================================================
 class TEST_CASE_GENERATOR:
-    SYS_PROMPTS:List[str] = [
-"你是一个专业的信息竞赛老师。你的任务是根据题目描述和代码，生成全面、高质量的测试用例生成代码，用于检验学生的解答代码<student-code>的正确性。",
-"本本工程会提供执行框架，使用多线程并发执行学生代码，并返回执行结果，因此你只需生成测试用例相关代码，通常无需考虑执行框架。",
-"代码除了注释用英文书写，注释可用中文书写，注意输出的代码应与代码<code>的语言类型一致，输出内容必须能直接运行为代码（注意不要重复写<code>中的代码）。",
-"给定 LeetCode 题目及输入`input`输出`output`要求见<request>（注意 request 中关于输入输出的数值范围中，有些 10 的指数次方在复制时会丢失指数符合，需要你灵活判断，如'104'实际可能为'10^4'），你需要思考测试样例设计逻辑。",
-"<code>为被测代码，不可修改！其中包含本工程预定义输入输出转换代码<init-code>，以及学生代码<student-code>，其中必定包含 Solution 类（若不是则应报错，拒绝本次回答）。",
-
-"需要注意的是，由于 leetcode 多语种通用性，其样例的原始输入`input`和输出`output`只能是 JSON 输入类型（_STANDARD_TYPE），因此若学生代码的调用函数参数`params`类型并非_STANDARD_TYPE，则需要本工程定义的<init-code>代码实现转换，若无法转换则你需要修改<args_parser>中的代码以实现调用。",
-f'测试用例统一格式为：`{{"input": input_params [, "expected": {_BASE_TYPE.__name__}]}}`，其中 input_params 有两种格式：元组(Tuple)对应<request>中的`input`中参数没有命名的情况（则其元素的顺序必须按<request>中输入参数的顺序为准）；字典(Dict)对应<request>中的`input`中参数有命名的情况。而 expected 为可选项，与`output`格式相同，仅当该问题的答案在构造输入样例时很容易求得，甚至先有答案后构造输入样例的情况下，才允许添加可选项 expected 为期望输出。注意不要试图在你的代码中完整地运行学生暴力算法的 Solution 对象来求得 expected 输出，因为本工程可以用多线程的方式调用学生暴力算法，不需要你来运行。',
-"一般<request>中的参数与<student-code>中主函数的参数是一一对应的。但若对应不上，由于学生代码<student-code>在各编程语言中的函数名和参数 (params) 名及类型是强制固定的，不可修改！则需参考修改<args_parser>中的 {_CUSTOM_CALLER_NAME} 方法以正确处理参数映射，并以<conversion>模块输出 conversion.py 代码放在 <code> 代码后覆盖原有定义。",
-
-"你需要参考模板<template>设计样例生成代码。<template>的代码不依赖于<student-code>，而是在其之前执行。其核心目的在于生成题目输入`input`，并不实现调用和类型转换。",
-"<attentions>为代码设计需要注意的点，请根据本次问题的情况参考。"
-]
+    SYS_PROMPTS = [
+        "你是信息竞赛测试数据设计专家。",
+        "你的任务是生成单个测试用例生成函数 case_generator(scale)。",
+        "scale 表示计算规模，而不是严格输入长度。",
+        "测试用例生成必须重点覆盖：边界情况、随机情况、极端结构、退化结构、卡复杂度结构。",
+        "你只负责生成单个测试用例，不负责批量生成。",
+        "除非测试用例可以根据 expected 构造，否则不要生成 expected，外部框架会自动计算。",
+        "输出必须是可直接运行的代码。",
+        "除注释外不要输出解释。",
+        "优先使用 input 元组格式。",
+        "仅当参数语义非常复杂时，才允许使用 dict 输入。",
+    ]
     
-    TEMPLATE_UNIQUE:str = f"""
-```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
-# 省略导入 init.* 和 answer.* 的代码，仅需写如下代码。所有输出必须可直接运行，非代码的说明必须用注释。
-def {_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}(random_case_num:int [, max_n:int ...])->List[{_CASE.__name__}]:
-    # random_case_num：生成的随机样例数量，必含。
-    # [, max_n:int ...]：用于指代与问题复杂度相关的参数（可以根据问题修改具体名称，可能为空，也可能不止 1 个参数）
+    TEMPLATE_UNIQUE = r'''
+```case_generator.py
+from typing import Dict, Any
+import random as rd
+import numpy as np
 
-    # 固定用例（用于覆盖各种可预见的边界情况，如空输入、临界值等），此处以 input_params 为元组类型为例
-    cases = [
-        (arg11, arg12), # 注意所有的 arg* 参数必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
-        (arg21, arg22), # 注意所有的 arg* 参数必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
-        ...
-    ] # 仅当很容易获知答案时，可以添加 "expected" 键，注意 expected 的值必须为 {_BASE_TYPE.__name__} 类型，确保可以 JSON 序列化。
-    fixed_cases = [{{"input":case,"cid":f"#{{i}}"}} for i,case in enumerate(cases)]
+def case_generator(scale:int) -> Dict[str, Any]:
+    """
+    scale:
+        表示计算规模。
+        应根据题目含义映射到:
+        - 数组长度
+        - 点数
+        - 边数
+        - 树深度
+        - 操作次数
+        等。
+    """
 
-    # [可选：全局状态记录器，用于查重]
-    ...
+    # 根据题意限制规模
+    n = max(1, int(round(scale)))
 
-    def 单随机样例生成器 f(规模参数)->Dict[str, {_BASE_TYPE.__name__}]:
-        ...
-        return {{"param1": val1, "param2": val2 ,...}}, # 此处以字典类型为例
-        # 仅当很容易获知答案时，返回：{{"input": input_params, "expected": 期望输出（_STANDARD_TYPE 类型）}}
-    
+    # TODO:
+    # 根据题目特点设计：
+    # - 边界情况
+    # - 极端结构
+    # - 随机结构
+    # - 卡复杂度结构
 
-    # --- 规模参数生成 (Outside the main loop) ---
-    # 推荐采用负指数分布生成规模，并排序，确保 n 随 i 增大而增大
-    # 生成 random_case_num 个规模参数
-    scales = []
-    lam = 3.0 / max_n  # 调整 lambda 以适应 max_n 的范围
-    
-    for _ in range(random_case_num):
-        # 使用负指数分布生成随机数，确保小规模数据多，大规模数据少
-        sample = random.expovariate(lam)
-        # 将生成的浮点数限制在有效范围内并转为整数
-        n = max(2, min(max_n, int(sample))) # 示例范围
-        scales.append(n)
-    
-    # 这样可以保证测试用例从小规模到大规模排列，避免大用例卡死
-    scales.sort()
-    
-    # 生成随机用例
-    res=[]
-    # --- 随机用例生成 (Random Cases) ---
-    for i, n in enumerate(scales):
-        其他参数...
-        cases.append({{
-            "input":单随机样例生成器 f(规模参数 n 等...),
-            "cid":i
-        }})
-    return fixed_cases + res
-```
-"""
+    return {
+        "input": (
+            ...
+        )
+    }
+'''
 
     TEMPLATE_CALLS=f"""
 ```{_DEFAULT_TEST_CASES_GENERATOR_FILE_NAME}.py
