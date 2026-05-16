@@ -16,11 +16,10 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"test_jump_game_ix.ipynb",
-  r"Question\3660. Jump Game IX\case_generator.py",
-  r"Question\3660. Jump Game IX\case_generator_ai.py",
+  r"rag_knowledge\case_generator\unique_call.leetcode_3660.py",
+  r"rag_knowledge\conversion\python\defalut_args.py",
+  r"rag\chunker.py",
   r"rag\docs_inclusion.py",
-  r"rag\index_builder.py",
 ]
 
 source_texts = []
@@ -34,17 +33,24 @@ for file in source_files:
 
 
 template_text = r"""
-我執行了：
+原 case_generator 和 conversion 的 RAG 數據庫混在一起，不合適。
+我擬定如下目錄和代碼：
 {}
-但是生成的：
 {}
-過於精妙了，這不像是 30B-q8 的中等模型能答得出來的，檢查發現其與我手工編輯的：
+每一個目錄設置一個獨立的 RAG。
+由于 case_generator 和 conversion 是完全独立的阶段，因此分不同 RAG 数据库。
+对于 case_generator：
+- 目前的切分不够智能，应当按步骤和功能再独立切分，例如：
+`A.独特元素的个数` 和 `B.选择数组数值分布` 可以通过在注释中增加特殊标记，让 RAG 切片程序识别，并将其切分成独立的模块。而且完整的函数直接向量化可能会过长。
+- 查询时匹配到候选局部模块统计相关性得分，选择总分最高的一个文件将其函数 F 完整地提取出来。
+- 若有排除在 F 外的其他高得分模块，也可以作为补充进行参考。
+- 目前测试样例仅通过 python 生成，一般不考虑采用其他语言实现，若需要高性能，可以用 Python 调用 Rust 实现局部模块，则届时可另外建立RAG。
+对于 conversion：
+- 其高度依赖语言特性，因此不同语言必须不同文件夹和 RAG
+- 而 Args、Kwargs、多caller 的区分，暂时没有确定应当同一 RAG 还是不同 RAG，可能需要实践摸索才能确定。
+现在需要先增加通过注释主动的切片规则，通过注释标记实现一套规则，要能自由调整上下文界限（例如有一些功能的输入需要依赖特殊的上一步的输出，因此需要将上一步的一部分纳入；而有的则不需要）：
 {}
-高度相似，而且我確定該版本代碼未錄入 RAG數據庫，檢查發現是 case_generator_prompt.md 泄露了 `3660. Jump Game IX\case_generator.py` 的代碼習慣。
-這是錯誤的做法，因爲該代碼高度特異，只對該題目效果好，應該改爲將該代碼錄入 RAG向量數據庫，首先要選一個目錄結構專門保存錄入RAG的代碼（如 `prompts\case_generator_python\3660.py`，當然可以改爲更規範的目錄）
-然後用如下程序收集要錄入的代碼片段（自動哈希，避免重複錄入）：
-{}
-并用如程序執行錄入（暫未區分 case_generator 和 conversion 的RAG數據庫，會混在一起，因此可能需要改進，增加指定的RAG目錄名）
+目前的代码已经有记录文件追溯，增量更新的功能，如下以供参考：
 {}
 """.format(*source_texts)
 
