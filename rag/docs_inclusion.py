@@ -96,14 +96,21 @@ def cli_select(files: List[str]) -> List[str]:
 # 主逻辑
 # ===============================
 
-def build_docs_inclusion(root_dir: str, out_dir="./rag_chunk"):
+def build_docs_inclusion(
+    root_dir: str,
+    out_dir="./rag_chunk",
+    auto_select=False,
+):
     files = scan_files(root_dir)
 
     if not files:
         print("⚠️ 未找到代码文件")
         return
 
-    selected = cli_select(files)
+    if auto_select:
+        selected = files
+    else:
+        selected = cli_select(files)
 
     docs = []
     for path in selected:

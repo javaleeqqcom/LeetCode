@@ -20,7 +20,10 @@ def load_docs(path):
 # 构建索引
 # ===============================
 
-def build_index(docs_file: str, prev_docs_file: str|None = None):
+def build_index(docs_file: str, 
+                collection_name : str,
+                prev_docs_file: str|None = None
+                ):
     docs = load_docs(docs_file)
 
     if prev_docs_file and os.path.exists(prev_docs_file):
@@ -34,7 +37,10 @@ def build_index(docs_file: str, prev_docs_file: str|None = None):
         print("✅ 无需更新")
         return
 
-    store = VectorStore()
+    store = VectorStore(
+        db_path = os.path.join("./rag_db", collection_name),
+        collection_name=collection_name
+    )
 
     total_chunks = 0
     for d in docs:

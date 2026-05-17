@@ -17,13 +17,21 @@ CHUNK_OUTPUT_PATH = "./rag_chunk"
 # ===============================
 
 class VectorStore:
-    def __init__(self):
+
+    def __init__(
+        self,
+        db_path="./rag_db/default",
+        collection_name="default",
+    ):
+
         self.client = chromadb.PersistentClient(
-            path="./chroma_db"   # 👈 存盘目录
+            path=db_path
         )
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            embedding_function=OllamaEmbeddingFunction()
+
+        self.collection = (
+            self.client.get_or_create_collection(
+                collection_name
+            )
         )
 
     def add_chunks(self, chunks: List[CodeChunk]):

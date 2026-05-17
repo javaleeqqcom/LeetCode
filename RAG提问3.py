@@ -16,10 +16,12 @@ def filter_empty(lines, not_empty_lines = False):
 
 NOT_EMPTY_LINES = True
 source_files =[
-  r"rag_knowledge\case_generator\unique_call.leetcode_3660.py",
+  r"rag_knowledge\case_generator\unique_call.array.leetcode_3660.py",
   r"rag_knowledge\conversion\python\defalut_args.py",
-  r"rag\chunker.py",
+  r"agents\case_generator_agent.py",
   r"rag\docs_inclusion.py",
+  r"prompts\case_generator_prompt.md",
+  r"rag\chunker.py",
 ]
 
 source_texts = []
@@ -39,19 +41,32 @@ template_text = r"""
 {}
 每一個目錄設置一個獨立的 RAG。
 由于 case_generator 和 conversion 是完全独立的阶段，因此分不同 RAG 数据库。
-对于 case_generator：
-- 目前的切分不够智能，应当按步骤和功能再独立切分，例如：
-`A.独特元素的个数` 和 `B.选择数组数值分布` 可以通过在注释中增加特殊标记，让 RAG 切片程序识别，并将其切分成独立的模块。而且完整的函数直接向量化可能会过长。
-- 查询时匹配到候选局部模块统计相关性得分，选择总分最高的一个文件将其函数 F 完整地提取出来。
-- 若有排除在 F 外的其他高得分模块，也可以作为补充进行参考。
-- 目前测试样例仅通过 python 生成，一般不考虑采用其他语言实现，若需要高性能，可以用 Python 调用 Rust 实现局部模块，则届时可另外建立RAG。
-对于 conversion：
-- 其高度依赖语言特性，因此不同语言必须不同文件夹和 RAG
-- 而 Args、Kwargs、多caller 的区分，暂时没有确定应当同一 RAG 还是不同 RAG，可能需要实践摸索才能确定。
-现在需要先增加通过注释主动的切片规则，通过注释标记实现一套规则，要能自由调整上下文界限（例如有一些功能的输入需要依赖特殊的上一步的输出，因此需要将上一步的一部分纳入；而有的则不需要）：
-{}
+- 对于 case_generator：
+  - 目前的切分不够智能，应区分 RAG向量片段 和 AI-prompt 片段。
+  - 其中RAG向量片段通过 `@RAG_*`标记区分，用于语义相似性查询和推荐。
+  - 而 AI-prompt 片段则通过 RAG 溯源信息进行还原，用于向AI提问。
+  - 提供示例 AI-prompt 包含两个部分：1. 完整文件 ； 2. 独立模块（可选）：
+  1. 完整文件
+    - @EXAMPLE_* 是完整文件标记，不再作为 RAG 向量输入，因为通常上下文过长。而是通过统计候选 RAG片段总分高者，进行溯源文件提取。
+  2. 独立模块（可选）：
+    - @RAG_* 则需要剔除 `@RAG_\w+:` 后才作为 RAG 向量输入，否则所有chunk都包含 `@RAG_\w+:` 会降低特异性，同时可避免 AI 将 @RAG_* 当成不可预测的指令。
+    - 只有 @RAG_EXPORT: yes 的模块才允许排除在完整文件外独立作为补充供AI参考。
+    - 注意有 @RAG_DEP 标记的，需要将其依赖的模块一并提取（被依赖放在前面，且可递归），在分片时需检查不能用循环依赖（必须有向无环图）。若 B 模块依赖 A 模块，且 A,B 都是高分独立模块时，则将 A,B 按序合并，避免重复输入 AI prompt。
+    - @RAG_MODULE_SETTING 仅当作为独立模块（排除在完整文件外）时，转换为注释放在前面，用于描述模块设定，以避免不必要的 @RAG_DEP 。
+    - 目前测试样例仅通过 python 生成，一般不考虑采用其他语言实现，若需要高性能，可以用 Python 调用 Rust 实现局部模块，则届时可另外建立RAG。
+- 对于 conversion：
+  - 其高度依赖语言特性，因此不同语言必须不同文件夹和 RAG
+  - 而 Args、Kwargs、多caller 的区分，暂时没有确定应当同一 RAG 还是不同 RAG，可能需要实践摸索才能确定。
+  - 由于 conversion 目前较短，暂时不采用 @RAG_... 的分片方式，而是按文件切分，以后需要时再升级细分。
 目前的代码已经有记录文件追溯，增量更新的功能，如下以供参考：
 {}
+目前的 AI-agent代码：
+{}
+而目前的AI-prompt模板：
+{}
+现在需要先增加通过注释主动的切片规则，通过注释标记实现一套规则，要能自由调整上下文界限（例如有一些功能的输入需要依赖特殊的上一步的输出，因此需要将上一步的一部分纳入；而有的则不需要）：
+{}
+建议通过新建 rag/semantic_chunker.py 实现，可以引用 chunker.py 的一些方法，请实现 semantic_chunker.py，使得能够识别 @RAG_ 等。
 """.format(*source_texts)
 
 import sys
