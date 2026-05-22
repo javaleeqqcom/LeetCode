@@ -1,21 +1,25 @@
-import chromadb
+# rag/retriever.py
+
+from __future__ import annotations
+
 import requests
+import chromadb
 
-from typing import List
+from typing import List, Dict, Any
 
 
-DB_PATH = "./chroma_db"
-COLLECTION_NAME = "code_chunks"
 EMBED_MODEL = "qwen3-embed-0.6b:q8"
 
 
-class OllamaEmbedding:
+# =========================================================
+# embedding
+# =========================================================
 
+class OllamaEmbedding:
     def __init__(self, model=EMBED_MODEL):
         self.model = model
 
     def embed(self, text: str) -> List[float]:
-
         res = requests.post(
             "http://localhost:11434/api/embeddings",
             json={
@@ -24,28 +28,89 @@ class OllamaEmbedding:
             },
         )
 
-        return res.json()["embedding"]
+        if res.status_code != 200:
+            raise RuntimeError(res.text)
 
+        data = res.json()
+
+        if "embedding" not in data:
+            raise RuntimeError(data)
+
+        return data["embedding"]
+
+
+# =========================================================
+# retriever
+# =========================================================
 
 class RAGRetriever:
+    """
+    通用 Retriever
 
-    def __init__(self):
+    支持：
+    - semantic rag
+    - ast rag
+    - 多 collection
+    - metadata
+    - future rerank
+    """
 
-        self.client = chromadb.PersistentClient(path=DB_PATH)
-
-        self.collection = self.client.get_collection(
-            name=COLLECTION_NAME
-        )
-
+    def __init__(
+        self,
+        db_root: str = "./rag_db",
+    ):
+        self.db_root = db_root
         self.embedder = OllamaEmbedding()
 
-    def search(self, query: str, topk: int = 3):
+        self.clients: Dict[str, chromadb.PersistentClient] = {}
+        self.collections = {}
+
+    # =====================================================
+    # lazy load collection
+    # =====================================================
+
+    def get_collection(self, collection_name: str):
+
+        if collection_name in self.collections:
+            return self.collections[collection_name]
+
+        db_path = f"{self.db_root}/{collection_name}"
+
+        client = chromadb.PersistentClient(
+            path=db_path
+        )
+
+        collection = client.get_collection(
+            name=collection_name
+        )
+
+        self.clients[collection_name] = client
+        self.collections[collection_name] = collection
+
+        return collection
+
+    # =====================================================
+    # search
+    # =====================================================
+
+    def search(
+        self,
+        query: str,
+        collection_name: str,
+        topk: int = 5,
+        where: dict | None = None,
+    ) -> List[Dict[str, Any]]:
+
+        collection = self.get_collection(
+            collection_name
+        )
 
         vec = self.embedder.embed(query)
 
-        res = self.collection.query(
+        res = collection.query(
             query_embeddings=[vec],
             n_results=topk,
+            where=where,
             include=[
                 "documents",
                 "metadatas",
@@ -53,18 +118,70 @@ class RAGRetriever:
             ],
         )
 
-        docs = []
+        results = []
+
+        docs = res.get("documents", [[]])[0]
+        metas = res.get("metadatas", [[]])[0]
+        dists = res.get("distances", [[]])[0]
 
         for doc, meta, dist in zip(
-            res["documents"][0],
-            res["metadatas"][0],
-            res["distances"][0],
+            docs,
+            metas,
+            dists,
         ):
 
-            docs.append({
-                "score": 1 - dist,
+            score = 1.0 - dist
+
+            results.append({
+                "score": score,
                 "document": doc,
                 "metadata": meta,
             })
 
-        return docs
+        return results
+
+    # =====================================================
+    # build context
+    # =====================================================
+
+    def build_context(
+        self,
+        query: str,
+        collection_name: str,
+        topk: int = 5,
+    ) -> str:
+
+        docs = self.search(
+            query=query,
+            collection_name=collection_name,
+            topk=topk,
+        )
+
+        blocks = []
+
+        for i, d in enumerate(docs):
+
+            meta = d["metadata"]
+
+            block = f"""
+# Chunk {i + 1}
+
+Score:
+{d["score"]:.4f}
+
+File:
+{meta.get("file_path", meta.get("file", ""))}
+
+Type:
+{meta.get("type", "")}
+
+Name:
+{meta.get("module_name", meta.get("name", ""))}
+
+Content:
+{d["document"]}
+"""
+
+            blocks.append(block)
+
+        return "\n\n".join(blocks)
