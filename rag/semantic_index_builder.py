@@ -177,8 +177,7 @@ def build_semantic_index(
             # add to vector db
             # =================================================
 
-            store.add_chunks(
-            # store.add_documents(
+            store.add_documents(
                 vector_chunks
             )
 

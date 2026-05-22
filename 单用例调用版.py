@@ -14,7 +14,7 @@ if __name__ == "__main__":
     from pathlib import Path
     import numpy as np
 
-    问题目录 = Path(r"Question\3660. Jump Game IX")
+    问题目录 = Path(r"Question\33. Search in Rotated Sorted Array")
     sys.path.insert(1, str(问题目录))
     from bt import Solution
 
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         cases = 暴力算法.read_test_case(cases_path)
     else:
         from case_generator import case_generator
-        size_list = sample_lognormal_scales(2000,mean_scale=20)+1
+        size_list = sample_lognormal_scales(2000, mean_scale=20)+1
         scales = quantize_scales(size_list, min_scale=1, max_scale=10**5)
         cases = build_test_cases(case_generator,scales)
         # print(cases[0])
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # print("expected_results[0]=", cases[0])
     print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-    改进算法 = SolutionRunner(问题目录 / "V5.0.py")
+    改进算法 = SolutionRunner(问题目录 / "V1.py")
 
     # 多线程
     print("=== 多线程 ===")

@@ -20,7 +20,8 @@ source_files =[
   r"rag\semantic_index_builder.py",
   r"rag\embedding.py",
   r"rag/rag_knowledge_update.py",
-  r"RAG执行失败.txt",
+  r"rag\retriever.py",
+  r"agents\case_generator_agent.py"
 ]
 
 source_texts = []
@@ -39,10 +40,30 @@ template_text = r"""
 {}
 并且修改了：
 {}
-以便区分不同 DB
-但是执行：
 {}
-失败：
+创建的数据库如下（bash）：
+```
+(base) PS D:\Users\java_lee\Documents\GitHub\LeetCode\rag_db> dir */*.sqlite3
+
+
+    目录: D:\Users\java_lee\Documents\GitHub\LeetCode\rag_db\case_generator
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a----         2026/5/17     12:02         188416 chroma.sqlite3
+
+
+    目录: D:\Users\java_lee\Documents\GitHub\LeetCode\rag_db\conversion
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a----         2026/5/17     12:02         212992 chroma.sqlite3
+```
+现在需要构造一个 langchain 工具，以供AI-agent 到对应文档查找，可以参考
+{}
+基础上修改，为接口，以便如下 langchin 架构调用
 {}
 """.format(*source_texts)
 

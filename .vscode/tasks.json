@@ -8,7 +8,7 @@
                 "/Zi",
                 "/EHsc",
                 "/nologo",
-                "/std:c++17",  // <--- 必须添加这一行
+                "/std:c++latest", // 💡 改为 /std:c++latest 来开启微软最新支持的全部 C++23 功能
                 "/utf-8",      // 顺便解决你之前的编码警告
                 "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
                 "${file}"

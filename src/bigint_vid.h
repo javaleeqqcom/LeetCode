@@ -12,11 +12,11 @@ typedef struct BigInt {
 } BigInt;
 
 /* ---------- 内联工具函数 ---------- */
+
 static inline size_t fast_bit_len(size_t n) {
     if (n == 0) return 0;
-    size_t r = 0;
-    while (n >>= 1) r++;
-    return r + 1;
+    // 64 位系统使用 __builtin_clzll，32 位系统使用 __builtin_clzl 或 __builtin_clz
+    return (sizeof(size_t) * 8) - __builtin_clzll((unsigned long long)n);
 }
 
 static inline BigInt bigint_new(size_t num) {

@@ -106,6 +106,7 @@ class VectorStore:
             → 自动调用 embedding_function
             → 写入向量数据库
         """
+        Warning("old version!")
 
         docs = []
         ids = []
@@ -129,6 +130,26 @@ class VectorStore:
             metadatas=metadatas
         )
 
+    def add_documents(self, docs: List[dict]):
+        """semantic chunk 不再采用 add_chunks 而改用 document"""
+
+        if not docs:
+            return
+
+        self.collection.add(
+            documents=[
+                d["document"]
+                for d in docs
+            ],
+            ids=[
+                d["id"]
+                for d in docs
+            ],
+            metadatas=[
+                d["metadata"]
+                for d in docs
+            ]
+        )
 # ===============================
 # Ollama Embedding 封装
 # ===============================

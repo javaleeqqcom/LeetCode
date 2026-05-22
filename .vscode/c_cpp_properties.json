@@ -12,7 +12,7 @@
             ],
             "compilerPath": "C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
             "cStandard": "c17",
-            "cppStandard": "c++17",
+            "cppStandard": "c++23", // 💡 修改这里：从 c++17 改为 c++23 或 c++20
             "intelliSenseMode": "windows-msvc-x64"
         }
     ],
