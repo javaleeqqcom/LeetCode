@@ -1,4 +1,6 @@
 # rag/semantic_index_builder.py
+# 更新于 RAG V0.1.3
+# 2026-5-17
 
 import json
 import os

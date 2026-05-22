@@ -1,4 +1,6 @@
 # rag/rag_tool.py
+# 更新于 RAG V0.2.0
+# 2026-5-22
 
 from langchain_core.tools import tool
 

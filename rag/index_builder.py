@@ -1,4 +1,6 @@
 # rag/index_builder.py
+# 更新于 RAG V0.1.2
+# 2026-5-16
 import json
 import os
 

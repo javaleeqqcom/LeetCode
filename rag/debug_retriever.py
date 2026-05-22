@@ -1,4 +1,6 @@
 # rag/debug_retriever.py
+# 更新于 RAG V0.2.0
+# 2026-5-22
 """
 RAG 检索调试工具（基于新版 retriever.py）
 

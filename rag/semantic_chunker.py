@@ -1,4 +1,6 @@
 # rag/semantic_chunker.py
+# 更新于 RAG V0.1.2
+# 2026-5-16
 
 from __future__ import annotations
 

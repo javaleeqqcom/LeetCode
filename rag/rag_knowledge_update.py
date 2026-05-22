@@ -1,4 +1,6 @@
 # rag/rag_knowledge_update.py
+# 更新于 RAG V0.2.0
+# 2026-5-22
 
 from pathlib import Path
 import time

@@ -1,26 +1,30 @@
-from typing import List, Dict
+# rag/embedding.py
+# 更新于 RAG V0.2.1
+# 2026-5-22
+
+from typing import List
+
 import chromadb
 import requests
 import json
-from chunker import CodeChunk
 
-# ===============================
-# 配置
-# ===============================
+from chromadb.api.types import (
+    EmbeddingFunction,
+    Documents,
+    Embeddings,
+)
 
-COLLECTION_NAME = "code_chunks"
-EMBED_MODEL = "qwen3-embed-0.6b:q8"  # ollama embedding
-CHUNK_OUTPUT_PATH = "./rag_chunk"
+EMBED_MODEL = "qwen3-embed-0.6b:q8"
 
-# ===============================
-# Chroma 向量库
-# ===============================
 
+# =========================================================
+# Ollama embedding function
+# =========================================================
 class VectorStore:
 
     def __init__(
         self,
-        db_path="./rag_db/default",
+        db_path="./rag_db",
         collection_name="default",
     ):
 
@@ -28,12 +32,18 @@ class VectorStore:
             path=db_path
         )
 
+        self.embedding_function = (
+            OllamaEmbeddingFunction()
+        )
+
         self.collection = (
             self.client.get_or_create_collection(
-                collection_name
+                name=collection_name,
+                embedding_function=self.embedding_function,
             )
         )
 
+    # typing error: 未定义“CodeChunk”
     def add_chunks(self, chunks: List[CodeChunk]):
         """
         将 CodeChunk 列表写入 ChromaDB 向量数据库。
@@ -150,56 +160,36 @@ class VectorStore:
                 for d in docs
             ]
         )
-# ===============================
-# Ollama Embedding 封装
-# ===============================
 
-class OllamaEmbeddingFunction:
-    def __init__(self, model=EMBED_MODEL):
+class OllamaEmbeddingFunction(
+    EmbeddingFunction[Documents]
+):
+
+    def __init__(
+        self,
+        model: str = EMBED_MODEL,
+    ):
         self.model = model
 
-    def __call__(self, input: List[str]) -> List[List[float]]:
-        return self.embed_documents(input)
+    def __call__(
+        self,
+        input: Documents,
+    ) -> Embeddings:
 
-    def name(self) -> str:
-        return f"ollama-{self.model}"
+        res = requests.post(
+            "http://localhost:11434/api/embed",
+            json={
+                "model": self.model,
+                "input": list(input),
+            },
+        )
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for t in texts:
-            res = requests.post(
-                "http://localhost:11434/api/embeddings",
-                json={
-                    "model": self.model,
-                    "prompt": t
-                }
-            )
-            if res.status_code != 200:
-                raise RuntimeError(f"HTTP错误: {res.status_code}, {res.text}")
+        if res.status_code != 200:
+            raise RuntimeError(res.text)
 
-            data = res.json()
+        data = res.json()
 
-            # ✅ 防御性检查
-            if "embedding" not in data:
-                raise RuntimeError(f"Ollama返回异常: {data}")
+        if "embeddings" not in data:
+            raise RuntimeError(data)
 
-            embeddings.append(data["embedding"])
-
-        return embeddings
-
-    def embed_query(self, query: str) -> List[float]:
-        return self.embed_documents([query])[0]
-
-    # ===== 可选（防未来版本爆炸）=====
-    def embed_with_retries(self, input: List[str]) -> List[List[float]]:
-        return self.embed_documents(input)
-
-    def default_space(self) -> str:
-        return "cosine"
-
-    def supported_spaces(self) -> List[str]:
-        return ["cosine", "l2"]
-
-    @classmethod
-    def build_from_config(cls, config: dict):
-        return cls(**config)
+        return data["embeddings"]

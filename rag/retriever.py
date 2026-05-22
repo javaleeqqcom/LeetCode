@@ -1,42 +1,16 @@
 # rag/retriever.py
+# 更新于 RAG V0.2.1
+# 2026-5-22
 
 from __future__ import annotations
 
-import requests
 import chromadb
 
 from typing import List, Dict, Any
 
-
-EMBED_MODEL = "qwen3-embed-0.6b:q8"
-
-
-# =========================================================
-# embedding
-# =========================================================
-
-class OllamaEmbedding:
-    def __init__(self, model=EMBED_MODEL):
-        self.model = model
-
-    def embed(self, text: str) -> List[float]:
-        res = requests.post(
-            "http://localhost:11434/api/embeddings",
-            json={
-                "model": self.model,
-                "prompt": text,
-            },
-        )
-
-        if res.status_code != 200:
-            raise RuntimeError(res.text)
-
-        data = res.json()
-
-        if "embedding" not in data:
-            raise RuntimeError(data)
-
-        return data["embedding"]
+from embedding import (
+    OllamaEmbeddingFunction,
+)
 
 
 # =========================================================
@@ -44,44 +18,46 @@ class OllamaEmbedding:
 # =========================================================
 
 class RAGRetriever:
-    """
-    通用 Retriever
-
-    支持：
-    - semantic rag
-    - ast rag
-    - 多 collection
-    - metadata
-    - future rerank
-    """
 
     def __init__(
         self,
         db_root: str = "./rag_db",
     ):
-        self.db_root = db_root
-        self.embedder = OllamaEmbedding()
 
-        self.clients: Dict[str, chromadb.PersistentClient] = {}
+        self.db_root = db_root
+
+        self.embedding_function = (
+            OllamaEmbeddingFunction()
+        )
+
+        self.clients = {}
         self.collections = {}
 
     # =====================================================
-    # lazy load collection
+    # get collection
     # =====================================================
 
-    def get_collection(self, collection_name: str):
+    def get_collection(
+        self,
+        collection_name: str,
+    ):
 
         if collection_name in self.collections:
             return self.collections[collection_name]
 
-        db_path = f"{self.db_root}/{collection_name}"
+        db_path = (
+            f"{self.db_root}/{collection_name}"
+        )
 
         client = chromadb.PersistentClient(
             path=db_path
         )
 
         collection = client.get_collection(
-            name=collection_name
+            name=collection_name,
+            embedding_function=(
+                self.embedding_function
+            ),
         )
 
         self.clients[collection_name] = client
@@ -105,10 +81,9 @@ class RAGRetriever:
             collection_name
         )
 
-        vec = self.embedder.embed(query)
-
+        # ⭐⭐⭐ 不再手工 embedding
         res = collection.query(
-            query_embeddings=[vec],
+            query_texts=[query],
             n_results=topk,
             where=where,
             include=[
@@ -120,9 +95,9 @@ class RAGRetriever:
 
         results = []
 
-        docs = res.get("documents", [[]])[0]
-        metas = res.get("metadatas", [[]])[0]
-        dists = res.get("distances", [[]])[0]
+        docs = res["documents"][0]
+        metas = res["metadatas"][0]
+        dists = res["distances"][0]
 
         for doc, meta, dist in zip(
             docs,
@@ -130,15 +105,14 @@ class RAGRetriever:
             dists,
         ):
 
-            score = 1.0 - dist
-
             results.append({
-                "score": score,
+                "score": 1.0 - dist,
                 "document": doc,
                 "metadata": meta,
             })
 
         return results
+    
 
     # =====================================================
     # build context
