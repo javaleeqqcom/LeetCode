@@ -15,12 +15,21 @@ graph_state = AIC(r"agents\graph_state.py")
 报错 = AIC(r"V0.7.5报错.txt")
 
 template_text = fr"""
-我已按你说的修改了，部分代码如下：
+我已按你说的修改了，并修复了一下报错，最后修改的代码如下：
 {case_generator_agent}
-但是报错如下：
-{报错}
 可能需要参考的文档如下：
 {AIC(r"prompts/case_generator.prompt.md")}
+执行如下代码：
+{AIC(r"V0.7.5版调用程序.py")}
+形式上符合预期，现阶段禁止AI直接执行生成的代码。不过其生成的代码质量堪忧，如下：
+{AIC(r"Question\2902. Count of Sub-Multisets With Bounded Sum\generated_case_generator.py")}
+而该问题的一个优秀测试样例代码如下：
+{AIC(r"Question\2902. Count of Sub-Multisets With Bounded Sum\case_generator.py")}
+AI-Agent生成的结果有如下问题：
+- 没有去掉 ('`'*3) 的Markdown代码框包裹
+改进目标：
+- 让 AI-Agent 以 LangChain 的格式生成无需Markdown代码框包裹的代码，或者用Python程序自动去包裹
+- 需要保存向 LLM invoke 的台词，以便 LLM 未响应时，输出该文本路径，由学生手动复制到第三方AI提问。
 """
 
 # 使用示例

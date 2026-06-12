@@ -4,8 +4,20 @@ from typing import List
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.chat_models import ChatOllama
 from schemas.problem_context import ProblemContext
-from tools.solution_struct import SolutionStruct
+from tools.solution_struct import SolutionStruct, ComplexityHint
 from agents.reference_retriever import ReferenceRetriever
+
+# 预置的默认用例生成器模板（作为 AI 的参考格式）
+_DEFAULT_CASE_GENERATOR_TEMPLATE = r'''
+def case_generator(scale: int) -> dict:
+    """scale 映射到题目规模（如数组长度）"""
+    n = max(1, int(round(scale)))
+    # 根据题目生成输入参数，格式必须为 {"input": tuple|dict}
+    # 示例（元组格式）：
+    return {
+        "input": (nums, l, r)
+    }
+'''
 
 class CaseGeneratorAgent:
     def __init__(self, llm=None):
@@ -22,21 +34,29 @@ class CaseGeneratorAgent:
         return ref_str
 
     def run(self, problem: ProblemContext) -> str:
-        # 1. 获取复杂度提示（来自 SolutionStruct 或外部分析器）
-        complexity = problem.solution_struct.complexity_hint
-        # 2. RAG 参考
-        knowledge = problem.solution_struct.complexity_hint.notes or ""
-        # 实际知识需求可由 AnalyzeAgent 提供，这里简化从 complexity 获取
-        rag_context = self.build_rag_context([complexity.time_complexity or "basic"])
+        # 1. 提取复杂度提示
+        complexity: ComplexityHint = problem.solution_struct.complexity_hint
+        # 构建分析说明文本
+        analysis_str = (
+            f"Time complexity: {complexity.time_complexity or 'unknown'}. "
+            f"Space complexity: {complexity.space_complexity or 'unknown'}. "
+            f"Estimated max n: {complexity.estimated_n_limit or 'unspecified'}. "
+            f"Notes: {complexity.notes or ''}"
+        )
 
-        # 3. 构造 Prompt
+        # 2. RAG 参考上下文（使用复杂度类型或备注作为查询）
+        rag_query = complexity.time_complexity or "general"
+        if complexity.notes:
+            rag_query += " " + complexity.notes
+        rag_context = self.build_rag_context([rag_query])
+
+        # 3. 构造 Prompt（必须与模板要求的变量名完全一致）
         response = self.chain.invoke({
-            "title": problem.title,
-            "description": problem.description,
-            "constraints": problem.constraints,
-            "solution_json": problem.solution_struct.to_json(),
-            "complexity": complexity,
-            "rag_context": rag_context,
+            "question": problem.description,                # 题目描述
+            "student_code": problem.solution_struct.source_code,  # 学生代码
+            "case_generator_code": _DEFAULT_CASE_GENERATOR_TEMPLATE, # 参考模板
+            "analysis": analysis_str,                       # 复杂度分析
+            "rag_context": rag_context,                     # RAG 内容
         })
-        # 假设 LLM 直接返回符合框架格式的 JSON 数组（test_cases）
-        return response.content   # 返回生成的用例列表（字符串）
+        # 返回生成的用例生成器代码（字符串）
+        return response.content
