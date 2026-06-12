@@ -8,6 +8,11 @@ from embedding import VectorStore
 from docs_inclusion import diff_docs
 from chunker import CodeChunker, save_chunks_readable, save_chunks_json
 
+DEBUG = True
+if DEBUG:
+    import embedding
+    print("embedding file =", embedding.__file__)
+    print("VectorStore =", dir(embedding.VectorStore))
 
 # ===============================
 # 加载 JSON

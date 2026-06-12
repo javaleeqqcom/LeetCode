@@ -12,11 +12,12 @@ if __name__ == "__main__":
     from typing import List, Union, Tuple, Dict, Any
     # 导入 Path 库
     from pathlib import Path
+    import time
     import numpy as np
 
-    问题目录 = Path(r"Question\33. Search in Rotated Sorted Array")
+    问题目录 = Path(r"Question\2902. Count of Sub-Multisets With Bounded Sum")
     sys.path.insert(1, str(问题目录))
-    from bt import Solution
+    # from bt import Solution
 
     # 初始化暴力解法运行器
     暴力算法 = SolutionRunner(问题目录 / "bt.py")
@@ -39,7 +40,7 @@ if __name__ == "__main__":
         cases = 暴力算法.read_test_case(cases_path)
     else:
         from case_generator import case_generator
-        size_list = sample_lognormal_scales(2000, mean_scale=20)+1
+        size_list = sample_lognormal_scales(1000, mean_scale=10)+1
         scales = quantize_scales(size_list, min_scale=1, max_scale=10**5)
         cases = build_test_cases(case_generator,scales)
         # print(cases[0])
@@ -76,9 +77,13 @@ if __name__ == "__main__":
     # print("expected_results[0]=", cases[0])
     print(f"暴力算法 是否有 custom_caller ：{暴力算法.has_custom_caller}")
 
-    改进算法 = SolutionRunner(问题目录 / "V1.py")
+    改进算法 = SolutionRunner(问题目录 / "V2.12.sim.py")
 
     # 多线程
     print("=== 多线程 ===")
     print(f"改进算法 是否有 custom_caller ：{改进算法.has_custom_caller}")
+
+    begin = time.time()
     results_multi = 改进算法.run(cases, thread=1, timeout_s=60,summary=True,early_stop=10)
+    end = time.time()
+    print(f"totol time cost: {(end-begin):.6f}s")

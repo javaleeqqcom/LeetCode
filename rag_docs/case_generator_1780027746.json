@@ -5,5 +5,12 @@
     "file": "unique_call.array.leetcode_3660.py",
     "mtime": 1778910190.3346076,
     "hash": "9e1c2daa3537234286090a8bc89708f9"
+  },
+  {
+    "root": "rag_knowledge/case_generator",
+    "path": "rag_knowledge/case_generator\\unique_call.array.leetcode_3942.py",
+    "file": "unique_call.array.leetcode_3942.py",
+    "mtime": 1779627758.5416553,
+    "hash": "de1df2bc49ebf222d6d5236e74b98776"
   }
 ]

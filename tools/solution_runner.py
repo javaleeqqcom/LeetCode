@@ -702,6 +702,7 @@ class SolutionRunner:
             )
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return Path(file_path)
+    
     def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
         """自动向AI提问得到问题的测试样例生成器"""
         if not os.path.exists(documentation):

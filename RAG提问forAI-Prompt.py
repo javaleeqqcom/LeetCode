@@ -5,9 +5,7 @@ RAG_DEBUG = AIC(r"RAG_DEBUG.txt")
 embedding = AIC(r"rag\embedding.py")
 retriever=AIC(r"rag\retriever.py")
 index_builder = AIC(r"rag\index_builder.py")
-rag_knowledge_update = AIC(r"rag\rag_knowledge_update.py")
 RAG_DOC = AIC(r"rag\RAG_DOC.md")
-semantic_chunker = AIC(r"rag\semantic_chunker.py")
 
 analyze_agent = AIC(r"agents\analyze_agent.py")
 build_graph = AIC(r"agents\build_graph.py")
@@ -17,18 +15,22 @@ graph_state = AIC(r"agents\graph_state.py")
 template_text = fr"""
 我已经初步构建了 RAG 系统，DOC如下：
 {RAG_DOC}
-尝试提取如下：
-{RAG_DEBUG}
-发现 case_generator 仅录入函数声明，没有录入函数体，因为我的 query 是如下原文：
-{AIC(r"rag_knowledge\case_generator\unique_call.array.leetcode_3660.py")}
-但是却未找到，而且可以通过：
-{AIC(r"rag_chunk\rag_knowledge.case_generator.unique_call.array.leetcode_3660.py.semantic.json")}
-发现 segmented 的只有函数头，请检查：
-{embedding}
-{semantic_chunker}
-{index_builder}
-{rag_knowledge_update}
-是哪里出了问题。
+LangChain的代码如下：
+{analyze_agent}
+{build_graph}
+{case_generator_agent}
+{graph_state}
+但是执行：
+{AIC(r"单用例调用版.py")}
+输出的提问文本如下，显然没有包含RAG样例：
+{AIC(r"Question\3943. Number of Pairs After Increment\测试样例提问.txt")}
+因为：
+{AIC(r"tools\ai_prompts.py")}
+还在用传统的提示词生成方式，应修改使其调用智能体。
+而且 ai_prompts 居然是由执行测试的程序：
+{AIC(r"tools\solution_runner.py")}
+来进行调用的，这架构不合理，将来要改为统一 AI-agent 生成 测试样例代码，并操作 solution_runner 执行。
+请重新设计架构。
 """
 
 # 使用示例
