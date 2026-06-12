@@ -38,7 +38,9 @@ from .examples_parser import parse_test_cases
 from .args_parser import _BASE_TYPE,_PARAMS,_CASE,_EXECUTE_CALLER,_is_base_type,parse_output_to_standard
 from .def_conversion import main_caller_args,main_caller_kwargs
 from .compacted_json import CompactedJson
-from .ai_prompts import TEST_CASE_GENERATOR,_CUSTOM_CALLER_NAME
+from .solution_struct import SolutionStruct
+from .ai_prompts import _CUSTOM_CALLER_NAME   # 仅保留 caller 名称常量
+
 """
 一个标准的测试样例的格式为：
     - 字典: {"input": case [,"output":Any, "expected":Any,"error":str , ...]}
@@ -332,6 +334,7 @@ class SolutionRunner:
         #     raw = f.read()
         # result = from_bytes(raw).best()
         # return str(result) if result else raw.decode('utf-8', errors='ignore')
+
     def __init__(self, solution_file: os.PathLike, main_method: Optional[str] = None) -> None:
         """
         初始化 SolutionRunner，自动加载学生代码文件。
@@ -345,59 +348,124 @@ class SolutionRunner:
         self.relPath = solution_path.parent
         self.file_name = os.path.splitext(os.path.basename(solution_path))[0]
         # 是否有自定义转换函数文件，若无则以默认转换函数为准
-        conversion_path:Path = self.relPath/"conversion.py"
+        conversion_path: Path = self.relPath / "conversion.py"
         if conversion_path.exists():
             self.has_custom_caller = True
         else:
             self.has_custom_caller = False
-            conversion_path = _TOOLS_DIR/"def_conversion.py"
+            conversion_path = _TOOLS_DIR / "def_conversion.py"
         # 2.1 读取预执行代码
         self.student_code = self._read_code(solution_file)
         self.source_code_lst = [
-            self._read_code(_TOOLS_DIR/"args_parser.py"),
+            self._read_code(_TOOLS_DIR / "args_parser.py"),
             self.student_code,
             self._read_code(conversion_path),
         ]
         # 2.2 若创建了 conversion.py 则纳入，覆盖原有代码
-        if (self.relPath/"conversion.py").exists():
-            self.source_code_lst.append(self._read_code(self.relPath/"conversion.py"))
+        if (self.relPath / "conversion.py").exists():
+            self.source_code_lst.append(self._read_code(self.relPath / "conversion.py"))
         # 3 创建 solution 的虚拟环境
         self.solution_module = _create_solution_module(self.source_code_lst)
         # 4. 获取Solution类
         if _SOLUTION_TYPE_NAME_ not in self.solution_module.__dict__:
             raise ValueError(f"学生代码中未定义 {_SOLUTION_TYPE_NAME_} 类")
         module_Solution = self.solution_module.__dict__[_SOLUTION_TYPE_NAME_]
-        # 5. 提取主方法名
-        methods = []
+
+        # 5. 提取所有非魔术方法，构建结构化列表（供 build_solution_struct 使用）
+        self.all_methods = []  # 每个元素: (name, method_obj, signature, source_code)
+        methods_basic = []      # 保留原有简单列表用于 main_method 判断
         for name, method in inspect.getmembers(module_Solution, predicate=inspect.isfunction):
             if not (name.startswith('__') and name.endswith('__')):
-                methods.append((name, method))
+                # 获取签名
+                try:
+                    sig = inspect.signature(method)
+                except (ValueError, TypeError):
+                    sig = inspect.Signature()   # 无法获取时使用空签名
+                # 获取源码
+                try:
+                    src = inspect.getsource(method)
+                except OSError:
+                    src = ""
+                self.all_methods.append((name, method, sig, src))
+                methods_basic.append((name, method))
+
+        # 6. 确定主方法
         if main_method is not None:
             # 使用指定的方法名
-            method_dict = dict(methods)
+            method_dict = dict(methods_basic)
             if main_method not in method_dict:
                 raise ValueError(f"指定的主方法 '{main_method}' 不存在于 {_SOLUTION_TYPE_NAME_} 类中")
             self.main_method = main_method
         else:
             # 自动选择唯一方法
-            if len(methods) == 1:
-                self.main_method, _ = methods[0]
+            if len(methods_basic) == 1:
+                self.main_method, _ = methods_basic[0]
             else:
                 print("存在多个方法，执行时必须定义 solution_callers 才能使用 run 及任何后继方法！")
-                self.main_method = None # 用 None 表示可调用方法不唯一
+                self.main_method = None  # 用 None 表示可调用方法不唯一
+
+        # 7. 若主方法唯一，初始化实例、签名及类型信息
         if self.main_method is not None:
-            # 6. 提出主方法的参数名和参数类型
             self.instance = module_Solution()
-            self.sig  = inspect.signature(getattr(self.instance, self.main_method))
+            main_method_obj = getattr(self.instance, self.main_method)
+            self.sig = inspect.signature(main_method_obj)
             self.sig_names = list(self.sig.parameters.keys())
             self.sig_types = [v.annotation for v in self.sig.parameters.values()]
             self.has_custom_type = not all(_is_base_type(t) for t in self.sig_types)
             if __DEBUG__:
                 print(f"sig.parameters: {self.sig.parameters}")
-                print(f"主方法参数名: { self.sig_names}")
-                print(f"主方法参数类型: { self.sig_types }")
+                print(f"主方法参数名: {self.sig_names}")
+                print(f"主方法参数类型: {self.sig_types}")
         else:
             self.has_custom_type = None
+            
+    def build_solution_struct(self) -> SolutionStruct:
+        """导出跨语言统一结构，供 AI‑Agent 使用"""
+        from .solution_struct import (           # 避免循环导入，在函数内部导入
+            SolutionStruct, Language, MethodStruct, ParamStruct,
+            ReturnStruct, ConstraintStruct
+        )
+        methods = []
+        for name, method_obj, sig, src in self.all_methods:
+            params = []
+            for p_name, param in sig.parameters.items():
+                # 排除 self
+                if p_name == "self":
+                    continue
+                type_str = str(param.annotation) if param.annotation is not param.empty else "Any"
+                # 简单提取 origin_type（可根据需要扩展）
+                origin = getattr(param.annotation, "__origin__", None)
+                origin_str = origin.__name__ if origin else None
+                default = param.default if param.default is not param.empty else None
+                params.append(ParamStruct(
+                    name=p_name,
+                    type_str=type_str,
+                    origin_type=origin_str,
+                    nullable=False,               # 暂不分析
+                    default_value=default,
+                    constraints=ConstraintStruct()
+                ))
+            ret_annotation = sig.return_annotation
+            ret_type_str = str(ret_annotation) if ret_annotation is not sig.empty else "None"
+            ret_origin = getattr(ret_annotation, "__origin__", None)
+            ret_origin_str = ret_origin.__name__ if ret_origin else None
+            return_info = ReturnStruct(
+                type_str=ret_type_str,
+                origin_type=ret_origin_str
+            )
+            methods.append(MethodStruct(
+                name=name,
+                params=params,
+                return_info=return_info,
+                source_code=src
+            ))
+        return SolutionStruct(
+            language=Language.PYTHON,
+            class_name=_SOLUTION_TYPE_NAME_,
+            source_code=self.student_code,
+            methods=methods
+        )
+
     def read_test_case(
         self,
         path_list: Union[os.PathLike, List[os.PathLike]] = []
@@ -703,16 +771,16 @@ class SolutionRunner:
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return Path(file_path)
     
-    def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
-        """自动向AI提问得到问题的测试样例生成器"""
-        if not os.path.exists(documentation):
-            documentation = self.relPath/documentation
-        with open(documentation , encoding="utf-8") as fp:
-            request_text = fp.read()
-        codes = f"<init-code>\n{self.source_code_lst}\n</init-code>\n<student-code>\n{self.student_code}\n</student-code>"
-        if AI is not None:
-            raise ValueError("暂时不支持自动提问")
-            return None
-        # AI 未指定，或者网络等错误
-        # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
-        return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
+    # def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
+    #     """自动向AI提问得到问题的测试样例生成器"""
+    #     if not os.path.exists(documentation):
+    #         documentation = self.relPath/documentation
+    #     with open(documentation , encoding="utf-8") as fp:
+    #         request_text = fp.read()
+    #     codes = f"<init-code>\n{self.source_code_lst}\n</init-code>\n<student-code>\n{self.student_code}\n</student-code>"
+    #     if AI is not None:
+    #         raise ValueError("暂时不支持自动提问")
+    #         return None
+    #     # AI 未指定，或者网络等错误
+    #     # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
+    #     return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)

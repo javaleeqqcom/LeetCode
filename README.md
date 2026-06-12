@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.7.3
+- 版本：0.7.4
 
 ## 总览
 
@@ -9,7 +9,7 @@
 - **全自动环境模拟**：自动处理编码检测（UTF‑8/GBK/BOM）、类型注入、虚拟模块隔离，使本地执行行为与 LeetCode 在线判题环境完全一致。
 - **高效批量验证**：支持多线程并发执行、早停策略、智能文件管理，显著提升大规模测试用例的运行效率。
 - **结构化调试辅助**：为链表和二叉树提供安全迭代器、环检测、美观打印等工具，方便快速定位算法逻辑错误。
-- **AI 增强工作流**：集成 RAG（检索增强生成）提示词模板，可自动生成测试用例与暴力验证代码，逐步向代码结构理解（Graph‑RAG）演进。
+- **AI 增强工作流**：采用 Agent + Runtime 分层架构，通过统一的SolutionStruct导出代码结构，AI Agent 可基于此自动生成测试用例与暴力验证代码，实现执行逻辑与生成逻辑的完全解耦，并逐步向 Graph‑RAG 演进。
 
 ---
 
@@ -103,33 +103,36 @@ for idx, node in it:
 
 ---
 
-## 三、RAG AI Prompt（代码理解与生成）
+## 三、AI Agent 工作流（解耦设计）
 
-框架已集成 **检索增强生成（RAG）** 模块，用于自动化测试用例生成与暴力算法编写。该模块的目标是从“语义检索”升级为“结构检索 + 语义补充”，最终演进至 **Graph‑RAG**。
+框架已重构为 **Agent 层** 与 **Runtime 层** 分离的架构，彻底移除 `SolutionRunner` 中的 Prompt 生成逻辑。
+- **Runtime 层**（`tools/`）：仅负责代码执行、结果比较、测试用例读写。
+- **Agent 层**（`agents/`，规划中）：控制 RAG 检索、Prompt 构建、测试用例生成与迭代优化。
+- **统一结构**：`SolutionStruct`（`tools/solution_struct.py`）将 Python / C++ / Java 等代码的方法签名、参数类型、复杂度提示等信息导出为与语言无关的数据结构，AI Agent 无需接触原始源码即可生成高质量测试用例。
 
 ### 当前 RAG 能力（`rag/` 目录）
-- **文档分块（chunk）**：将代码/注释按函数、类等语义边界切分。
-- **向量嵌入（embedding）**：使用嵌入模型将代码块转换为向量，支持相似度检索。
-- **检索器（retriever）**：基于 FAISS 的向量检索，返回与查询最相关的代码片段。
-- **依赖扩展（dependency）**：根据检索结果自动补充相关类型定义（如 `ListNode` → 自动引入 `ListNodeKit`）。
+保留原有的双知识库 RAG 系统（语义知识库 `case_generator` 与 AST 知识库 `conversion`），提供向量检索能力。
+- **文档分块（chunk）**：按语义标记或 AST 切片生成代码块。
+- **向量嵌入（embedding）**：通过 ChromaDB + Ollama 持久化。
+- **检索器（retriever）**：`RAGRetriever` 统一接口，支持多知识库查询。
+- **Agent 封装**：`RetrievalAgent`（规划中）负责将分析结果转换为检索查询，屏蔽内部实现。
 
-### AI Prompt 工作流示例
-#### 自动生成测试用例
+### Agent 工作流规划
 ```text
-[System] 你是 LeetCode 测试用例生成器。
-[User] 题目：删除排序链表中的重复元素 II（给定 head: ListNode），返回删除重复元素后的链表。...
-请按如下模板函数生成一个函数，使其返回边界测试用例，以及随机测试用例：
-...
+AnalyzeAgent  →  输出 problem_analysis (含算法类型、复杂度)
+       ↓
+RetrievalAgent  →  根据分析结果检索相关测试模板和转换代码
+       ↓
+CaseGeneratorAgent  →  基于题目、学生代码、RAG 上下文和 SolutionStruct 生成测试用例生成函数
+       ↓
+ExecuteAgent  →  调用 SolutionRunner 执行测试并收集结果
+       ↓
+EvaluateAgent  →  分析通过率、错误分布，反馈优化建议
 ```
-框架可调用 RAG 检索已有题目的相似测试模板，并利用 LLM 生成新的用例。
+全部中间数据（分析结果、检索上下文、生成的代码）均通过结构化 Schema 传递，RAG 与执行模块完全解耦，便于后续扩展多语言支持。
 
-#### 自动编写暴力算法
-- 可以考虑用非学生练习语言编写暴力算法，如学生用 Python 作答时，可以用 C/C++ 编写暴力算法，只要统一以 JSON 格式保存输入和预期输出即可。
-
-### 演进路线（Phase 2）
-1. **AST Call Graph**：分析代码调用关系（`function A → calls → function B`），使 RAG 理解程序执行流。
-2. **SafeIterBase Cython 化**：将安全迭代器的核心循环用 Cython 重写，降低遍历与依赖扩展的成本。
-3. **Graph‑RAG**：用图遍历（`query → subgraph retrieval → LLM context injection`）替换纯向量检索，实现真正的代码逻辑理解。
+### 暴力算法验证流程
+原有的暴力算法验证仍可复用：通过 Agent 生成暴力解法代码，手动调用 `SolutionRunner` 执行并比较，未来将由 `CaseGeneratorAgent` 自动编排。
 
 ---
 
@@ -139,7 +142,7 @@ for idx, node in it:
 |------|----------|
 | **多线程测试工具** | 零侵入运行学生代码，自动处理编码/类型/环境，支持并发执行与早停。 |
 | **特殊类型调试工具** | 为链表和二叉树提供安全迭代、环检测、美观打印，显著提升调试效率。 |
-| **RAG AI Prompt** | 利用检索增强生成自动产生测试用例与暴力算法，并规划向 Graph‑RAG 演进。 |
+| **AI Agent 架构** | 通过 Agent 与 Runtime 分层、SolutionStruct 统一导出，自动生成测试用例与暴力算法，并规划向 Graph‑RAG 演进。 |
 
 本项目致力于让本地算法调试体验**无限接近 LeetCode 在线环境**，同时通过结构化的调试工具和 AI 辅助工作流，帮助学习者更快定位问题、验证算法正确性。后续将重点推进 **AST 调用图分析**与 **Graph‑RAG 检索**，使框架从“能找代码”进化为“能理解代码”。
 
