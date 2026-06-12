@@ -41,7 +41,11 @@ class ProblemAnalysis(BaseModel):
 
     stress_patterns: List[str]
 
-    rag_queries: List[str]
+    algorithm_type: str
+    difficulty: str
+    # rag_queries: List[str]需将 rag_queries 替换为 knowledge_requirements
+    knowledge_requirements: List[str] = []   # 不再暴露 rag_queries
+    notes: Optional[str] = None
 
     corrected_code: Optional[str] = None
 

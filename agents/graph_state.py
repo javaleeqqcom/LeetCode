@@ -1,19 +1,13 @@
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, List
+from schemas.problem_context import ProblemContext
 from schemas.analysis_schema import ProblemAnalysis
 
-
 class AgentState(TypedDict):
-
-    question_text: str
-
-    student_code: str
-
-    file_suffix: str
-
+    problem: Optional[ProblemContext]
     analysis: Optional[ProblemAnalysis]
-
-    retrieved_context: Optional[list]
-
-    case_generator_code: Optional[str]
-
-    conversion_code: Optional[str]
+    retrieved_case_context: Optional[str]
+    retrieved_conversion_context: Optional[str]
+    generated_case_code: Optional[str]
+    generated_cases: Optional[list]          # List[_CASE]
+    brute_force_results: Optional[list]
+    evaluation: Optional[dict]
