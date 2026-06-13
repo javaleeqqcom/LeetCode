@@ -39,6 +39,9 @@ if __name__ == "__main__":
 
     # ================= 4. Agent 自动生成测试用例生成器 =================
     case_gen_agent = CaseGeneratorAgent()
+
+    t = case_gen_agent.build_prompt_text(context)
+
     generated_code = case_gen_agent.run(context)
 
     # 动态执行生成的代码，获取 case_generator 函数
