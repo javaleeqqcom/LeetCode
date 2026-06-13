@@ -82,14 +82,24 @@ class CaseGeneratorAgent:
         print("📋 请将生成的 case_generator 代码复制到剪贴板，然后按 Enter 继续。")
         print("   若剪贴板读取失败，可再次复制后按 Enter 重试。")
         print("=" * 60)
+
         for attempt in range(1, max_attempts + 1):
             input(f"⏳ 第 {attempt}/{max_attempts} 次尝试：按 Enter 读取剪贴板...")
             raw = AgentIO.paste_from_clipboard()
             if raw:
                 code = AgentIO.clean_llm_code(raw)
                 if code and "def case_generator" in code:
-                    print("✅ 成功读取有效代码。")
-                    return code
+                    # 自动修复缺失 import
+                    code = AgentIO.auto_fix_imports(code)
+                    # 沙箱验证
+                    valid, err_msg = AgentIO.validate_case_generator(code)
+                    if valid:
+                        print("✅ 代码修复并验证通过。")
+                        return code
+                    else:
+                        print(f"❌ 代码验证失败：{err_msg}")
+                        print("   请修改代码后重新复制到剪贴板，或按 Enter 重试。")
+                        # 不返回，进入下一次循环
                 else:
                     print("⚠️ 剪贴板内容中未找到 case_generator 函数定义，请检查后重试。")
             else:
@@ -97,6 +107,7 @@ class CaseGeneratorAgent:
             if attempt < max_attempts:
                 print(f"将在 {delay} 秒后重试...")
                 time.sleep(delay)
+
         print("❌ 超过最大重试次数，未能获取有效代码。")
         return None
 
@@ -131,9 +142,20 @@ class CaseGeneratorAgent:
                 response = self.llm.invoke(messages)
                 assert isinstance(response.content, str), "LLM 返回非字符串"
                 code = AgentIO.clean_llm_code(response.content)
+                code = AgentIO.auto_fix_imports(code)
+                # 全自动模式也做验证，失败则抛出明确的 RuntimeError
+                valid, err_msg = AgentIO.validate_case_generator(code)
+                if not valid:
+                    raise RuntimeError(
+                        f"LLM 生成的代码验证失败：{err_msg}\n"
+                        f"请手动检查或使用 dry_run 模式。\n"
+                        f"Prompt 已保存至: {prompt_path}"
+                    )
             except Exception as e:
                 raise RuntimeError(
-                    f"LLM调用失败，请检查日志或手动提问文件：\n{prompt_path}\n原始错误：{e}"
+                    f"LLM调用或代码验证失败。\n"
+                    f"原始错误: {e}\n"
+                    f"请检查日志: {prompt_path}"
                 )
 
         # 保存生成的代码
