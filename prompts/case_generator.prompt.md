@@ -9,7 +9,10 @@
 生成算法测试数据生成器，要求：
 
 - 输出必须 JSON 可序列化
-- 不允许 markdown
+- 只输出 Python 代码
+- scale 表示测试规模，应与学生代码执行时间基本成正比
+- 禁止生成 main
+- 注意依赖库要 import
 
 请参考示例代码：
 {case_generator_code}

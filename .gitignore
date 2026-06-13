@@ -14,7 +14,7 @@ __pycache__/
 tools/*.cpp
 tools/*.html
 temp.*
-chroma_db/
+rag_db/
 rag_chunk/
 Question/
 

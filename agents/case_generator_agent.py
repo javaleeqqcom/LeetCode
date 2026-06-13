@@ -6,6 +6,8 @@ from langchain_community.chat_models import ChatOllama
 from schemas.problem_context import ProblemContext
 from tools.solution_struct import SolutionStruct, ComplexityHint
 from agents.reference_retriever import ReferenceRetriever
+from agents.agent_io import AgentIO
+from threading import Thread
 
 # 预置的默认用例生成器模板（作为 AI 的参考格式）
 _DEFAULT_CASE_GENERATOR_TEMPLATE = r'''
@@ -50,13 +52,89 @@ class CaseGeneratorAgent:
             rag_query += " " + complexity.notes
         rag_context = self.build_rag_context([rag_query])
 
-        # 3. 构造 Prompt（必须与模板要求的变量名完全一致）
-        response = self.chain.invoke({
-            "question": problem.description,                # 题目描述
-            "student_code": problem.solution_struct.source_code,  # 学生代码
-            "case_generator_code": _DEFAULT_CASE_GENERATOR_TEMPLATE, # 参考模板
-            "analysis": analysis_str,                       # 复杂度分析
-            "rag_context": rag_context,                     # RAG 内容
-        })
+        # 单独构造向AI提问的模板（必须与模板要求的变量名完全一致）
+        msg = self.prompt.format_messages(
+            question=problem.description,
+            student_code=problem.solution_struct.source_code,
+            case_generator_code=_DEFAULT_CASE_GENERATOR_TEMPLATE,
+            analysis=analysis_str,
+            rag_context=rag_context,
+        )
+
+        # 用于备份提问的台词
+        prompt_text = "\n\n".join( str(x.content) for x in msg )
+        idx = AgentIO.next_index(
+            problem.problem_dir
+        )
+        # 待改进，可以用子线程 Thread 避免外存IO等待
+        prompt_path = self.save_prompt(
+            problem,
+            prompt_text,
+            idx
+        )
+        print(f"Prompt已保存: {prompt_path}")
+
+        # 3. 向 LLM 提问，在线等待返回
+        try:
+            response = self.llm.invoke(msg)
+            assert isinstance(response.content,str),"CaseGeneratorAgent.llm.response not valid string."
+            code = AgentIO.clean_llm_code( response.content )
+
+        except Exception as e:
+
+            raise RuntimeError(
+                f"""
+LLM调用失败
+请打开以下文件手动提问：
+{prompt_path}
+原始错误：
+{e}
+"""
+            )
+
+        code_path = self.save_generated_code( problem,  code, idx)
+        print( f"代码已保存: {code_path}")
         # 返回生成的用例生成器代码（字符串）
         return response.content
+    
+    def save_prompt(
+    self,
+    problem: ProblemContext,
+    prompt_text:str,
+    idx:int,
+    )->Path:
+
+        log_dir = AgentIO.get_log_dir(
+            problem.problem_dir
+        )
+
+        path = log_dir / f"AI_prompt_{idx:03d}.log"
+
+        path.write_text(
+            prompt_text,
+            encoding="utf-8"
+        )
+
+        return path
+    
+    def save_generated_code(
+    self,
+    problem: ProblemContext,
+    code:str,
+    idx:int,
+    )->Path:
+
+        auto_dir = AgentIO.get_auto_dir(
+            problem.problem_dir
+        )
+
+        path = auto_dir / (
+            f"case_generator_{idx:03d}.py"
+        )
+
+        path.write_text(
+            code,
+            encoding="utf-8"
+        )
+
+        return path

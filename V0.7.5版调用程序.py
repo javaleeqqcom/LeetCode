@@ -11,7 +11,7 @@ if __name__ == "__main__":
     from schemas.problem_context import ProblemContext
 
     # ================= 题目目录 =================
-    problem_dir = Path(r"Question\2902. Count of Sub-Multisets With Bounded Sum")
+    problem_dir = Path(r"Question\TEST.2902")
     sys.path.insert(1, str(problem_dir))
 
     # ================= 1. 暴力解法结构提取 =================
@@ -29,10 +29,12 @@ if __name__ == "__main__":
     context = ProblemContext(
         title="Count of Sub-Multisets With Bounded Sum",
         description=description,
-        examples=[],   # 可从题目文件中解析，这里留空
-        constraints="1 <= nums.length <= 2000, 1 <= nums[i] <= 2000, 0 <= l <= r <= 2*10^5",
-        tags=["dp", "math"],
+        examples=[],
+        constraints="...",
+        tags=["dp","math"],
         solution_struct=brute_struct,
+
+        problem_dir=problem_dir,
     )
 
     # ================= 4. Agent 自动生成测试用例生成器 =================
