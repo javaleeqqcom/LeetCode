@@ -33,25 +33,18 @@ if __name__ == "__main__":
         description=description,
         examples=[],
         constraints="...",
-        tags=["dp","math"],
+        tags=["dp", "math"],
         solution_struct=brute_struct,
-
         problem_dir=problem_dir,
     )
 
-    # ================= 4. Agent 自动生成测试用例生成器 =================
-    case_gen_agent = CaseGeneratorAgent()
-    if DRY_RUN:
-        # 仅生成 Prompt 并复制，不调用 LLM
-        case_gen_agent.run(context, dry_run=True)
-        print("已生成 Prompt 并复制到剪贴板/日志。请手动提问后再对话框输入代码或从copy版中识别。")
-        # 可以有如下两种方式
-        # 1. 在命令行中手动粘贴代码，程序用 AST 解析到完整代码后，存入 问题目录\auto 并尝试执行
-        # 2. 复制了代码后在命令行按Enter，自动识别粘贴板，其余同上
-        # - 识别无效可以重复 10 次再次识别
-    else:
-        generated_code = case_gen_agent.run(context)
-        # ... 后续执行 generated_code ...
+    # ================= 4. Agent 生成测试用例生成器 =================
+    case_gen_agent = CaseGeneratorAgent(context)            # 修改：构造时传入 context
+    generated_code = case_gen_agent.run(dry_run=DRY_RUN)    # 修改：不再需要传入 context，统一返回代码
+
+    if generated_code is None:
+        print("❌ 未能获得 case_generator 代码，程序退出。")
+        sys.exit(1)
 
     # 动态执行生成的代码，获取 case_generator 函数
     local_ns = {}
@@ -59,12 +52,11 @@ if __name__ == "__main__":
         exec(generated_code, {"__builtins__": __builtins__}, local_ns)
         case_generator = local_ns["case_generator"]
     except Exception as e:
-        # 失败时保存代码供人工调试
         fallback_path = problem_dir / "generated_case_generator.py"
         with open(fallback_path, "w", encoding="utf-8") as f:
             f.write(generated_code)
         print(f"⚠️ Agent 生成的代码执行失败：{e}\n已保存至 {fallback_path}，请检查后手动运行。")
-        exit(1)
+        sys.exit(1)
 
     # ================= 5. 生成测试用例 =================
     size_list = sample_lognormal_scales(1000, mean_scale=10) + 1
@@ -72,7 +64,6 @@ if __name__ == "__main__":
     cases = build_test_cases(case_generator, scales)
     print(f"✅ 自动生成 {len(cases)} 个测试用例")
 
-    # 保存用例（覆盖旧文件）
     cases_path = brute_runner.auto_path_cases()
     brute_runner.save_test_cases(cases, cases_path)
 
