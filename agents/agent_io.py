@@ -81,26 +81,32 @@ class AgentIO:
     # ========== 新增：剪贴板读取（无损处理各种平台编码） ==========
     @staticmethod
     def paste_from_clipboard() -> str:
-        """跨平台从剪贴板读取文本，成功返回字符串，失败或为空返回空字符串 "" """
         try:
             if sys.platform == "win32":
-                # Windows 的 clip 命令只进不出，读取通常使用 PowerShell 的 Get-Clipboard
-                # 使用 utf-16-le 编码可以完美保留 Emoji 和各种特殊字符
                 result = subprocess.run(
-                    ['powershell', '-NoProfile', '-Command', 'Get-Clipboard'],
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        "Get-Clipboard"
+                    ],
                     capture_output=True,
-                    check=True
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace"
                 )
-                # PowerShell 输出通常带有 BOM 或特定编码，在 Windows 上尝试 utf-16-le 或 standard cp936/utf-8
-                # 最稳妥的方式是让 PowerShell 处理好输出，或者直接通过标准输出读取
-                # 这里推荐使用 text=True 并指定 errors='ignore'，或直接用默认系统编码
-                return result.stdout.decode('rf-shell-output', errors='replace').strip() 
-                
+
+                return result.stdout.strip()
+
             elif sys.platform == "darwin":
                 # macOS 使用 pbpaste，系统默认采用 utf-8 编码
-                result = subprocess.run(['pbpaste'], capture_output=True, check=True)
-                return result.stdout.decode('utf-8')
-                
+                result = subprocess.run(
+                    ["pbpaste"],
+                    capture_output=True,
+                    text=True
+                )
+                return result.stdout
+
             else:
                 # Linux 自动检测 xclip 或 xsel
                 is_xclip = subprocess.run(['which', 'xclip'], capture_output=True).returncode == 0
@@ -111,11 +117,10 @@ class AgentIO:
                 
                 result = subprocess.run(args, capture_output=True, check=True)
                 return result.stdout.decode('utf-8')
-                
         except Exception as e:
             print(f"从剪贴板读取失败: {e}")
             return ""
-
+    
     # ========== 新增：Import 自动修复 ==========
     # 符号 → 模块路径（空元组表示 import 模块本身）
     IMPORT_SYMBOLS = {
