@@ -89,7 +89,12 @@ class CaseGeneratorAgent:
                 print("✅ Prompt 已复制到剪贴板，可直接粘贴到 Ollama 对话框。")
             else:
                 print(f"⚠️ 复制失败，Prompt 已保存至 {prompt_path}，请手动复制。")
-            return None
+            # return None
+
+            # 开一个 thread 
+            # 输入内容作为 case_generator.py
+            # 或者输入空按Enter，从剪贴板读取
+            # AgentIO.paste_from_clipboard()
 
         # 正式调用 LLM
         try:
@@ -106,3 +111,4 @@ class CaseGeneratorAgent:
         code_path.write_text(code, encoding="utf-8")
         print(f"代码已保存: {code_path}")
         return code
+    
