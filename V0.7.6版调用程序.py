@@ -47,10 +47,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # 动态执行生成的代码，获取 case_generator 函数
-    local_ns = {}
+    exec_globals = {"__builtins__": __builtins__}
     try:
-        exec(generated_code, {"__builtins__": __builtins__}, local_ns)
-        case_generator = local_ns["case_generator"]
+        exec(generated_code, exec_globals)
+        case_generator = exec_globals["case_generator"]
     except Exception as e:
         fallback_path = problem_dir / "generated_case_generator.py"
         with open(fallback_path, "w", encoding="utf-8") as f:
