@@ -1,5 +1,7 @@
 # agents/agent_io.py
 from pathlib import Path
+from typing import List, Optional
+from langchain_core.messages import BaseMessage
 import re
 import sys
 import subprocess
@@ -57,3 +59,19 @@ class AgentIO:
         except Exception as e:
             print(f"复制到剪贴板失败: {e}")
             return False
+        
+    @staticmethod
+    def send_messages_to_clipboard(messages: List[BaseMessage], problem_dir: Path) -> bool:
+        """
+        将消息列表序列化为文本并复制到剪贴板。
+        若复制失败，则自动保存到日志文件并返回 False。
+        """
+        text = "\n\n".join(str(m.content) for m in messages)
+        if AgentIO.copy_to_clipboard(text):
+            return True
+        # 复制失败时写入临时日志
+        log_dir = AgentIO.get_log_dir(problem_dir)
+        log_path = log_dir / f"manual_prompt_{Path(problem_dir).name}.log"
+        log_path.write_text(text, encoding="utf-8")
+        print(f"剪贴板操作失败，已将 Prompt 保存至: {log_path}")
+        return False

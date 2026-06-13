@@ -1,4 +1,6 @@
 if __name__ == "__main__":
+    DRY_RUN = True   # 调试阶段设为 True，避免浪费 token
+
     import os, sys, time
     from pathlib import Path
     from tools.solution_runner import SolutionRunner
@@ -39,10 +41,14 @@ if __name__ == "__main__":
 
     # ================= 4. Agent 自动生成测试用例生成器 =================
     case_gen_agent = CaseGeneratorAgent()
-
-    t = case_gen_agent.build_prompt_text(context)
-
-    generated_code = case_gen_agent.run(context)
+    if DRY_RUN:
+        # 仅生成 Prompt 并复制，不调用 LLM
+        case_gen_agent.run(context, dry_run=True)
+        print("已生成 Prompt 并复制到剪贴板/日志。请手动提问后将代码放入 auto/ 目录，然后重新运行本脚本（设置 DRY_RUN=False）。")
+        exit(0)
+    else:
+        generated_code = case_gen_agent.run(context)
+        # ... 后续执行 generated_code ...
 
     # 动态执行生成的代码，获取 case_generator 函数
     local_ns = {}

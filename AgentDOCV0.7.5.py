@@ -1,5 +1,7 @@
 from tools.AIConsultation import AIConsultation as AIC
 
+README = AIC(r"README.md")
+
 debug_retriever = AIC(r"rag\debug_retriever.py")
 RAG_DEBUG = AIC(r"RAG_DEBUG.txt")
 embedding = AIC(r"rag\embedding.py")
@@ -7,31 +9,30 @@ retriever=AIC(r"rag\retriever.py")
 index_builder = AIC(r"rag\index_builder.py")
 RAG_DOC = AIC(r"rag\RAG_DOC.md")
 
+agent_io = AIC(r"agents\agent_io.py")
 analyze_agent = AIC(r"agents\analyze_agent.py")
 build_graph = AIC(r"agents\build_graph.py")
 case_generator_agent = AIC("agents\case_generator_agent.py")
+complexity_analyzer = AIC(r"agents\complexity_analyzer.py")
 graph_state = AIC(r"agents\graph_state.py")
-agent_io = AIC(r"agents\agent_io.py")
+reference_retriever = AIC(r"agents\reference_retriever.py")
 
 报错 = AIC(r"V0.7.5报错.txt")
 
-改进目标 = """改进目标：
-- 允许仅生成 AI-prompt ，但不执行提问，输出标准 BaseMessage 格式。
-- 生成 AI-prompt 单独构造一个函数，而 run 调用之，等调试成熟后，再调用收费LLM自动生成，现在调试浪费太多token不划算。
-- 设置一个选项自动将提问台词弄到粘贴板，该功能放到 agent_io 比较合适（已经修改了代码）。然后写一个函数，参数是 BaseMessage 或 ProblemContext，后者需调用 build_prompt，返回 bool 说明是否成功搞定粘贴板，或者若不成功则写入到一个临时.log。
-"""
-
-
 template_text = fr"""
-按你说的修改后，第一次执行确实成功生成了结果。但是，第二次执行则报如下错误，重启了计算机依旧，但是再关闭开启OLlama一次又成功了：
-{AIC(r"V0.7.5版调用程序.py")}
-{报错}
-{改进目标}
-参考代码（其中 case_generator_agent 修改到一半，执行结果是修改前的）：
-{AIC(r"tools\AIConsultation.py")}
+{README}
+现在请参考：
+{RAG_DOC}
+撰写 agents\AGENTS_DOC.md，要求总结 agents\ 目录下各类、函数功能，需要描述的代码如下：
 {agent_io}
+{analyze_agent}
+{build_graph}
 {case_generator_agent}
-{AIC(r"GPT5的建议.md")}
+{complexity_analyzer}
+{graph_state}
+{reference_retriever}
+令附一个调用案例（注意该代码不属于 AGENTS_DOC 归纳范围，仅作调用示例参考）
+{AIC(r"V0.7.5版调用程序.py")}
 """
 
 # 使用示例
