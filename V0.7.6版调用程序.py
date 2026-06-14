@@ -13,7 +13,7 @@ if __name__ == "__main__":
     from schemas.problem_context import ProblemContext
 
     # ================= 题目目录 =================
-    problem_dir = Path(r"Question\TEST.2902")
+    problem_dir = Path(r"Question\Q4. Maximum Subarray Sum After at Most K Swaps")
     sys.path.insert(1, str(problem_dir))
 
     # ================= 1. 暴力解法结构提取 =================
@@ -60,7 +60,8 @@ if __name__ == "__main__":
 
     # ================= 5. 生成测试用例 =================
     size_list = sample_lognormal_scales(1000, mean_scale=10) + 1
-    scales = quantize_scales(size_list, min_scale=1, max_scale=10**5)
+    scales = quantize_scales(size_list, min_scale=1, max_scale=100)
+
     cases = build_test_cases(case_generator, scales)
     print(f"✅ 自动生成 {len(cases)} 个测试用例")
 
@@ -69,19 +70,19 @@ if __name__ == "__main__":
 
     # ================= 6. 运行暴力算法生成 expected =================
     print("🚀 运行暴力算法获取预期输出...")
-    raw_results = brute_runner.run(cases, thread=1)
+    raw_results = brute_runner.run(cases, thread=12)
     expected_cases = brute_runner.get_expected_cases(raw_results)
     brute_runner.save_test_cases(expected_cases, cases_path)
     print(f"✅ 最终有效用例数：{len(expected_cases)}")
 
     # ================= 7. 运行优化算法 =================
-    improved_runner = SolutionRunner(problem_dir / "V2.12.sim.py")
+    improved_runner = SolutionRunner(problem_dir / "V2.2.py")
     print("=== 测试改进算法 ===")
     begin = time.time()
     results = improved_runner.run(
         expected_cases,
-        thread=1,
-        timeout_s=60,
+        thread=12,
+        timeout_s=2,
         summary=True,
         early_stop=10
     )
