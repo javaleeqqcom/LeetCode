@@ -19,6 +19,7 @@ import multiprocessing
 from functools import partial  # 固定 test_queue 参数之用于多线程调用
 from heapq import merge # 多路有序列表最优归并（optimal merge pattern）
 from dataclasses import dataclass # 这是 Python 3.7+ 自带的标准库，专门用于此类场景。它会自动帮你生成 __init__、__repr__ 等方法。
+import ctypes
 __DEBUG__ = True
 __FULL_PATH__ = False
 # LeetCode 中的学生提交总是以此类命名
@@ -55,42 +56,6 @@ class _RESULT(_CASE): # TypedDict 类
     traceback: NotRequired[str]
 # ========== 全局辅助函数（放在类外部或类内静态方法）==========
 _compacted_json = CompactedJson(hex_len=16)
-# ================= 全局共享样例（子进程初始化） =================
-_GLOBAL_CASES = None
-_GLOBAL_CASES_SHM = None
-_GLOBAL_GROUP_QUEUE = None
-_GLOBAL_OUTPUT_QUEUE = None
-_GLOBAL_EARLY_STOP_EVENT = None
-def _init_process_worker(
-    shm_name: str,
-    shm_size: int,
-    group_queue,
-    output_queue,
-    early_stop_event,
-):
-    """
-    子进程初始化：
-    连接共享内存中的 test_cases
-    """
-    global _GLOBAL_CASES
-    global _GLOBAL_CASES_SHM
-    global _GLOBAL_GROUP_QUEUE
-    global _GLOBAL_OUTPUT_QUEUE
-    global _GLOBAL_EARLY_STOP_EVENT
-
-    _GLOBAL_GROUP_QUEUE = group_queue
-    _GLOBAL_OUTPUT_QUEUE = output_queue
-    _GLOBAL_EARLY_STOP_EVENT = early_stop_event
-
-    shm = shared_memory.SharedMemory(name=shm_name)
-    if shm.buf is None:
-        raise MemoryError("_init_process_worker: Can not connect to shared memory.")
-
-    _GLOBAL_CASES_SHM = shm
-
-    raw = bytes(shm.buf[:shm_size])
-
-    _GLOBAL_CASES = json.loads(raw.decode("utf-8"))
 
 def _sanitize_filename(name: str) -> str:
     """安全文件名转换"""
@@ -210,35 +175,13 @@ def _execute_dict_case(
         _add_log("!!! EXCEPTION OCCURRED:")
         _add_log(traceback.format_exc())
     return result_dict, log_lines
-# 用于 Deque 的队列元素
-@dataclass
-class _IN_QELE:
-    group_id:int
-    start:int
-    end:int
-@dataclass
-class _OUT_QELE:
-    group_id:int
-    wcnt:int
-    results:List[_RESULT]
-def _geom_queue_generator( total_cases: int, queue: multiprocessing.Queue, rate: float = 0.1) -> int:
-    """将测试用例分割为若干个子列表，越往后子列表的大小呈等比递减，以便维持各线程基本同时收工"""
-    group_id, idx = 0, 0
-    # 将剩余的用例按 rate 递减加入到 queue 中，至少要有 1 个用例
-    while idx < total_cases:
-        chunk_size = max(1, int((total_cases - idx) * rate))
-        end = min(idx + chunk_size, total_cases)
-        queue.put(
-            _IN_QELE(
-                group_id,
-                idx,
-                end
-            )
-        )
-        idx += chunk_size
-        group_id += 1
-    return group_id
 
+class CrashRecord(ctypes.Structure):
+    _fields_ = [
+        ('cases_index', ctypes.c_uint64),   # 当前正在执行的用例在列表中的下标
+        ('timestamp',    ctypes.c_double),   # 开始执行时的时间戳
+    ]
+    
 def _execute_in_process_worker(
     worker_id: int,
     source_code_lst: List[str],
@@ -247,76 +190,70 @@ def _execute_in_process_worker(
     log_path: os.PathLike,
     skip_error: bool,
     log_wrong: bool,
-    shm_name: str,
-    shm_size: int,
-    group_queue: multiprocessing.Queue,
-    output_queue: multiprocessing.Queue,
-    status_queue: multiprocessing.Queue,      # 新增
+    input_queue: multiprocessing.Queue,      # 接收 int 下标
+    output_queue: multiprocessing.Queue,     # 发送 _RESULT
     early_stop_event: multiprocessing.Event,
+    status_slot,                             # RawValue(CrashRecord)
+    shm_name: str, # 测试样例共享 shared_memory 键名
+    shm_size: int,
 ):
-    # ---------- 自行初始化全局变量 ----------
-    global _GLOBAL_CASES, _GLOBAL_GROUP_QUEUE, _GLOBAL_OUTPUT_QUEUE, _GLOBAL_EARLY_STOP_EVENT
-    from multiprocessing import shared_memory as shm_module
-    shm = shm_module.SharedMemory(name=shm_name)
+    # ---------- 加载测试用例（一次性）----------
+    from multiprocessing import shared_memory
+    shm = shared_memory.SharedMemory(name=shm_name)
     raw = bytes(shm.buf[:shm_size])
-    _GLOBAL_CASES = json.loads(raw.decode("utf-8"))
-    _GLOBAL_GROUP_QUEUE = group_queue
-    _GLOBAL_OUTPUT_QUEUE = output_queue
-    _GLOBAL_EARLY_STOP_EVENT = early_stop_event
+    # 仍然用 JSON，但可以改为 Arrow 提高速度（见后文说明）
+    test_cases = json.loads(raw.decode("utf-8"))
 
-    # ---------- 原有逻辑 ----------
-    if __DEBUG__:
-        print(f"线程{worker_id}：开始")
-    start_time = time.time()
-    
+    # ---------- 创建虚拟模块 ----------
     module = _create_solution_module(source_code_lst)
     _Solution = module.__dict__[_SOLUTION_TYPE_NAME_]
-    caller: _EXECUTE_CALLER = module.__dict__[caller_name]
-    if method_name is None:
-        instance_or_function = _Solution
-    else:
-        instance_or_function = getattr(_Solution(), method_name)
+    caller = module.__dict__[caller_name]
+    instance_or_function = _Solution() if method_name else _Solution
+    if method_name:
+        instance_or_function = getattr(instance_or_function, method_name)
 
-    try:
-        while not early_stop_event.is_set():
-            try:
-                qval = group_queue.get_nowait()
-            except Empty:
-                if group_queue.empty():
-                    break
-                time.sleep(0.001)
-                continue
+    # ---------- 处理任务 ----------
+    while not early_stop_event.is_set():
+        try:
+            idx = input_queue.get(timeout=0.1)
+        except Empty:
+            if input_queue.empty():
+                break
+            continue
 
-            cases = _GLOBAL_CASES[qval.start:qval.end]
-            for case in cases:
-                if early_stop_event.is_set():
-                    break
-                # 通知主进程：正在处理此用例
-                status_queue.put((worker_id, case['cid'], time.time()))
-                result, log_lines = _execute_dict_case(caller, instance_or_function, case)
-                if 'error' in result:
-                    error_log_path = _log_result(result, log_lines, "ERROR_", log_path)
-                    if skip_error:
-                        print(f"\n跳过报错用例（日志: {error_log_path}）")
-                    else:
-                        raise Exception(f"执行报错（日志: {error_log_path}）：\n{result['error']}")
-                elif _is_wrong(result):
-                    if log_wrong:
-                        _log_result(result, log_lines, "Wrong_", log_path)
-                # 立即上报单个结果
+        case = test_cases[idx]
+
+        # 更新状态槽：记录当前下标和时间戳
+        status_slot.cases_index = idx
+        status_slot.timestamp = time.time()
+
+        # 执行用例
+        result, log_lines = _execute_dict_case(caller, instance_or_function, case)
+
+        # 根据需要写日志
+        if 'error' in result:
+            error_log_path = _log_result(result, log_lines, "ERROR_", log_path)
+            if not skip_error:
+                # 发生不可恢复错误，通知主进程早停
+                early_stop_event.set()
+                output_queue.put(result)   # 仍然上报结果
+                raise Exception(f"执行报错（日志: {error_log_path}）：\n{result['error']}")
+            else:
                 output_queue.put(result)
-    except Exception as e:
-        # 发生不可恢复错误时设置全局停止
-        early_stop_event.set()
-        print(f"Worker {worker_id} 异常: {e}")
-    finally:
-        # 通知主进程该 Worker 已空闲
-        status_queue.put((worker_id, None, time.time()))
+        elif _is_wrong(result):
+            if log_wrong:
+                _log_result(result, log_lines, "Wrong_", log_path)
+            output_queue.put(result)
+        else:
+            output_queue.put(result)
 
-    end_time = time.time()
-    if __DEBUG__:
-        print(f"解释器 {worker_id}: 处理 {process_case_num} 个用例耗时：{end_time - start_time:.3f}s")
-    return (worker_id, process_case_num, end_time - start_time)
+        # 执行完毕，清除状态槽
+        status_slot.cases_index = 0
+        status_slot.timestamp = 0.0
+
+    # 进程退出前确保状态槽清零
+    status_slot.cases_index = 0
+    status_slot.timestamp = 0.0
 
 class SolutionRunner:
     @classmethod
@@ -596,6 +533,27 @@ class SolutionRunner:
                     if self._check_early_stop( len(results), wrong_count ,early_stop):
                         break # 触发早停
         else: # 多进程
+            # ---------- 1. 准备共享内存 ----------
+            cases_bytes = json.dumps(test_cases, ensure_ascii=False).encode("utf-8")
+            shm = shared_memory.SharedMemory(create=True, size=len(cases_bytes))
+            shm.buf[:len(cases_bytes)] = cases_bytes
+            shm_name = shm.name
+            shm_size = len(cases_bytes)
+
+            # ---------- 2. 创建通信对象 ----------
+            ctx = multiprocessing.get_context("spawn")
+            input_queue = ctx.Queue()
+            output_queue = ctx.Queue()
+            early_stop_event = ctx.Event()
+
+            # 为每个子进程创建独立的状态槽
+            status_slots = [ctx.RawValue(CrashRecord, 0, 0.0) for _ in range(thread)]
+
+            # 将所有用例下标放入输入队列
+            for i in range(len(test_cases)):
+                input_queue.put(i)
+
+            # ---------- 3. 确定 caller 名称 ----------
             if self.has_custom_caller:
                 caller_name = _CUSTOM_CALLER_NAME
             elif self._check_cases_is_kwargs(test_cases[0]):
@@ -603,104 +561,103 @@ class SolutionRunner:
             else:
                 caller_name = "main_caller_args"
 
-            ctx = multiprocessing.get_context("spawn")
-            group_queue = ctx.Queue()
-            output_queue = ctx.Queue()
-            early_stop_event = ctx.Event()
-
-            status_queue = ctx.Queue()
-
-            # 分割任务到 group_queue（仍可用几何分组）
-            groups_num = _geom_queue_generator(len(test_cases), group_queue, rate=1.0/thread)
-
-            # 启动所有 Worker
+            # ---------- 4. 启动子进程 ----------
             processes = []
             for i in range(thread):
-                tp = ctx.Process(
+                p = ctx.Process(
                     target=_execute_in_process_worker,
-                    args=(i, self.source_code_lst, self.main_method, caller_name,
-                        log_path, skip_error, log_wrong, shm_name, shm_size,
-                        group_queue, output_queue, status_queue, early_stop_event)
+                    args=(
+                        i,
+                        self.source_code_lst,
+                        self.main_method,
+                        caller_name,
+                        log_path,
+                        skip_error,
+                        log_wrong,
+                        input_queue,
+                        output_queue,
+                        early_stop_event,
+                        status_slots[i],
+                        shm_name,
+                        shm_size,
+                    )
                 )
-                processes.append(tp)
-                tp.start()
+                processes.append(p)
+                p.start()
 
-            # 收集结果，同时监控状态
-            results = []
-            last_status = {}          # {worker_id: (cid, timestamp)}
-            tle_results = []          # 主进程生成的 TLE 结果
+            # ---------- 4. 收集结果 + 超时检测 ----------
+            collected_results = []
             wrong_count = 0
-            total_cases = len(test_cases)
-            # 为了根据 cid 快速查找 case，建立映射
-            cid_to_case = {case['cid']: case for case in test_cases}
+            total_count = len(test_cases)
+            tle_log_path = log_path  # 可复用
 
-            while len(results) < total_cases:
-                # 非阻塞接收输出结果
+            while len(collected_results) < total_count:
+                # 4.1 尝试从输出队列获取正常结果
                 try:
-                    result = output_queue.get(timeout=0.05)
-                    results.append(result)
-                    if _is_wrong(result):
+                    result = output_queue.get(timeout=0.1)
+                    collected_results.append(result)
+                    if _is_wrong(result) or 'error' in result:
                         wrong_count += 1
-                    # 检查常规早停
-                    if self._check_early_stop(len(results), wrong_count, early_stop):
+                    # 检查早停条件
+                    if self._check_early_stop(len(collected_results), wrong_count, early_stop):
                         early_stop_event.set()
                 except Empty:
                     pass
 
-                # 非阻塞接收状态更新
-                while not status_queue.empty():
-                    try:
-                        wid, cid, ts = status_queue.get_nowait()
-                        if cid is None:
-                            last_status.pop(wid, None)   # Worker 空闲
-                        else:
-                            last_status[wid] = (cid, ts)
-                    except Empty:
-                        break
-
-                # 超时检测
+                # 4.2 超时检测
                 now = time.time()
-                for wid, (cid, ts) in list(last_status.items()):
-                    if now - ts > timeout_s:
-                        print(f"\n⚠️ Worker {wid} 超时：最后用例 {cid}")
-                        if processes[wid].is_alive():
-                            processes[wid].terminate()
-                            processes[wid].join()
-                        # 构造 TLE 结果
-                        case = cid_to_case.get(cid)
-                        if case:
-                            tle_result = case.copy()
-                            tle_result.update({
+                for wid, slot in enumerate(status_slots):
+                    if slot.timestamp > 0 and (now - slot.timestamp) > timeout_s:
+                        # 该子进程超时！
+                        idx = slot.cases_index
+                        if idx < total_count:   # 有效性检查
+                            case:_CASE = test_cases[idx]
+                            # 构造 TLE 结果
+                            tle_result:_RESULT = {
+                                **case,
                                 'error': 'Time Limit Exceeded (TLE)',
                                 'traceback': 'Process terminated due to timeout',
-                                'elapsed': timeout_s
-                            })
+                            }
+                            # 写日志（与正常日志格式一致）
                             log_lines = [
-                                f"Worker {wid} TLE at case {cid}",
-                                f">>> INPUT\n{_compacted_json.dumps(case['input'], indent=2)}"
+                                f"TLE: Worker {wid}, cid: {case['cid']}",
+                                f">>> INPUT\n{_compacted_json.dumps(case['input'], indent=2)}",
                             ]
-                            _log_result(tle_result, log_lines, "TLE_", log_path)
-                            tle_results.append(tle_result)
-                            wrong_count += 1
-                        last_status.pop(wid, None)
-                        # 判断是否触发全局早停
-                        if self._check_early_stop(len(results) + len(tle_results), wrong_count, early_stop):
-                            early_stop_event.set()
-                            break
+                            _log_result(tle_result, log_lines, "TLE_", tle_log_path)
 
-                # 若所有进程已退出且队列空，跳出
-                if not any(p.is_alive() for p in processes) and output_queue.empty() and status_queue.empty():
+                            # 将 TLE 结果视为已完成，加入收集列表
+                            collected_results.append(tle_result)
+                            wrong_count += 1
+
+                            # 可选：触发早停（根据你的策略）
+                            if self._check_early_stop(len(collected_results), wrong_count, early_stop):
+                                early_stop_event.set()
+
+                        # 强制终止超时进程
+                        if processes[wid].is_alive():
+                            processes[wid].terminate()
+                        # 清空状态槽，避免重复处理
+                        slot.cases_index = 0
+                        slot.timestamp = 0.0
+
+                # 4.3 检查是否所有进程都已结束且结果不足（提前退出）
+                if all(not p.is_alive() for p in processes) and len(collected_results) < total_count:
+                    # 此时可能还有未上报的 TLE 已在上面处理，但一般不会到这里
                     break
 
-            # 确保所有进程终止
+            # ---------- 5. 清理 ----------
+            # 确保所有子进程终止
             for p in processes:
                 if p.is_alive():
                     p.terminate()
-                    p.join()
+                p.join()
 
-            # 合并正常结果与 TLE 结果，并按 cid 排序
-            results.extend(tle_results)
-            results.sort(key=lambda x: x['cid'])
+            shm.close()
+            shm.unlink()
+
+            # 结果排序（cid 顺序）
+            collected_results.sort(key=lambda x: x['cid'])
+            results = collected_results
 
         # 单/多进程：总结结果
         if summary:
@@ -723,12 +680,13 @@ class SolutionRunner:
     def _check_early_stop(cls,total_cnt:int,wrong_count:int,early_stop:Optional[int|float]=None,verbose=True)->bool:
         """检查是否触发早停"""
         if early_stop is None:return False
-        if early_stop < 1:
+        if early_stop < 1 and wrong_count > early_stop*total_cnt:
             if(verbose):print(f"错误样例比例 = {wrong_count}/{total_cnt} = {wrong_count/total_cnt:.4f} > {early_stop:.4f} (阈值)，触发早停。")
-            return wrong_count > early_stop*total_cnt
-        else:
+            return True
+        elif wrong_count >= early_stop:
             if(verbose):print(f"错误样例数量 = {wrong_count} >= {math.ceil(early_stop):d} (阈值)，触发早停。")
-            return wrong_count >= early_stop
+            return True
+        return False
     def get_expected_cases(self, run_results: List[_RESULT]) -> List[_CASE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
@@ -766,16 +724,3 @@ class SolutionRunner:
         print(f"💾 已保存 {len(test_cases)} 个测试用例到: {file_path}")
         return Path(file_path)
     
-    # def get_cases_generator(self,documentation:Union[os.PathLike,str],AI=None,attached_attentions:List[str]=[])->str:
-    #     """自动向AI提问得到问题的测试样例生成器"""
-    #     if not os.path.exists(documentation):
-    #         documentation = self.relPath/documentation
-    #     with open(documentation , encoding="utf-8") as fp:
-    #         request_text = fp.read()
-    #     codes = f"<init-code>\n{self.source_code_lst}\n</init-code>\n<student-code>\n{self.student_code}\n</student-code>"
-    #     if AI is not None:
-    #         raise ValueError("暂时不支持自动提问")
-    #         return None
-    #     # AI 未指定，或者网络等错误
-    #     # self.main_method 为 None时，无法检测 self.has_custom_type ，因此依靠 is_unique_caller 兜底，而将 has_custom_type 视为 False
-    #     return TEST_CASE_GENERATOR.get_manual_prompt(codes,request_text, self.main_method is not None ,bool(self.has_custom_type),attached_attentions)
