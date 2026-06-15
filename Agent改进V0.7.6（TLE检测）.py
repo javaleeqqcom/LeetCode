@@ -28,18 +28,21 @@ cases_generator = AIC(r"tools\cases_generator.py")
 # {cases_generator}
 template_text = fr"""
 {README}
+参考代码：
 {solution_runner}
 {cases_generator}
+{AIC(r"tools\solution_runner(modify).py")}
 执行：
 {AIC(r"V0.7.6版调用程序.py")}
 {AIC(r"V0.7.6报错.txt")}
-solution_runner 虽然可以刹停TLE程序，无法为调试提供有效信息：
-因此需要修改为：
-- 出现运行错误如超时，则kill 出错的进程。但是不kill其他进程，而是设置 early_stop_event.set() 通知其他进程不再消费 cases。
-- 最好。能够用类似 Ctrl+C 软终止Python进程，获得DEBUG信息
-- 如果能实现上一条，则最好能够找出具体哪个 case 出现超时，但是注意不能牺牲效率。
-- 注意利用 cid 信息定位错误样例，可以考虑用 multiprocessing.Manager().Value 保存上一次执行的 cid
-- 尽量合并状态量，如每个进程的上一次开始测试的时间戳，和样例的 cid 合并为元组，减少全局变量开销
+solution_runner 虽然可以刹停TLE程序，但是没有记录到log（无 'TLE_*'）。
+GPT5分析原因如下：
+- Windows 的 terminate()直接把进程砍掉。不会：signal.signal(SIGTERM,...)
+- 即便是 Linux 的，traceback 只代表：当前栈帧不是完整 traceback。
+因此修改意见：
+- 放弃 signal(SIGTERM ，在主进程捕捉TLE的子进程最后保存信息（cid,时间戳）写 log（调用 _log_result 统一格式）
+- 不要用 manager.list ，因为所有子线程都要抢占一个 manager.list 对象，应该改为 list(单个信号量) 如 manager.Value(tuple, ...)
+- 保持原有的TLE视为早停，而早停只杀出错的进程，其余进程等待其该group产出并收集结果。
 """
 
 

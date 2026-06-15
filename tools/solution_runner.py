@@ -252,7 +252,7 @@ def _execute_in_process_worker(
     group_queue: multiprocessing.Queue,
     output_queue: multiprocessing.Queue,
     early_stop_event: multiprocessing.Event,
-    status_list,                # ✅ 新增：共享状态列表（Manager.list 代理）
+    status_list,                # Manager.list 代理，主进程用于监控
 ):
     # ---------- 自行初始化全局变量 ----------
     global _GLOBAL_CASES, _GLOBAL_GROUP_QUEUE, _GLOBAL_OUTPUT_QUEUE, _GLOBAL_EARLY_STOP_EVENT
@@ -264,26 +264,26 @@ def _execute_in_process_worker(
     _GLOBAL_OUTPUT_QUEUE = output_queue
     _GLOBAL_EARLY_STOP_EVENT = early_stop_event
 
-    # ✅ 安装 SIGTERM 信号处理器（TLE 时记录日志，不打印堆栈）
+    # ✅ 新增：当前正在执行的用例信息（本地变量，信号处理器安全访问）
+    current_case_info = None
+
+    # ✅ 信号处理器：使用本地变量，避免接触 Manager 代理
     def sigterm_handler(signum, frame):
-        current_info = status_list[worker_id]
-        if current_info:
-            cid = current_info[0]
-            # 从全局用例中查找对应的 case 数据（用于记录输入）
-            case_data = None
-            for case in _GLOBAL_CASES: # 待改进，全局扫描 O(CASES) ，以后用哈希 O(1)
-                if case.get('cid') == cid:
-                    case_data = case
-                    break
-            # 构造 result 和 log_lines，仿照 _execute_dict_case 的 error 处理
-            result: _RESULT = case_data.copy()
-            result.update({'error': 'Time Limit Exceeded (TLE)',})
-            log_lines = []
-            log_lines.append(f"Worker {worker_id} terminated due to TLE")
-            log_lines.append(f"CID: {cid}")
-            if case_data:
-                log_lines.append(f">>> INPUT\n{_compacted_json.dumps(case_data.get('input'), indent=2)}")
-            # 调用框架统一的日志记录函数
+        nonlocal current_case_info   # 声明引用外部变量
+        if current_case_info:
+            cid = current_case_info.get('cid', '?')
+            # 构造 TLE 结果
+            result = current_case_info.copy()
+            result.update({
+                'error': 'Time Limit Exceeded (TLE)',
+                'traceback': 'Process terminated due to timeout',
+            })
+            log_lines = [
+                f"Worker {worker_id} terminated due to TLE",
+                f"CID: {cid}",
+                f">>> INPUT\n{_compacted_json.dumps(current_case_info.get('input'), indent=2)}",
+            ]
+            # 写入日志文件（_log_result 为模块顶层函数，安全）
             tle_log_path = _log_result(result, log_lines, "TLE_", log_path)
             print(f"\n⚠️ 解释器 {worker_id} TLE，日志已保存: {tle_log_path}", flush=True)
         else:
@@ -304,30 +304,37 @@ def _execute_in_process_worker(
     else:
         instance_or_function = getattr(_Solution(), method_name)
     process_case_num = 0
+
     try:
         while not _GLOBAL_EARLY_STOP_EVENT.is_set():
             try:
                 qval = _GLOBAL_GROUP_QUEUE.get_nowait()
-                assert isinstance(qval, _IN_QELE), f"Queue value of group_queue must be of type {_IN_QELE}. But value received:{qval}"
+                assert isinstance(qval, _IN_QELE), f"Queue value must be {_IN_QELE}"
             except Empty:
                 if _GLOBAL_GROUP_QUEUE.empty():
                     break
                 time.sleep(0.001)
                 continue
+
             results_buff = []
             wrong_count = 0
             cases = _GLOBAL_CASES[qval.start:qval.end]
+
             for case in cases:
-                # ✅ 更新共享状态：记录当前正在执行的用例
+                # ✅ 先保存当前用例到本地变量（信号处理器安全）
+                current_case_info = case
+                # 再更新共享状态（主进程监控用，可能因代理锁阻塞但不影响信号处理器）
                 status_list[worker_id] = (case['cid'], time.time())
+
                 result, log_lines = _execute_dict_case(caller, instance_or_function, case)
+
                 if 'error' in result:
                     error_log_path = _log_result(result, log_lines, "ERROR_", log_path)
                     if skip_error:
                         print(f"\n跳过报错用例（日志: {error_log_path}）")
                         wrong_count += 1
                     else:
-                        # ✅ 保留当前状态以便主进程查看
+                        # 发生错误时，保留当前状态供主进程查看
                         status_list[worker_id] = (case['cid'], time.time(), "ERROR")
                         early_stop_event.set()
                         raise Exception(f"执行报错（日志: {error_log_path}）：\n{result['error']}")
@@ -335,19 +342,25 @@ def _execute_in_process_worker(
                     if log_wrong:
                         _log_result(result, log_lines, "Wrong_", log_path)
                     wrong_count += 1
+
                 results_buff.append(result)
-            # 完成一组后清除状态
+
+            # 完成一组后清除当前用例信息（可选）
+            current_case_info = None
             status_list[worker_id] = None
+
             _GLOBAL_OUTPUT_QUEUE.put(_OUT_QELE(qval.group_id, wrong_count, results_buff))
             process_case_num += len(results_buff)
             if __DEBUG__:
                 print(f"\n解释器 {worker_id}: 完成组 {qval.group_id} ({len(results_buff)} 个用例)", end="")
+
     except Exception as e:
         early_stop_event.set()
         raise Exception(f"\n解释器 {worker_id}: 顶层异常 {type(e).__name__}: {e}")
     finally:
-        # 保证退出前清除状态
+        current_case_info = None
         status_list[worker_id] = None
+
     end_time = time.time()
     if __DEBUG__:
         print(f"解释器 {worker_id}: 处理 {process_case_num} 个用例耗时：{end_time - start_time:.3f}s")
@@ -704,6 +717,7 @@ class SolutionRunner:
                                 print(f"\n⚠️ Worker {wid} 超时：最后用例: {cid}")
                                 if processes[wid].is_alive():
                                     processes[wid].terminate()   # 触发 SIGTERM → 软终止打印
+                                status_list[wid] = None # 避免重复触发
                                 early_stop_event.set() # 有进程超时触发早停
                         # 所有进程已退出则跳出循环
                         if not any(tp.is_alive() for tp in processes):
