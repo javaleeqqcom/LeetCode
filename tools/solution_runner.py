@@ -251,8 +251,8 @@ def _execute_in_process_worker(
     shm_size: int,
     group_queue: multiprocessing.Queue,
     output_queue: multiprocessing.Queue,
+    status_queue: multiprocessing.Queue,      # 新增
     early_stop_event: multiprocessing.Event,
-    status_list,                # Manager.list 代理，主进程用于监控
 ):
     # ---------- 自行初始化全局变量 ----------
     global _GLOBAL_CASES, _GLOBAL_GROUP_QUEUE, _GLOBAL_OUTPUT_QUEUE, _GLOBAL_EARLY_STOP_EVENT
@@ -264,38 +264,11 @@ def _execute_in_process_worker(
     _GLOBAL_OUTPUT_QUEUE = output_queue
     _GLOBAL_EARLY_STOP_EVENT = early_stop_event
 
-    # ✅ 新增：当前正在执行的用例信息（本地变量，信号处理器安全访问）
-    current_case_info = None
-
-    # ✅ 信号处理器：使用本地变量，避免接触 Manager 代理
-    def sigterm_handler(signum, frame):
-        nonlocal current_case_info   # 声明引用外部变量
-        if current_case_info:
-            cid = current_case_info.get('cid', '?')
-            # 构造 TLE 结果
-            result = current_case_info.copy()
-            result.update({
-                'error': 'Time Limit Exceeded (TLE)',
-                'traceback': 'Process terminated due to timeout',
-            })
-            log_lines = [
-                f"Worker {worker_id} terminated due to TLE",
-                f"CID: {cid}",
-                f">>> INPUT\n{_compacted_json.dumps(current_case_info.get('input'), indent=2)}",
-            ]
-            # 写入日志文件（_log_result 为模块顶层函数，安全）
-            tle_log_path = _log_result(result, log_lines, "TLE_", log_path)
-            print(f"\n⚠️ 解释器 {worker_id} TLE，日志已保存: {tle_log_path}", flush=True)
-        else:
-            print(f"\n⚠️ 解释器 {worker_id} 收到终止信号，但无当前用例信息", flush=True)
-        sys.exit(1)
-
-    signal.signal(signal.SIGTERM, sigterm_handler)
-
     # ---------- 原有逻辑 ----------
     if __DEBUG__:
         print(f"线程{worker_id}：开始")
     start_time = time.time()
+    
     module = _create_solution_module(source_code_lst)
     _Solution = module.__dict__[_SOLUTION_TYPE_NAME_]
     caller: _EXECUTE_CALLER = module.__dict__[caller_name]
@@ -303,63 +276,42 @@ def _execute_in_process_worker(
         instance_or_function = _Solution
     else:
         instance_or_function = getattr(_Solution(), method_name)
-    process_case_num = 0
 
     try:
-        while not _GLOBAL_EARLY_STOP_EVENT.is_set():
+        while not early_stop_event.is_set():
             try:
-                qval = _GLOBAL_GROUP_QUEUE.get_nowait()
-                assert isinstance(qval, _IN_QELE), f"Queue value must be {_IN_QELE}"
+                qval = group_queue.get_nowait()
             except Empty:
-                if _GLOBAL_GROUP_QUEUE.empty():
+                if group_queue.empty():
                     break
                 time.sleep(0.001)
                 continue
 
-            results_buff = []
-            wrong_count = 0
             cases = _GLOBAL_CASES[qval.start:qval.end]
-
             for case in cases:
-                # ✅ 先保存当前用例到本地变量（信号处理器安全）
-                current_case_info = case
-                # 再更新共享状态（主进程监控用，可能因代理锁阻塞但不影响信号处理器）
-                status_list[worker_id] = (case['cid'], time.time())
-
+                if early_stop_event.is_set():
+                    break
+                # 通知主进程：正在处理此用例
+                status_queue.put((worker_id, case['cid'], time.time()))
                 result, log_lines = _execute_dict_case(caller, instance_or_function, case)
-
                 if 'error' in result:
                     error_log_path = _log_result(result, log_lines, "ERROR_", log_path)
                     if skip_error:
                         print(f"\n跳过报错用例（日志: {error_log_path}）")
-                        wrong_count += 1
                     else:
-                        # 发生错误时，保留当前状态供主进程查看
-                        status_list[worker_id] = (case['cid'], time.time(), "ERROR")
-                        early_stop_event.set()
                         raise Exception(f"执行报错（日志: {error_log_path}）：\n{result['error']}")
                 elif _is_wrong(result):
                     if log_wrong:
                         _log_result(result, log_lines, "Wrong_", log_path)
-                    wrong_count += 1
-
-                results_buff.append(result)
-
-            # 完成一组后清除当前用例信息（可选）
-            current_case_info = None
-            status_list[worker_id] = None
-
-            _GLOBAL_OUTPUT_QUEUE.put(_OUT_QELE(qval.group_id, wrong_count, results_buff))
-            process_case_num += len(results_buff)
-            if __DEBUG__:
-                print(f"\n解释器 {worker_id}: 完成组 {qval.group_id} ({len(results_buff)} 个用例)", end="")
-
+                # 立即上报单个结果
+                output_queue.put(result)
     except Exception as e:
+        # 发生不可恢复错误时设置全局停止
         early_stop_event.set()
-        raise Exception(f"\n解释器 {worker_id}: 顶层异常 {type(e).__name__}: {e}")
+        print(f"Worker {worker_id} 异常: {e}")
     finally:
-        current_case_info = None
-        status_list[worker_id] = None
+        # 通知主进程该 Worker 已空闲
+        status_queue.put((worker_id, None, time.time()))
 
     end_time = time.time()
     if __DEBUG__:
@@ -656,85 +608,99 @@ class SolutionRunner:
             output_queue = ctx.Queue()
             early_stop_event = ctx.Event()
 
-            manager = multiprocessing.Manager()          # ✅ 创建 Manager
-            status_list = manager.list([None] * thread)  # ✅ 每个 worker 一个槽位，用于记录异常样例（cid，时间戳）
+            status_queue = ctx.Queue()
 
-            # 分割测试用例到队列
+            # 分割任务到 group_queue（仍可用几何分组）
             groups_num = _geom_queue_generator(len(test_cases), group_queue, rate=1.0/thread)
-            output_buff:List[Optional[List[_RESULT]]] = [None]*groups_num
-            cases_bytes = json.dumps(test_cases, ensure_ascii=False).encode("utf-8")
-            shm = shared_memory.SharedMemory(create=True, size=len(cases_bytes))
-            try:
-                shm.buf[:len(cases_bytes)] = cases_bytes
-                shm_name = shm.name
-                shm_size = len(cases_bytes)
-                processes = []
-                for i in range(thread):
-                    tp = ctx.Process(
-                        target=_execute_in_process_worker,
-                        args=(
-                            i,
-                            self.source_code_lst,
-                            self.main_method,
-                            caller_name,
-                            log_path,
-                            skip_error,
-                            log_wrong,
-                            shm_name,
-                            shm_size,
-                            group_queue,
-                            output_queue,
-                            early_stop_event,
-                            status_list,          # ✅ 传递共享状态（后续主进程只读，子进程可读写对应进程id下标）
-                        )
-                    )
-                    processes.append(tp)
-                    tp.start()
 
-                # 收集结果 + 进度超时检测
-                output_count = wrong_count = 0
-                total_count = len(test_cases)
-                last_progress = time.time()
+            # 启动所有 Worker
+            processes = []
+            for i in range(thread):
+                tp = ctx.Process(
+                    target=_execute_in_process_worker,
+                    args=(i, self.source_code_lst, self.main_method, caller_name,
+                        log_path, skip_error, log_wrong, shm_name, shm_size,
+                        group_queue, output_queue, status_queue, early_stop_event)
+                )
+                processes.append(tp)
+                tp.start()
 
-                while output_count < total_count:
+            # 收集结果，同时监控状态
+            results = []
+            last_status = {}          # {worker_id: (cid, timestamp)}
+            tle_results = []          # 主进程生成的 TLE 结果
+            wrong_count = 0
+            total_cases = len(test_cases)
+            # 为了根据 cid 快速查找 case，建立映射
+            cid_to_case = {case['cid']: case for case in test_cases}
+
+            while len(results) < total_cases:
+                # 非阻塞接收输出结果
+                try:
+                    result = output_queue.get(timeout=0.05)
+                    results.append(result)
+                    if _is_wrong(result):
+                        wrong_count += 1
+                    # 检查常规早停
+                    if self._check_early_stop(len(results), wrong_count, early_stop):
+                        early_stop_event.set()
+                except Empty:
+                    pass
+
+                # 非阻塞接收状态更新
+                while not status_queue.empty():
                     try:
-                        qe = output_queue.get(timeout=0.1)
-                        if isinstance(qe, _OUT_QELE):
-                            output_buff[qe.group_id] = qe.results
-                            output_count += len(qe.results)
-                            wrong_count += qe.wcnt
-                            last_progress = time.time()
-                            print(f"主线程：(已收集/总样例数): ({output_count}/{total_count})", end="\r")
-                            # 普通错误触发早停
-                            if self._check_early_stop(output_count, wrong_count, early_stop):
-                                early_stop_event.set()
+                        wid, cid, ts = status_queue.get_nowait()
+                        if cid is None:
+                            last_status.pop(wid, None)   # Worker 空闲
+                        else:
+                            last_status[wid] = (cid, ts)
                     except Empty:
-                        # 超时检测
-                        for wid,status in enumerate(status_list):
-                            if status is None: continue
-                            cid,ts = status
-                            if time.time() - ts > timeout_s:
-                                print(f"\n⚠️ Worker {wid} 超时：最后用例: {cid}")
-                                if processes[wid].is_alive():
-                                    processes[wid].terminate()   # 触发 SIGTERM → 软终止打印
-                                status_list[wid] = None # 避免重复触发
-                                early_stop_event.set() # 有进程超时触发早停
-                        # 所有进程已退出则跳出循环
-                        if not any(tp.is_alive() for tp in processes):
+                        break
+
+                # 超时检测
+                now = time.time()
+                for wid, (cid, ts) in list(last_status.items()):
+                    if now - ts > timeout_s:
+                        print(f"\n⚠️ Worker {wid} 超时：最后用例 {cid}")
+                        if processes[wid].is_alive():
+                            processes[wid].terminate()
+                            processes[wid].join()
+                        # 构造 TLE 结果
+                        case = cid_to_case.get(cid)
+                        if case:
+                            tle_result = case.copy()
+                            tle_result.update({
+                                'error': 'Time Limit Exceeded (TLE)',
+                                'traceback': 'Process terminated due to timeout',
+                                'elapsed': timeout_s
+                            })
+                            log_lines = [
+                                f"Worker {wid} TLE at case {cid}",
+                                f">>> INPUT\n{_compacted_json.dumps(case['input'], indent=2)}"
+                            ]
+                            _log_result(tle_result, log_lines, "TLE_", log_path)
+                            tle_results.append(tle_result)
+                            wrong_count += 1
+                        last_status.pop(wid, None)
+                        # 判断是否触发全局早停
+                        if self._check_early_stop(len(results) + len(tle_results), wrong_count, early_stop):
+                            early_stop_event.set()
                             break
 
-                # 确保所有进程终止
-                for tp in processes:
-                    if tp.is_alive():
-                        tp.terminate()
-                    tp.join()
+                # 若所有进程已退出且队列空，跳出
+                if not any(p.is_alive() for p in processes) and output_queue.empty() and status_queue.empty():
+                    break
 
-                # 合并结果（和之前一样）
-                valid_lists = [out for out in output_buff if out]
-                results = list(merge(*valid_lists, key=lambda x: x['cid']))
-            finally:
-                shm.close()
-                shm.unlink()
+            # 确保所有进程终止
+            for p in processes:
+                if p.is_alive():
+                    p.terminate()
+                    p.join()
+
+            # 合并正常结果与 TLE 结果，并按 cid 排序
+            results.extend(tle_results)
+            results.sort(key=lambda x: x['cid'])
 
         # 单/多进程：总结结果
         if summary:
