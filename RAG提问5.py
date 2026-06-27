@@ -1,5 +1,7 @@
 from tools.AIConsultation import AIConsultation as AIC
 
+README = AIC(r"README.md")
+
 debug_retriever = AIC(r"rag\debug_retriever.py")
 RAG_DEBUG = AIC(r"RAG_DEBUG.txt")
 embedding = AIC(r"rag\embedding.py")
@@ -15,6 +17,7 @@ case_generator_agent = AIC("agents\case_generator_agent.py")
 graph_state = AIC(r"agents\graph_state.py")
 
 template_text = fr"""
+{README}
 我已经初步构建了 RAG 系统，DOC如下：
 {RAG_DOC}
 尝试提取如下：
@@ -29,6 +32,9 @@ template_text = fr"""
 {index_builder}
 {rag_knowledge_update}
 是哪里出了问题。
+我将上述问题向ChatGPT5反馈后，得到如下建议：
+{AIC(r"V0.7.6~0.7.7 的修改建议.md")}
+请参考该建议进行修改，只需说明要修改的文件的相关函数，我会替换修过过的函数。
 """
 
 # 使用示例

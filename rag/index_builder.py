@@ -93,5 +93,5 @@ if __name__ == "__main__":
 
     docs_file = sys.argv[1]
     prev_file = sys.argv[2] if len(sys.argv) > 2 else None
-
-    build_index(docs_file, prev_file)
+    # 修正：固定 collection_name 为 "conversion"
+    build_index(docs_file, "conversion", prev_file)

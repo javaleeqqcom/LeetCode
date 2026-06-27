@@ -1,12 +1,12 @@
 # 📘 LeetCode 本地自动化测试框架（Python）+ RAG 增强版
 
-> 版本：0.2.1（基于最新代码重构）
+> 版本：0.2.2（2026‑06‑27 更新）
 
 ---
 
 ## 🧠 系统整体架构（当前实现）
 
-本系统采用 **双知识库 RAG 架构**：
+本系统采用 **双知识库 RAG 架构**，后续将统一为单客户端多集合的模型：
 
 - **Semantic 知识库**（`case_generator`）：基于人工标注的语义切片（`@RAG_BEGIN` / `@RAG_END`），用于测试用例生成、调试建议等高层逻辑。
 - **AST 知识库**（`conversion`）：基于语法树（AST / 正则）自动抽取的代码切片（类、方法、函数），用于代码转换、结构理解。
@@ -46,6 +46,8 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+> **V0.2.2 变更**：`SemanticChunker` 已支持**嵌套模块解析**（`@RAG_BEGIN`/`@RAG_END` 允许缩进与层级嵌套），所有正则均已适配前导空格，模块间自动记录父子关系，为后续 Graph‑RAG 提供结构化数据。
+
 ---
 
 ## 📦 模块说明（按文件）
@@ -84,10 +86,10 @@
 
 ### 3. `semantic_chunker.py` – 语义代码切片（用于 case_generator 知识库）
 
-解析包含特殊标记的 `.py` 文件，生成 `RAGModule` 列表。
+解析包含特殊标记的 `.py` 文件，生成 `RAGModule` 列表。  
+**V0.2.2 重要更新**：解析器改用**模块栈**，完整支持嵌套的 `@RAG_BEGIN` / `@RAG_END`；所有正则允许前导空格，识别函数体内的缩进标记；自动为模块建立 `parent` 关系，为 Graph‑RAG 提供直接结构。
 
 **支持的标记：**
-
 - `# @EXAMPLE_BEGIN: name`  标记示例开始
 - `# @EXAMPLE_TAG: tag1,tag2`  打标签
 - `# @RAG_BEGIN: module_name`  语义模块开始
@@ -98,11 +100,11 @@
 
 | 类 / 函数 | 描述 |
 |----------|------|
-| `RAGModule` | 语义模块：`name`, `source`, `deps`, `export`, `settings`, `embedding_text`（去除标记后的纯代码）, `prompt_text`（含设置块）。 |
+| `RAGModule` | 语义模块：`name`, `source`, `deps`, `export`, `settings`, `embedding_text`（去除标记后的纯代码）, `prompt_text`（含设置块）, `parent`（V0.2.2 新增）。 |
 | `ExampleFile` | 代表一个标注文件，包含 `example_name`, `tags`, `rag_modules` 字典。 |
 | `SemanticChunker(file_path)` | 解析器。 |
-| `SemanticChunker.parse()` | 主入口，返回 `ExampleFile`，并自动检测循环依赖（DAG 验证）。 |
-| `SemanticChunker._build_module()` | 从源代码块构建 `RAGModule`，提取元数据。 |
+| `SemanticChunker.parse()` | 主入口，使用模块栈解析嵌套结构，返回 `ExampleFile`。自动检测循环依赖（DAG 验证）。 |
+| `SemanticChunker._build_module()` | 从源代码块构建 `RAGModule`，提取元数据（含 `parent`）。 |
 | `SemanticChunker._check_dependencies()` | 检测模块依赖是否存在循环或缺失。 |
 | `SemanticChunker.rebuild_prompt_modules(example, module_names)` | 根据模块名列表（自动包含依赖）拼接 prompt 文本。 |
 
@@ -266,7 +268,7 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 ├── rag/                         # RAG 模块源码目录
 │   ├── docs_inclusion.py
 │   ├── chunker.py
-│   ├── semantic_chunker.py
+│   ├── semantic_chunker.py      # V0.2.2 支持嵌套模块
 │   ├── embedding.py
 │   ├── index_builder.py
 │   ├── semantic_index_builder.py
@@ -274,34 +276,46 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 │   ├── rag_tool.py
 │   ├── rag_knowledge_update.py
 │   └── debug_retriever.py
-├── rag_db/                      # ChromaDB 持久化数据
+├── rag_db/                      # ChromaDB 持久化数据（当前双目录，规划中统一）
 │   ├── case_generator/
 │   └── conversion/
 ├── rag_docs/                    # docs_inclusion_*.json
 └── rag_chunk/                   # 调试用 JSON/TXT 切片导出
 ```
 
+**未来目标结构**（Phase 5）：
+```
+项目根目录/
+├── rag_db/                      # 单一 PersistentClient，多 Collection
+│   └── chroma.sqlite3           # 内含 case_generator 与 conversion 集合
+```
+
 ---
 
 ## ⚠️ 已知问题与不一致
+
 1. **新旧接口混用**  
-   `index_builder.py` 仍调用 `VectorStore.add_chunks()`（旧版），而 `semantic_index_builder.py` 使用 `add_documents()`（新版）。建议统一为 `add_documents`。
+   `index_builder.py` 仍调用 `VectorStore.add_chunks()`（旧版），而 `semantic_index_builder.py` 使用 `add_documents()`（新版）。建议统一为 `add_documents`，并迁移 AST 知识库至统一的 Document 格式。
 
 2. **嵌入模型固定**  
    `embedding.py` 中的 `EMBED_MODEL = "qwen3-embed-0.6b:q8"` 为硬编码，未实现运行时切换。
 
-3. **图结构未落地**  
-   虽在 `CodeChunk` 和 `RAGModule` 中设计了 `parent`/`deps` 字段，但检索时未利用这些关系进行 Graph‑RAG 排序。
+3. **图结构未充分利用**  
+   虽在 `CodeChunk` 和 `RAGModule` 中设计了 `parent`/`deps` 字段，但检索时未利用这些关系进行 Graph‑RAG 排序或遍历。`SemanticChunker` 已正确填充父子关系，待下游利用。
+
+4. **ChromaDB 存储分目录**  
+   当前为每个知识库使用独立的 `PersistentClient` 路径（`rag_db/case_generator/`、`rag_db/conversion/`），造成资源重复（多个 SQLite/WAL），不利于跨集合检索和统一管理。
 
 ---
 
 ## 🔮 下一步计划（路线图）
 
-- **Phase 1**：为 `RAGRetriever` 实现 `build_context` 方法，使 `rag_tool.py` 可用。
-- **Phase 2**：统一 `VectorStore` 接口，废弃 `add_chunks`。
-- **Phase 3**：在 `retriever.py` 中加入重排序（rerank）模块。
-- **Phase 4**：实现基于 `parent` 和 `deps` 的 Graph‑RAG 检索增强。
+- ✅ **Phase 1**：实现 `retriever.build_context()`（已完成）。  
+- **Phase 2**：统一 `VectorStore` 接口，废弃 `add_chunks`，全面迁移至 `add_documents`。  
+- **Phase 3**：在 `retriever.py` 中加入重排序（rerank）模块。  
+- **Phase 4**：实现基于 `parent` 和 `deps` 的 Graph‑RAG 检索增强。  
+- **Phase 5（新增）**：**统一 ChromaDB 存储为单 PersistentClient + 多 Collection**，废弃 `rag_db/case_generator/`、`rag_db/conversion/` 分目录方式，改为 `rag_db/chroma.sqlite3` 内维护 `case_generator` 与 `conversion` 两个 Collection。同步调整 `VectorStore`、`RAGRetriever`、`rag_knowledge_update` 等组件，支持跨知识库查询与统一的 Document 元数据模型。
 
 ---
 
-> 本文档基于 `rag/` 目录下所有 `.py` 文件（2026‑05‑22 提供的版本）自动生成。若代码有后续更新，请以源码为准。
+> 本文档基于 `rag/` 目录下所有 `.py` 文件（截至 2026‑06‑27）更新。若代码有后续修改，请以源码为准。

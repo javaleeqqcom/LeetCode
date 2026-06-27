@@ -573,3 +573,38 @@ if __name__ == "__main__":
             )
         }
     ))
+
+def array_stroke_compression(nums: list, verbose: bool):
+    """
+    对包含重复元素的列表/数组进行行程长度编码（Run-Length Encoding，RLE）压缩。
+    
+    参数:
+    nums (list): 待压缩的输入数组或列表。
+    verbose (bool): 若为 True，则在控制台打印压缩后的格式化字符串。
+    
+    返回:
+    list: 包含元组的列表，格式为 [(元素, 连续出现的次数), ...]。
+    
+    示例:
+    >>> array_stroke_compression([1, 1, 1, 2, 2, 3, 1, 1], verbose=True)
+    [1]*3+[2]*2+[3]*1+[1]*2
+    [(1, 3), (2, 2), (3, 1), (1, 2)]
+    """
+    counter = []
+    last, cnt = None, 0
+    
+    for x in nums:
+        if x == last:
+            cnt += 1
+        else:
+            if last is not None:
+                counter.append((last, cnt))
+            last, cnt = x, 1
+            
+    if last is not None:
+        counter.append((last, cnt))
+        
+    if verbose:
+        print('+'.join(f"[{x}]*{cnt}" for x, cnt in counter))
+        
+    return counter

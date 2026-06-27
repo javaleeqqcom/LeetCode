@@ -489,13 +489,27 @@ class SolutionRunner:
         os.makedirs(log_path,exist_ok=True)
         if __DEBUG__:
             print("log_path:",log_path)
+
+        results = []
+        wrong_count = 0
+        def check_early_stop(verbose=True)->bool:
+            nonlocal early_stop,wrong_count,results
+            """检查是否触发早停"""
+            if early_stop is None: return False
+            total_cnt = len(results)
+            if early_stop < 1 and wrong_count > early_stop*total_cnt:
+                if(verbose):print(f"错误样例比例 = {wrong_count}/{total_cnt} = {wrong_count/total_cnt:.4f} > {early_stop:.4f} (阈值)，触发早停。")
+                return True
+            elif wrong_count >= early_stop:
+                if(verbose):print(f"错误样例数量 = {wrong_count} >= {math.ceil(early_stop):d} (阈值)，触发早停。")
+                return True
+            return False
+
         # ========== 2. 执行所有用例 ==========
         if -1==thread:
             cpu_count = os.cpu_count()
             thread = cpu_count if cpu_count else 1
         if 1==thread:
-            wrong_count = 0
-            results = []
             if self.has_custom_caller:
                 caller = self.solution_module.__dict__[_CUSTOM_CALLER_NAME]
                 if __DEBUG__:
@@ -530,8 +544,7 @@ class SolutionRunner:
                     if log_wrong:
                         _log_result(result,log_lines,"Wrong_",log_path)
                     wrong_count += 1
-                    if self._check_early_stop( len(results), wrong_count ,early_stop):
-                        break # 触发早停
+                    if check_early_stop(): break # 触发早停
         else: # 多进程
             # ---------- 1. 准备共享内存 ----------
             cases_bytes = json.dumps(test_cases, ensure_ascii=False).encode("utf-8")
@@ -586,21 +599,19 @@ class SolutionRunner:
                 p.start()
 
             # ---------- 4. 收集结果 + 超时检测 ----------
-            collected_results = []
-            wrong_count = 0
             total_count = len(test_cases)
             tle_log_path = log_path  # 可复用
 
-            while len(collected_results) < total_count:
+            while len(results) < total_count:
                 # 4.1 尝试从输出队列获取正常结果
                 try:
                     result = output_queue.get(timeout=0.1)
-                    collected_results.append(result)
+                    results.append(result)
                     if _is_wrong(result) or 'error' in result:
                         wrong_count += 1
-                    # 检查早停条件
-                    if self._check_early_stop(len(collected_results), wrong_count, early_stop):
-                        early_stop_event.set()
+                        # 检查早停条件
+                        if not early_stop_event.is_set() and check_early_stop():
+                            early_stop_event.set()
                 except Empty:
                     pass
 
@@ -624,13 +635,14 @@ class SolutionRunner:
                                 f">>> INPUT\n{_compacted_json.dumps(case['input'], indent=2)}",
                             ]
                             _log_result(tle_result, log_lines, "TLE_", tle_log_path)
+                            print(f"\n⏱️ Worker {wid} 超时: {case.get('cid',"")} (>{timeout_s}s), 已记录 TLE 日志", flush=True)
 
                             # 将 TLE 结果视为已完成，加入收集列表
-                            collected_results.append(tle_result)
-                            wrong_count += 1
+                            results.append(tle_result)
 
-                            # 可选：触发早停（根据你的策略）
-                            if self._check_early_stop(len(collected_results), wrong_count, early_stop):
+                            # TLE 与 ERROR 类似：若无 skip_error 需触发早停
+                            wrong_count += 1
+                            if not skip_error or (not early_stop_event.is_set() and check_early_stop()):
                                 early_stop_event.set()
 
                         # 强制终止超时进程
@@ -641,7 +653,7 @@ class SolutionRunner:
                         slot.timestamp = 0.0
 
                 # 4.3 检查是否所有进程都已结束且结果不足（提前退出）
-                if all(not p.is_alive() for p in processes) and len(collected_results) < total_count:
+                if all(not p.is_alive() for p in processes) and len(results) < total_count:
                     # 此时可能还有未上报的 TLE 已在上面处理，但一般不会到这里
                     break
 
@@ -656,37 +668,41 @@ class SolutionRunner:
             shm.unlink()
 
             # 结果排序（cid 顺序）
-            collected_results.sort(key=lambda x: x['cid'])
-            results = collected_results
+            results.sort(key=lambda x: x['cid'])
+            results = results
 
         # 单/多进程：总结结果
         if summary:
             self.summary_results(results,verbose=True)
         return results
     @classmethod
-    def summary_results(cls,results:List[_RESULT],verbose = True)-> Tuple[int,int]:
+    def summary_results(cls, results: List[_RESULT], verbose=True) -> Tuple[int, int]:
         right = valid = 0
+        error_count = 0
+        tle_count = 0
         for case in results:
+            # 统计错误与超时
+            if 'error' in case:
+                if 'TLE' in case['error']:
+                    tle_count += 1
+                else:
+                    error_count += 1
+            # 原有正确/错误统计（仅对有 expected 的用例）
             if 'expected' in case and 'output' in case:
                 valid += 1
                 if case['expected'] != case['output']:
-                    print(f"wrong: {case}")
+                    if verbose:
+                        print(f"wrong: {case}")
                 else:
                     right += 1
         if verbose:
             print(f"right / total_valid: {right} / {valid}")
-        return right,valid
-    @classmethod
-    def _check_early_stop(cls,total_cnt:int,wrong_count:int,early_stop:Optional[int|float]=None,verbose=True)->bool:
-        """检查是否触发早停"""
-        if early_stop is None:return False
-        if early_stop < 1 and wrong_count > early_stop*total_cnt:
-            if(verbose):print(f"错误样例比例 = {wrong_count}/{total_cnt} = {wrong_count/total_cnt:.4f} > {early_stop:.4f} (阈值)，触发早停。")
-            return True
-        elif wrong_count >= early_stop:
-            if(verbose):print(f"错误样例数量 = {wrong_count} >= {math.ceil(early_stop):d} (阈值)，触发早停。")
-            return True
-        return False
+            if error_count > 0:
+                print(f"❌ 执行错误用例数: {error_count}")
+            if tle_count > 0:
+                print(f"⏱️ 超时用例数 (TLE): {tle_count}")
+        return right, valid
+
     def get_expected_cases(self, run_results: List[_RESULT]) -> List[_CASE]:
         """从run结果中过滤出成功的测试用例，重新编号以#开头的cid，并将'output'重命名为'expected'"""
         expected_cases = []
