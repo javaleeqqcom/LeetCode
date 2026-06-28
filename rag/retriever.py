@@ -8,7 +8,7 @@ import chromadb
 
 from typing import List, Dict, Any
 
-from embedding import (
+from .embedding import (
     OllamaEmbeddingFunction,
 )
 

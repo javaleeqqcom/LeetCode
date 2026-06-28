@@ -13,7 +13,7 @@ if __name__ == "__main__":
     from schemas.problem_context import ProblemContext
 
     # ================= 题目目录 =================
-    problem_dir = Path(r"Question\Q4. Maximum Subarray Sum After at Most K Swaps")
+    problem_dir = Path(r"Question\Q1. Maximum Total Sum of K Selected Elements©leetcode")
     sys.path.insert(1, str(problem_dir))
 
     # ================= 1. 暴力解法结构提取 =================
