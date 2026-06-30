@@ -1,12 +1,12 @@
 # 📘 LeetCode 本地自动化测试框架（Python）+ RAG 增强版
 
-> 版本：0.7.6（2026‑06‑27 更新）
+> 版本：0.7.7（2026‑06‑28 更新）
 
 ---
 
 ## 🧠 系统整体架构（当前实现）
 
-本系统采用 **双知识库 RAG 架构**，后续将统一为单客户端多集合的模型：
+本系统采用 **双知识库 RAG 架构**，已统一为**单客户端多集合**模型：
 
 - **Semantic 知识库**（`case_generator`）：基于人工标注的语义切片（`@RAG_BEGIN` / `@RAG_END`），用于测试用例生成、调试建议等高层逻辑。
 - **AST 知识库**（`conversion`）：基于语法树（AST / 正则）自动抽取的代码切片（类、方法、函数），用于代码转换、结构理解。
@@ -46,7 +46,9 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-> **V0.2.2 变更**：`SemanticChunker` 已支持**嵌套模块解析**（`@RAG_BEGIN`/`@RAG_END` 允许缩进与层级嵌套），所有正则均已适配前导空格，模块间自动记录父子关系，为后续 Graph‑RAG 提供结构化数据。
+> **V0.7.7 变更**：
+> - **统一 ChromaDB 存储**：废弃双 `PersistentClient` 分目录模式（`rag_db/case_generator/`、`rag_db/conversion/`），改为单一数据库文件 `rag_db/chroma.sqlite3`，通过类级别共享客户端实现多集合管理。
+> - **修复 Agent RAG 调用链**：`CaseGeneratorAgent` 现在直接使用 `RAGRetriever.build_context()` 查询 `case_generator` 语义知识库，不再错误地通过 `ReferenceRetriever` 查询 `conversion` 库。
 
 ---
 
@@ -87,7 +89,7 @@
 ### 3. `semantic_chunker.py` – 语义代码切片（用于 case_generator 知识库）
 
 解析包含特殊标记的 `.py` 文件，生成 `RAGModule` 列表。  
-**V0.2.2 重要更新**：解析器改用**模块栈**，完整支持嵌套的 `@RAG_BEGIN` / `@RAG_END`；所有正则允许前导空格，识别函数体内的缩进标记；自动为模块建立 `parent` 关系，为 Graph‑RAG 提供直接结构。
+**V0.7 重要更新**：解析器改用**模块栈**，完整支持嵌套的 `@RAG_BEGIN` / `@RAG_END`；所有正则允许前导空格，识别函数体内的缩进标记；自动为模块建立 `parent` 关系，为 Graph‑RAG 提供直接结构。
 
 **支持的标记：**
 - `# @EXAMPLE_BEGIN: name`  标记示例开始
@@ -116,7 +118,7 @@
 
 | 类 / 函数 | 描述 |
 |----------|------|
-| `VectorStore(db_path, collection_name)` | ChromaDB 客户端封装。 |
+| `VectorStore(db_path, collection_name)` | ChromaDB 客户端封装。V0.7.7 起使用**类级别共享客户端**（`_client`），所有集合共用同一 `PersistentClient`，路径统一为 `./rag_db`。 |
 | `VectorStore.add_chunks(chunks)` | **（旧版）** 将 `CodeChunk` 列表入库（已标记 `Warning`，保留兼容性）。 |
 | `VectorStore.add_documents(docs)` | 新版入库方法，接收 `[{id, document, metadata}]` 列表。 |
 | `OllamaEmbeddingFunction(model)` | 实现 ChromaDB 的 `EmbeddingFunction` 接口，通过 Ollama HTTP API 调用嵌入模型（默认 `qwen3-embed-0.6b:q8`）。 |
@@ -149,7 +151,7 @@
 
 | 类 / 函数 | 描述 |
 |----------|------|
-| `RAGRetriever(db_root)` | 初始化，`db_root` 默认 `"./rag_db"`。 |
+| `RAGRetriever(db_root)` | 初始化，`db_root` 默认 `"./rag_db"`。V0.7.7 起使用**类级别共享客户端**，与 `VectorStore` 共用同一 `PersistentClient`。 |
 | `RAGRetriever.get_collection(collection_name)` | 懒加载 ChromaDB collection，复用客户端。 |
 | `RAGRetriever.search(query, collection_name, topk, where)` | 执行向量检索，返回 `[{score, document, metadata}]`。内部调用 ChromaDB 的 `query`，并将距离转换为相似度（`1.0 - dist`）。 |
 | `RAGRetriever.build_context(query, collection_name, topk)` | 调用 `search()` 后格式化输出为文本块，包含相似度、文件路径、类型、名称和内容，便于直接拼接到 Prompt 中。 |
@@ -199,8 +201,9 @@
 
 **用法示例：**
 ```bash
-python rag/debug_retriever.py case_generator
-python rag/debug_retriever.py conversion --topk 3
+# 注意：必须使用 -m 方式运行，以正确加载 rag 包
+python -m rag.debug_retriever case_generator
+python -m rag.debug_retriever conversion --topk 3
 ```
 
 ---
@@ -223,7 +226,7 @@ python rag/semantic_index_builder.py ./rag_docs/case_generator_xxx.json
 ### 2. 检索测试（使用 debug 工具）
 
 ```bash
-python rag/debug_retriever.py case_generator
+python -m rag.debug_retriever case_generator
 ```
 
 然后在提示符下输入查询语句，例如：
@@ -266,28 +269,21 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 ```
 项目根目录/
 ├── rag/                         # RAG 模块源码目录
+│   ├── __init__.py              # 路径注入（rag/ + 项目根目录）
 │   ├── docs_inclusion.py
 │   ├── chunker.py
-│   ├── semantic_chunker.py      # V0.2.2 支持嵌套模块
-│   ├── embedding.py
+│   ├── semantic_chunker.py      # V0.6 支持嵌套模块
+│   ├── embedding.py             # V0.7.7 统一 PersistentClient
 │   ├── index_builder.py
 │   ├── semantic_index_builder.py
-│   ├── retriever.py
+│   ├── retriever.py             # V0.7.7 统一 PersistentClient
 │   ├── rag_tool.py
 │   ├── rag_knowledge_update.py
 │   └── debug_retriever.py
-├── rag_db/                      # ChromaDB 持久化数据（当前双目录，规划中统一）
-│   ├── case_generator/
-│   └── conversion/
+├── rag_db/                      # V0.7.7 统一为单数据库
+│   └── chroma.sqlite3           # 内含 case_generator 与 conversion 集合
 ├── rag_docs/                    # docs_inclusion_*.json
 └── rag_chunk/                   # 调试用 JSON/TXT 切片导出
-```
-
-**未来目标结构**（Phase 5）：
-```
-项目根目录/
-├── rag_db/                      # 单一 PersistentClient，多 Collection
-│   └── chroma.sqlite3           # 内含 case_generator 与 conversion 集合
 ```
 
 ---
@@ -303,33 +299,23 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 3. **图结构未充分利用**  
    虽在 `CodeChunk` 和 `RAGModule` 中设计了 `parent`/`deps` 字段，但检索时未利用这些关系进行 Graph‑RAG 排序或遍历。`SemanticChunker` 已正确填充父子关系，待下游利用。
 
-4. **ChromaDB 存储分目录**  
-   当前为每个知识库使用独立的 `PersistentClient` 路径（`rag_db/case_generator/`、`rag_db/conversion/`），造成资源重复（多个 SQLite/WAL），不利于跨集合检索和统一管理。
+4. **Agent 查询质量待优化**  
+   当前 `CaseGeneratorAgent` 的 RAG 查询已从仅使用复杂度（如 `"O(n)"`）改进为包含标题、描述摘要、标签等多维度信息，但仍可进一步利用 `student_code` 一起 embedding 以提高召回精度。
 
 ---
 
 ## 🔮 下一步计划（路线图）
 
-- ✅ **Phase 1**：实现 `retriever.build_context()`（已完成）。  
-- **Phase 2**：统一 `VectorStore` 接口，废弃 `add_chunks`，全面迁移至 `add_documents`。  
-- **Phase 3**：在 `retriever.py` 中加入重排序（rerank）模块。  
-- **Phase 4**：实现基于 `parent` 和 `deps` 的 Graph‑RAG 检索增强。  
-- **Phase 5：ChromaDB 统一存储 + 稳健增量更新**
+- ✅ **Phase 1**：实现 `retriever.build_context()`（已完成）。
+- ✅ **Phase 5.1**：统一 ChromaDB 客户端（一个 PersistentClient，多个 Collection）（已完成）。
+- **Phase 2**：统一 `VectorStore` 接口，废弃 `add_chunks`，全面迁移至 `add_documents`。
+- **Phase 3**：在 `retriever.py` 中加入重排序（rerank）模块。
+- **Phase 4**：实现基于 `parent` 和 `deps` 的 Graph‑RAG 检索增强，例如 `SemanticChunker.rebuild_prompt_modules()` 自动拉取依赖模块。
+- **Phase 5**：修复旧 chunk 残留问题 + 重构索引构建流程为"按文件替换"模式。
 
-目标：解决当前“双 PersistentClient 分目录”与“增量添加导致残留 chunk”两大架构问题，将 RAG 数据层推向生产级稳定。
+### 近期规划（V0.7.8）
 
-### 5.1 统一 ChromaDB 客户端（一个 PersistentClient，多个 Collection）
-
-- 修改 `embedding.py` 的 `VectorStore`：
-  - 引入**类级别共享客户端**：`PersistentClient` 仅创建一次，所有 `VectorStore` 实例共享。
-  - 路径统一为 `./rag_db`，集合名称区分知识库（`case_generator` / `conversion`）。
-- 调整 `retriever.py` 的 `RAGRetriever`：
-  - `db_root` 默认指向 `./rag_db`，内部获取 collection 时复用同一客户端。
-- 迁移现有双目录数据：
-  - 提供一次性迁移脚本（或通过 `rag_knowledge_update.py` 自动迁移），将 `rag_db/case_generator/` 和 `rag_db/conversion/` 的内容导入到单数据库的两个集合中。
-- 清理废弃目录，最终 `rag_db/` 下仅保留一个 `chroma.sqlite3`。
-
-### 5.2 基于文件粒度的删除与替换接口
+#### 5.2 基于文件粒度的删除与替换接口
 
 在 `VectorStore` 中新增两个方法：
 
@@ -341,53 +327,50 @@ def replace_file(self, docs: List[dict]):
     """先删除旧文件的所有 chunks，再写入新 chunks（原子级替换）"""
 ```
 
-### 5.3 重构索引构建流程为“按文件替换”模式
+#### 5.3 重构索引构建流程为"按文件替换"模式
 
 - 修改 `index_builder.py` 和 `semantic_index_builder.py`：
   - 不再仅依赖 `diff_docs` 的增量 add。
   - 对于哈希变化的文件，执行 **`store.remove_file()` + 重新切片 + `store.add_documents()`**。
   - 对于新增文件，直接 `add_documents()`。
-- 在 `docs_inclusion.json` 中增加字段：
-  - `file`（相对路径）
-  - `hash`（MD5）
-  - `last_modified`
-  供后续精准识别变更文件。
+- 在 `docs_inclusion.json` 中增加字段：`file`（相对路径）、`hash`（MD5）、`last_modified`，供后续精准识别变更文件。
 - 确保所有 chunk 的 metadata 统一包含 `"file"` 字段（已部分实现，需检查 AST chunker 是否补齐）。
 
-### 5.4 统一文档接口，废弃 `add_chunks`
+#### 5.4 统一文档接口，废弃 `add_chunks`
 
 - 将 `index_builder.py` 中的 `store.add_chunks(chunks)` 调用替换为 `store.add_documents(docs)`。
 - `add_chunks` 保留但不推荐使用，标记为 Deprecated，待下一大版本移除。
 - AST chunk 转换为与 semantic 统一的 `{id, document, metadata}` 格式，其中 `metadata` 至少包含 `file`、`type`、`name`、`parent` 等。
 
-### 5.5 数据一致性保障
+#### 5.5 数据一致性保障
 
 - 在 `replace_file` 中增加异常回滚机制（删除与添加之间如果出错，确保不会丢失旧数据）。
 - 提供 `rag/verify_db.py` 脚本，检查 collection 中的文件列表与 `docs_inclusion` 是否一致，帮助调试。
 
+#### Agent 层优化
+
+- 将 `ComplexityAnalyzer` 从静态循环嵌套分析升级为实际执行时间拟合，得到更精确的复杂度渐进函数。
+- 在 `CaseGeneratorAgent` 的 RAG 查询中融入 `student_code`，进一步提升召回精度。
+
 ---
 
-## 📝 需要修改的 .py 文件及改动说明
+## 📝 需要修改的 .py 文件及改动说明（V0.7.8）
 
 | 文件 | 需要进行的修改 |
 |------|----------------|
-| **`rag/embedding.py`** | 1. 实现类级别共享 `PersistentClient`（`_client` 类变量）。<br>2. 新增 `remove_file(file_path)` 方法。<br>3. 新增 `replace_file(docs)` 方法。<br>4. 统一 `add_chunks` 的迁移或废除标记。 |
+| **`rag/embedding.py`** | 1. 新增 `remove_file(file_path)` 方法。<br>2. 新增 `replace_file(docs)` 方法。<br>3. 统一 `add_chunks` 的迁移或废除标记。 |
 | **`rag/chunker.py`** | 确保 `CodeChunk` 包含 `file_path` 字段，并在入库时转化为 metadata 中的 `"file"`。 |
 | **`rag/index_builder.py`** | 1. 将 `store.add_chunks(chunks)` 替换为 `store.add_documents(docs)`。<br>2. 在构建流程中，对变更文件先 `remove_file`，再通过 `replace_file` 或直接 `add_documents`。<br>3. 统一 AST chunk 的 metadata 格式，包含 `file`、`type`、`name`、`parent`。 |
-| **`rag/semantic_index_builder.py`** | 1. 采用与 `index_builder` 一致的“按文件替换”流程。<br>2. 确保 metadata 中包含 `file`（已存在，检查即可）。 |
-| **`rag/rag_knowledge_update.py`** | 1. 更新 `VectorStore` 的初始化路径为统一的 `./rag_db`。<br>2. 加入迁移逻辑（可选，或单独脚本）。<br>3. 在构建后自动清理旧的双目录数据（如果存在）。 |
-| **`rag/retriever.py`** | `RAGRetriever` 内部改为使用共享的 `PersistentClient`，路径指向 `./rag_db`。 |
+| **`rag/semantic_index_builder.py`** | 1. 采用与 `index_builder` 一致的"按文件替换"流程。<br>2. 确保 metadata 中包含 `file`（已存在，检查即可）。 |
 | **`rag/docs_inclusion.py`** | 确保生成的 JSON 中包含 `file`（相对路径）、`hash`、`last_modified` 字段，以便 `remove_file` 进行匹配。 |
-| **`rag/debug_retriever.py`** | 无需大改，但可能需要适配新的 `RAGRetriever` 初始化参数。 |
-| **`rag/rag_tool.py`** | 无需改，仍通过 `retriever.build_context` 调用。 |
+| **`agents/complexity_analyzer.py`** | 升级为基于实际执行时间的复杂度拟合。 |
 
 ---
 
-## 🎯 预期效果（V0.7.7 完成后）
+## 🎯 预期效果（V0.7.8 完成后）
 
-- 所有知识库共用同一个 ChromaDB 数据库文件，减少资源消耗，支持跨集合检索。
-- 索引更新**绝不会残留过时 chunk**，由“按文件替换”策略保证。
+- 索引更新**绝不会残留过时 chunk**，由"按文件替换"策略保证。
 - AST 和 Semantic 入库接口完全统一，为后续 `rerank`、`Graph-RAG` 等高级功能奠定坚实基础。
-- 数据目录清爽，维护心智成本显著下降。
+- 复杂度分析更精确，使 Agent 生成的测试用例规模更贴合实际代码能力边界。
 
-> 以上计划与文件改动描述可直接更新至 `RAG_DOC.md` 的下一步计划章节，作为 V0.7.7 的正式路线图。
+> 以上计划与文件改动描述可直接更新至 `RAG_DOC.md` 的下一步计划章节，作为 V0.7.8 的正式路线图。

@@ -8,7 +8,7 @@ import chromadb
 
 from typing import List, Dict, Any
 
-from .embedding import (
+from embedding import (
     OllamaEmbeddingFunction,
 )
 
@@ -16,53 +16,24 @@ from .embedding import (
 # =========================================================
 # retriever
 # =========================================================
-
 class RAGRetriever:
+    _client = None
 
-    def __init__(
-        self,
-        db_root: str = "./rag_db",
-    ):
-
-        self.db_root = db_root
-
-        self.embedding_function = (
-            OllamaEmbeddingFunction()
-        )
-
-        self.clients = {}
+    def __init__(self, db_root: str = "./rag_db"):
+        if RAGRetriever._client is None:
+            RAGRetriever._client = chromadb.PersistentClient(path=db_root)
+        self.client = RAGRetriever._client
+        self.embedding_function = OllamaEmbeddingFunction()
         self.collections = {}
 
-    # =====================================================
-    # get collection
-    # =====================================================
-
-    def get_collection(
-        self,
-        collection_name: str,
-    ):
-
+    def get_collection(self, collection_name: str):
         if collection_name in self.collections:
             return self.collections[collection_name]
-
-        db_path = (
-            f"{self.db_root}/{collection_name}"
-        )
-
-        client = chromadb.PersistentClient(
-            path=db_path
-        )
-
-        collection = client.get_collection(
+        collection = self.client.get_collection(
             name=collection_name,
-            embedding_function=(
-                self.embedding_function
-            ),
+            embedding_function=self.embedding_function,
         )
-
-        self.clients[collection_name] = client
         self.collections[collection_name] = collection
-
         return collection
 
     # =====================================================

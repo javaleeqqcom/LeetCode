@@ -86,7 +86,7 @@ if __name__ == "__main__":
         print(f"✅ 最终有效用例数：{len(expected_cases)}")
         
     # ================= 7. 运行优化算法 =================
-    improved_runner = SolutionRunner(problem_dir / "V6.3(not DiffTree).py")
+    improved_runner = SolutionRunner(problem_dir / "V2.2.py")
     print("=== 测试改进算法 ===")
     begin = time.time()
     results = improved_runner.run(

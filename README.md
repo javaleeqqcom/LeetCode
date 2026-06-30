@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.7.4
+- 版本：0.7.7
 
 ## 总览
 
@@ -9,7 +9,7 @@
 - **全自动环境模拟**：自动处理编码检测（UTF‑8/GBK/BOM）、类型注入、虚拟模块隔离，使本地执行行为与 LeetCode 在线判题环境完全一致。
 - **高效批量验证**：支持多线程并发执行、早停策略、智能文件管理，显著提升大规模测试用例的运行效率。
 - **结构化调试辅助**：为链表和二叉树提供安全迭代器、环检测、美观打印等工具，方便快速定位算法逻辑错误。
-- **AI 增强工作流**：采用 Agent + Runtime 分层架构，通过统一的SolutionStruct导出代码结构，AI Agent 可基于此自动生成测试用例与暴力验证代码，实现执行逻辑与生成逻辑的完全解耦，并逐步向 Graph‑RAG 演进。
+- **AI 增强工作流**：采用 Agent + Runtime 分层架构，通过统一的 `SolutionStruct` 导出代码结构，AI Agent 可基于此自动生成测试用例与暴力验证代码，实现执行逻辑与生成逻辑的完全解耦，并已初步集成 RAG 检索能力。
 
 ---
 
@@ -105,34 +105,32 @@ for idx, node in it:
 
 ## 三、AI Agent 工作流（解耦设计）
 
-框架已重构为 **Agent 层** 与 **Runtime 层** 分离的架构，彻底移除 `SolutionRunner` 中的 Prompt 生成逻辑。
+框架已实现 **Agent 层** 与 **Runtime 层** 的分离，通过标准化数据结构（`ProblemContext`、`SolutionStruct`）实现完全解耦。
 - **Runtime 层**（`tools/`）：仅负责代码执行、结果比较、测试用例读写。
-- **Agent 层**（`agents/`，规划中）：控制 RAG 检索、Prompt 构建、测试用例生成与迭代优化。
-- **统一结构**：`SolutionStruct`（`tools/solution_struct.py`）将 Python / C++ / Java 等代码的方法签名、参数类型、复杂度提示等信息导出为与语言无关的数据结构，AI Agent 无需接触原始源码即可生成高质量测试用例。
+- **Agent 层**（`agents/`）：已实现 `AnalyzeAgent`（题目分析）、`CaseGeneratorAgent`（测试用例生成器生成），并接入 RAG 知识库，可自动检索相关测试策略，生成高质量的 `case_generator` 代码。支持 `dry_run` 模式，方便调试 Prompt 和人工介入。
+- **统一结构**：`SolutionStruct` 将 Python / C++ / Java 等代码的方法签名、参数类型等信息导出为语言无关的数据结构，Agent 无需接触原始源码即可生成测试用例。
 
-### 当前 RAG 能力（`rag/` 目录）
-保留原有的双知识库 RAG 系统（语义知识库 `case_generator` 与 AST 知识库 `conversion`），提供向量检索能力。
-- **文档分块（chunk）**：按语义标记或 AST 切片生成代码块。
-- **向量嵌入（embedding）**：通过 ChromaDB + Ollama 持久化。
-- **检索器（retriever）**：`RAGRetriever` 统一接口，支持多知识库查询。
-- **Agent 封装**：`RetrievalAgent`（规划中）负责将分析结果转换为检索查询，屏蔽内部实现。
+### 当前 RAG 能力
+已建成 **双知识库 RAG 系统**，并统一为单 ChromaDB 客户端、多集合的管理模式：
+- **语义知识库**（`case_generator`）：存储人工标注的测试策略代码模块，用于指导 Agent 生成符合题目特点的测试用例。
+- **AST 知识库**（`conversion`）：存储自动抽取的代码片段（类、方法等），用于代码转换和结构理解。
 
-### Agent 工作流规划
+向量检索通过 `RAGRetriever` 统一接口进行，支持多知识库查询和格式化文本上下文的构建，已无缝嵌入 `CaseGeneratorAgent` 的 Prompt 生成流程。
+
+### Agent 工作流
 ```text
 AnalyzeAgent  →  输出 problem_analysis (含算法类型、复杂度)
        ↓
-RetrievalAgent  →  根据分析结果检索相关测试模板和转换代码
+CaseGeneratorAgent  →  结合 RAG 检索的 case_generator 参考代码，生成测试用例生成器
        ↓
-CaseGeneratorAgent  →  基于题目、学生代码、RAG 上下文和 SolutionStruct 生成测试用例生成函数
+ExecuteAgent (Runtime) →  调用 SolutionRunner 执行测试并收集结果
        ↓
-ExecuteAgent  →  调用 SolutionRunner 执行测试并收集结果
-       ↓
-EvaluateAgent  →  分析通过率、错误分布，反馈优化建议
+EvaluateAgent (规划中) →  分析通过率、错误分布，反馈优化建议
 ```
-全部中间数据（分析结果、检索上下文、生成的代码）均通过结构化 Schema 传递，RAG 与执行模块完全解耦，便于后续扩展多语言支持。
+目前 `AnalyzeAgent` 和 `CaseGeneratorAgent` 已可独立使用，也可通过 LangGraph 工作流（`build_graph.py`）串联执行。全部中间数据通过结构化 Schema 传递，RAG 与执行模块完全解耦。
 
 ### 暴力算法验证流程
-原有的暴力算法验证仍可复用：通过 Agent 生成暴力解法代码，手动调用 `SolutionRunner` 执行并比较，未来将由 `CaseGeneratorAgent` 自动编排。
+原有的暴力算法验证仍可复用：通过 Agent 生成暴力解法代码，手动调用 `SolutionRunner` 执行并比较；未来计划将验证流程集成至 `CaseGeneratorAgent` 的自动编排中。
 
 ---
 
@@ -142,14 +140,16 @@ EvaluateAgent  →  分析通过率、错误分布，反馈优化建议
 |------|----------|
 | **多线程测试工具** | 零侵入运行学生代码，自动处理编码/类型/环境，支持并发执行与早停。 |
 | **特殊类型调试工具** | 为链表和二叉树提供安全迭代、环检测、美观打印，显著提升调试效率。 |
-| **AI Agent 架构** | 通过 Agent 与 Runtime 分层、SolutionStruct 统一导出，自动生成测试用例与暴力算法，并规划向 Graph‑RAG 演进。 |
+| **AI Agent 架构** | 通过 Agent 与 Runtime 分层、SolutionStruct 统一导出，并集成 RAG 知识库，自动生成测试用例与暴力算法。已实现测试生成与 RAG 协同，向 Graph‑RAG 演进。 |
 
-本项目致力于让本地算法调试体验**无限接近 LeetCode 在线环境**，同时通过结构化的调试工具和 AI 辅助工作流，帮助学习者更快定位问题、验证算法正确性。后续将重点推进 **AST 调用图分析**与 **Graph‑RAG 检索**，使框架从“能找代码”进化为“能理解代码”。
-
+本项目致力于让本地算法调试体验**无限接近 LeetCode 在线环境**，同时通过结构化的调试工具和 AI 辅助工作流，帮助学习者更快定位问题、验证算法正确性。后续将重点推进 **AST 调用图分析**、**Graph‑RAG 检索增强**与 **按文件粒度的稳健增量更新**。
 
 ## 🔮 下一步计划
 
-- 实用小功能，记录WG的编号，以便改用 DEBUG 模式下重跑WG的用例以记录打印调试。
+- 记录错误用例编号，支持 DEBUG 模式下重跑并打印调试日志。
+- 升级静态复杂度分析为基于执行时间的拟合估计，使测试规模更精准。
+- 实现基于模块依赖的 Graph‑RAG 检索，自动拉取关联模块，提升生成质量。
+- 统一 AST 知识库入库接口，实现按文件粒度的删除与替换，杜绝残留 chunk。
 
 1. **小模型驱动的代码生成流程**  
    题目 → 小型 LLM 提取关键词 → RAG 检索相关代码 → 将题目与参考代码共同输入 LLM → 生成目标代码。

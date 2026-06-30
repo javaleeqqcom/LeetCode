@@ -56,10 +56,7 @@ def build_semantic_index(
 
         return
 
-    store = VectorStore(
-        db_path=os.path.join("./rag_db", collection_name),
-        collection_name=collection_name,
-    )
+    store = VectorStore( collection_name=collection_name )
 
     total_modules = 0
 

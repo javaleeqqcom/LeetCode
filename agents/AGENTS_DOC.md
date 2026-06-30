@@ -1,7 +1,5 @@
-```markdown
 # 🧠 Agents 模块文档
-> 版本：0.7.5（基于当前实现）
-> 2026-6-13
+> 版本：0.7.7（2026‑06‑28 更新）
 
 ## 概览
 `agents/` 目录实现了框架的 **Agent 层**，负责题目分析、测试用例生成、工作流编排等高层任务。  
@@ -13,6 +11,10 @@
 - **LangGraph 工作流**：将分析、检索、生成串联为自动化流程
 - **辅助工具**：剪贴板交互、日志管理、RAG 检索封装
 
+**V0.7.7 重要变更**：
+- `CaseGeneratorAgent` 重构：构造函数改为接收 `ProblemContext`；RAG 检索直接使用 `RAGRetriever.build_context()` 查询 `case_generator` 语义知识库，不再经过 `ReferenceRetriever`。
+- `ReferenceRetriever` 保留用于 `conversion` AST 知识库的检索（返回 `SolutionStruct` 列表），但不再被 `CaseGeneratorAgent` 调用。
+
 ---
 
 ## 一、架构图
@@ -23,14 +25,16 @@
 │  analyze_agent.py      case_generator_agent.py                  │
 │  ┌───────────────┐    ┌──────────────────────────┐              │
 │  │ AnalyzeAgent  │    │  CaseGeneratorAgent      │              │
-│  │ (LLM + 模板)  │    │  - build_rag_context()    │              │
-│  └───────┬───────┘    │  - build_prompt()         │              │
-│          │            │  - run()                  │              │
+│  │ (LLM + 模板)  │    │  - build_rag_context()   │              │
+│  └───────┬───────┘    │   ┌──────────────────┐   │              │
+│          │            │   │ RAGRetriever     │   │              │
+│          ▼            │   │ (case_generator) │   │              │
+│   ProblemAnalysis     │   └──────────────────┘   │              │
+│          │            │  - build_prompt()        │              │
+│          │            │  - run()                 │              │
 │          ▼            └───────────┬──────────────┘              │
-│   ProblemAnalysis                 │                              │
-│          │                        │                              │
-│          └────────┬───────────────┘                              │
-│                   ▼                                              │
+│          └────────┬───────────────┘                             │
+│                   ▼                                             │
 │   build_graph.py  (LangGraph 工作流)                             │
 │   analyze → retrieve → generate_case                            │
 │                                                                 │
@@ -40,7 +44,7 @@
 │   complexity_analyzer.py   graph_state.py                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                        外部依赖                                  │
-│   schemas/  tools/  rag/   (Runtime & 知识库)                   │
+│   schemas/  tools/  rag/   (Runtime & 知识库)                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -59,6 +63,9 @@
 | `AgentIO.clean_llm_code(text)` | 清洗 LLM 原始输出：去除 `think` 标签、提取 markdown 代码块或从第一个 `def` 行截取，返回纯净代码。 |
 | `AgentIO.copy_to_clipboard(text)` | 跨平台复制文本到系统剪贴板（Win: clip, macOS: pbcopy, Linux: xclip/xsel）。 |
 | `AgentIO.send_messages_to_clipboard(messages, problem_dir)` | 将 LangChain 消息列表序列化为文本并复制到剪贴板；复制失败则保存到 `agent_logs/manual_prompt_{题目名}.log`。 |
+| `AgentIO.paste_from_clipboard()` | 从剪贴板读取文本内容。 |
+| `AgentIO.auto_fix_imports(code)` | 自动补充缺失的 `import` 语句（如 `import random`, `import numpy as np`）。 |
+| `AgentIO.validate_case_generator(code)` | 在沙箱中尝试编译 `case_generator` 函数，返回 `(valid, error_msg)`。 |
 
 **使用示例：**
 ```python
@@ -87,10 +94,10 @@ code = AgentIO.clean_llm_code(response.content)
 
 | 类 / 方法 | 描述 |
 |-----------|------|
-| `CaseGeneratorAgent(llm)` | 初始化，默认使用 `qwen3-coder-30b-q8`。内置 RAG 检索器 `ReferenceRetriever`，加载 `prompts/case_generator.prompt.md` 模板。 |
-| `CaseGeneratorAgent.build_rag_context(knowledge_requirements)` | 调用 `ReferenceRetriever.retrieve` 获取参考 `SolutionStruct` 列表，拼接为 JSON 字符串；失败时返回空字符串。 |
-| `CaseGeneratorAgent.build_prompt(problem)` | 构建完整的 LLM 消息列表。内容包含：题目描述、学生代码、`case_generator` 模板、复杂度分析摘要、RAG 检索上下文。 |
-| `CaseGeneratorAgent.run(problem, dry_run)` | 执行生成流程。<br>**dry_run=True**：保存 Prompt 日志并尝试复制到剪贴板，不调用 LLM。<br>**dry_run=False**：调用 LLM → 清洗代码 → 保存到 `auto/case_generator_xxx.py`，返回代码字符串。 |
+| `CaseGeneratorAgent(problem, llm=None)` | **V0.7.7 变更**：构造时必须传入 `ProblemContext`。内部直接持有 `RAGRetriever` 实例（用于查询 `case_generator` 语义知识库），不再依赖 `ReferenceRetriever`。 |
+| `CaseGeneratorAgent.build_rag_context(query)` | 接收多维度查询文本，调用 `self.retriever.build_context(query, collection_name="case_generator")`，返回格式化文本块。 |
+| `CaseGeneratorAgent.build_prompt()` | 构建完整的 LLM 消息列表。自动从 `self.problem` 提取标题、描述、标签、复杂度等构造高质量 RAG 查询，再调用 `build_rag_context` 获取上下文。最终 Prompt 包含：题目描述、学生代码、`case_generator` 模板、复杂度分析摘要、RAG 上下文。 |
+| `CaseGeneratorAgent.run(dry_run=False)` | 执行生成流程。<br>**dry_run=True**：保存 Prompt 日志并进入半监督模式，等待用户从剪贴板提供代码。<br>**dry_run=False**：调用 LLM → 清洗代码 → 自动修复 import → 验证 → 保存到 `auto/case_generator_xxx.py`，返回代码字符串。 |
 
 **生成文件命名规则：**
 `auto/case_generator_000.py`、`auto/case_generator_001.py` ……
@@ -112,19 +119,21 @@ code = AgentIO.clean_llm_code(response.content)
 
 ---
 
-### 5. `reference_retriever.py` – RAG 检索封装
-为 Agent 提供检索已存储的 `SolutionStruct` 的能力。
+### 5. `reference_retriever.py` – RAG 检索封装（conversion 库）
+为 Agent 提供检索 `conversion` AST 知识库并获取 `SolutionStruct` 的能力。
 
 | 类 / 方法 | 描述 |
 |-----------|------|
 | `ReferenceRetriever(db_root)` | 初始化，默认使用 `"./rag_db"` 下的向量数据库。内部持有 `RAGRetriever` 实例。 |
-| `retrieve(knowledge_requirements, topk)` | 输入关键词列表，拼接后查询 `conversion` 知识库。从返回结果的 `metadata.solution_struct_json` 字段反序列化为 `SolutionStruct` 列表。 |
+| `retrieve(knowledge_requirements, topk)` | 输入关键词列表，拼接后查询 `conversion` 集合。从返回结果的 `metadata.solution_struct_json` 字段反序列化为 `SolutionStruct` 列表。 |
 
 **使用示例：**
 ```python
 retriever = ReferenceRetriever()
 refs = retriever.retrieve(["O(n^2)", "dp"])
 ```
+
+> **说明**：自 V0.7.7 起，`CaseGeneratorAgent` 不再使用 `ReferenceRetriever`，而是直接调用 `RAGRetriever.build_context()` 查询 `case_generator` 语义库。本类保留供未来其他需要 `conversion` 结构化数据的场景使用。
 
 ---
 
@@ -163,9 +172,12 @@ result = graph.invoke({"problem": problem_context})
 from agents.case_generator_agent import CaseGeneratorAgent
 from schemas.problem_context import ProblemContext
 
-agent = CaseGeneratorAgent()
+# 必须先构建 ProblemContext（含题目描述、学生代码、SolutionStruct 等）
+context = ProblemContext(...)
+agent = CaseGeneratorAgent(context)   # V0.7.7 起必须传入 ProblemContext
+
 # dry_run=True 仅生成 Prompt，不消耗 LLM 调用
-code = agent.run(problem_context, dry_run=False)
+code = agent.run(dry_run=False)
 # 生成的代码已自动保存到 problem_dir/auto/case_generator_xxx.py
 ```
 
@@ -194,11 +206,12 @@ print(hint.time_complexity, hint.estimated_n_limit)
 ## 四、目录结构
 ```
 agents/
+├── __init__.py                  # 路径注入（agents/ + 项目根目录）
 ├── agent_io.py                  # 通用 I/O 工具
 ├── analyze_agent.py             # 题目分析 Agent
-├── case_generator_agent.py      # 测试用例生成 Agent
+├── case_generator_agent.py      # 测试用例生成 Agent（V0.7.7 重构）
 ├── complexity_analyzer.py       # 静态复杂度分析器
-├── reference_retriever.py       # RAG 检索封装
+├── reference_retriever.py       # RAG 检索封装（conversion 库，保留扩展）
 ├── graph_state.py               # LangGraph 状态定义
 └── build_graph.py               # LangGraph 工作流定义
 ```
@@ -210,17 +223,19 @@ agents/
 2. **模板文件**：Agent 依赖 `prompts/` 目录下的 `.prompt.md` 文件，路径硬编码，移动时需同步调整。
 3. **剪贴板功能**：跨平台剪贴板需要对应的系统工具（`clip`、`pbcopy`、`xclip`/`xsel`），缺失时自动降级为文件保存。
 4. **复杂度分析**：`ComplexityAnalyzer` 为简易实现，仅作参考，不应作为精确的复杂度判断依据。
-5. **RAG 检索**：`ReferenceRetriever` 依赖已构建好的 `conversion` 知识库，使用前请确保已执行 `rag/rag_knowledge_update.py`。
+5. **RAG 检索**：
+   - `CaseGeneratorAgent` 直接使用 `RAGRetriever.build_context()` 查询 **`case_generator`** 语义知识库，返回的文本块直接嵌入 Prompt。
+   - `ReferenceRetriever` 保留用于查询 **`conversion`** AST 知识库，返回 `SolutionStruct` 列表，供未来需要结构化代码参考的场景使用。
+   - 使用前请确保已执行 `rag/rag_knowledge_update.py` 构建两个知识库。
 6. **工作流状态**：`build_graph.py` 中的 `retrieve_node` 目前仅透传数据，未执行实际 RAG 查询；实际检索逻辑已集成在 `CaseGeneratorAgent.build_rag_context()` 中。
 
 ---
 
 ## 六、与 Runtime 层的协作
-Agent 层输出的代码（如 `case_generator_xxx.py`）最终由 Runtime 层的 `tools/solution_runner.py` 或 `tools/cases_generator.py` 执行。完整的暴力验证流程参见 `V0.7.5版调用程序.py` 示例（文档外提供）。
+Agent 层输出的代码（如 `case_generator_xxx.py`）最终由 Runtime 层的 `tools/solution_runner.py` 或 `tools/cases_generator.py` 执行。完整的暴力验证流程参见 `V0.7.6版调用程序.py` 示例（文档外提供）。
 
 ---
 
-> 本文档基于 `agents/` 目录下现有源码（2026‑06‑13 提供的版本）生成。若后续新增 Agent 或修改接口，请同步更新。
->
 ## 七、改进方案
-- 复杂度迭代：一开始由代码 for 循环嵌套层数的 regex 等方法解析复杂度上限。后续在实际执行代码中，统计不同 scale 下的执行时间，对 时间~scale 关系进行拟合，得到更精确的复杂度渐进函数，以供更进一步生成更合适的测试样例使用。
+- **复杂度迭代**：当前采用静态循环嵌套估算，后续在实际执行代码时统计不同 `scale` 下的运行时间，拟合时间～规模曲线，得到更精确的复杂度函数，从而指导生成更合理的测试规模。
+- **Graph‑RAG 增强**：利用 `SemanticChunker` 已经建立的模块依赖关系，在检索到某个 `RAGModule` 时自动拉取 `@RAG_DEP` 指定的依赖模块，拼装成完整上下文，提升生成质量。

@@ -21,26 +21,16 @@ EMBED_MODEL = "qwen3-embed-0.6b:q8"
 # Ollama embedding function
 # =========================================================
 class VectorStore:
+    _client = None   # 类级共享 PersistentClient
 
-    def __init__(
-        self,
-        db_path="./rag_db",
-        collection_name="default",
-    ):
-
-        self.client = chromadb.PersistentClient(
-            path=db_path
-        )
-
-        self.embedding_function = (
-            OllamaEmbeddingFunction()
-        )
-
-        self.collection = (
-            self.client.get_or_create_collection(
-                name=collection_name,
-                embedding_function=self.embedding_function,
-            )
+    def __init__(self, db_path="./rag_db", collection_name="default"):
+        if VectorStore._client is None:
+            VectorStore._client = chromadb.PersistentClient(path=db_path)
+        self.client = VectorStore._client
+        self.embedding_function = OllamaEmbeddingFunction()
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=self.embedding_function,
         )
 
     # typing error: 未定义“CodeChunk”

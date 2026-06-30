@@ -7,8 +7,8 @@ from langchain_community.chat_models import ChatOllama
 from langchain_core.messages import BaseMessage
 from schemas.problem_context import ProblemContext
 from tools.solution_struct import ComplexityHint
-from agents.reference_retriever import ReferenceRetriever
 from agents.agent_io import AgentIO
+from rag.retriever import RAGRetriever # 直接使用 RAGRetriever，不再使用 ReferenceRetriever
 
 _DEFAULT_CASE_GENERATOR_TEMPLATE = r'''
 def case_generator(scale: int) -> dict:
@@ -21,35 +21,30 @@ def case_generator(scale: int) -> dict:
     }
 '''
 
-
 class CaseGeneratorAgent:
     def __init__(self, problem: ProblemContext, llm=None):
-        """
-        构造时必须传入 ProblemContext，后续所有方法不再需要重复传递。
-        """
         self.problem = problem
-        self.llm = llm or ChatOllama(
-            model="qwen3-coder-30b-q8:latest",
-            temperature=0
-        )
-        self.retriever = ReferenceRetriever()
+        self.llm = llm or ChatOllama(model="qwen3-coder-30b-q8:latest", temperature=0)
+        
+        self.retriever = RAGRetriever()
+        
         prompt_text = Path("prompts/case_generator.prompt.md").read_text(encoding="utf-8")
         self.prompt = ChatPromptTemplate.from_template(prompt_text)
         self.chain = self.prompt | self.llm
 
-    def build_rag_context(self, knowledge_requirements: List[str]) -> str:
-        """拼接 RAG 检索到的参考样例，异常时返回空字符串"""
+    def build_rag_context(self, query: str) -> str:
+        """查询 case_generator 知识库，返回格式化文本上下文"""
         try:
-            refs = self.retriever.retrieve(knowledge_requirements)
-            return "\n\n".join([r.to_json() for r in refs])
+            return self.retriever.build_context(
+                query=query,
+                collection_name="case_generator",
+                topk=5
+            )
         except Exception as e:
             print(f"RAG 检索失败（将使用空上下文）: {e}")
             return ""
 
     def build_prompt(self) -> List[BaseMessage]:
-        """
-        构造完整的 Prompt，使用 self.problem 中的信息。
-        """
         complexity: ComplexityHint = self.problem.solution_struct.complexity_hint
         analysis_str = (
             f"Time complexity: {complexity.time_complexity or 'unknown'}. "
@@ -57,11 +52,20 @@ class CaseGeneratorAgent:
             f"Estimated max n: {complexity.estimated_n_limit or 'unspecified'}. "
             f"Notes: {complexity.notes or ''}"
         )
-        # RAG 查询关键字
-        rag_query = complexity.time_complexity or "general"
+
+        # 构造更丰富的查询（标题 + 描述摘要 + 标签 + 复杂度备注）
+        query_parts = []
+        if self.problem.title:
+            query_parts.append(self.problem.title)
+        if self.problem.description:
+            query_parts.append(self.problem.description[:200])
+        if self.problem.tags:
+            query_parts.append(" ".join(self.problem.tags))
         if complexity.notes:
-            rag_query += " " + complexity.notes
-        rag_context = self.build_rag_context([rag_query])
+            query_parts.append(complexity.notes)
+        query = "\n".join(query_parts)
+
+        rag_context = self.build_rag_context(query)   # 现在返回的是文本上下文
 
         msg = self.prompt.format_messages(
             question=self.problem.description,

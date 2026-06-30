@@ -43,11 +43,9 @@ def build_index(docs_file: str,
     if not docs:
         print("✅ 无需更新")
         return
-
-    store = VectorStore(
-        db_path = os.path.join("./rag_db", collection_name),
-        collection_name=collection_name
-    )
+    
+    # 新代码（DB路径默认即可）：
+    store = VectorStore(collection_name=collection_name)
 
     total_chunks = 0
     for d in docs:
