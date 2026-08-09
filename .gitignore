@@ -16,6 +16,8 @@ build/
 __pycache__/
 tools/*.cpp
 tools/*.html
+runtime/accel/*.c
+runtime/accel/*.html
 temp.*
 rag_db/
 rag_chunk/

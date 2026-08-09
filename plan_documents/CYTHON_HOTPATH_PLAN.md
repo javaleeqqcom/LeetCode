@@ -1,5 +1,33 @@
 # Cython 热点加速更新方案
 
+## v0.9.0 实施结果
+
+本轮只优化框架稳定热点，没有编译学生或 AI 生成的 OJ 解答：
+
+- 新增 `runtime/accel/fallback.py` 的兼容摘要快路径，以及可选的
+  `_result_digest.pyx` / Windows `.pyd`；扩展不可用时自动回退。
+- `.ojbin` 升级到 v2，在索引中预存带 `expected` 样例的 128 位摘要，同时
+  保持 v1 只读兼容。
+- `collect_results=False` 时跳过逐样例计时、结果元组和父进程重复摘要；只有
+  配置 TLE 时才写共享状态，只有捕获 stdout 时才创建限长 Writer。
+- native worker 改成每个进程只重定向一次 stdout，不再逐样例创建缓冲器。
+- 新增规范摘要版本字段、严格 JSON 等价保护、Python/Cython 差分测试，以及
+  同池交替 A/B 基准。
+
+微基准中，100 万次整数摘要由旧 JSON 通用路径约 `2.48s` 降到纯 Python
+快路径约 `1.04s`、Cython 路径约 `0.81s`。但 10 万微样例端到端的最终
+5 次中位数显示 Cython 相对纯 Python 在 1/4/8/16 进程分别变化
+`+0.6% / -8.5% / -0.3% / +11.1%`，收益不稳定且 4 进程明显回退。因此：
+
+- 采纳 `.ojbin` v2 和纯 Python Phase A 为默认实现；
+- 保留 `OJ_RUNTIME_ACCEL=cython` 作为显式实验开关；
+- 不继续实现更大的 `_chunk_kernel.pyx`，避免扩大 ABI 和维护成本；
+- 学生代码仍保持普通 `.py`，未来只有在可信来源、百万级重复、类型 schema
+  稳定且编译成本可摊销时，才单独评估自动 Cython 化。
+
+完整数据与同会话 v0.8.0 对照见
+[`benchmark_results/RUNTIME_ACCEL_REPORT.md`](../benchmark_results/RUNTIME_ACCEL_REPORT.md)。
+
 ## 结论与术语
 
 `PersistentPythonRunner` 当前默认启动 CPython 进程。它的优化来自进程长驻、源码和依赖只加载一次、mmap 按记录读取、动态分块以及结果摘要回传；它没有把 Python 解答转换为机器码，也不依赖 Python 类型注解。
@@ -24,7 +52,7 @@ Cython 可以将 `.pyx` 或受支持的 `.py` 编译为 C/C++，再由系统编�
 
 特别注意：加载 `.pyd` 等于在进程中运行本地机器码，能够绕过 Python AST、导入和内建函数限制。未经信任的 AI 代码不能在完成 AppContainer、构建隔离和制品校验前自动编译并加载。
 
-## 第一阶段：只编译框架稳定热点（建议 0.8.1 实验）
+## 第一阶段：只编译框架稳定热点（v0.9.0 已完成最小实验）
 
 新增独立目录，保留纯 Python 回退：
 
@@ -64,7 +92,7 @@ runtime/accel/
 
 普通的 `list[int]`、`dict[str, int]` 注解主要描述 Python 对象，并不自动把列表元素变成连续 C 数组。若要明显加速，需要在边界上把输入转换为 typed memoryview/C 数组；只有当单次转换成本能被大量循环计算摊薄时才值得采用。
 
-## 第三阶段：与沙箱集成（0.9 之前的前置条件）
+## 第三阶段：与沙箱集成（自动编译不可信代码的前置条件）
 
 - 编译器在单独的低权限构建进程中运行；
 - 构建目录与题目目录分离，并限制输入/输出 ACL；

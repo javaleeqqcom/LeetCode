@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from runtime.accel import DIGEST_SCHEME
+
 
 @dataclass
 class RunMetrics:
@@ -29,6 +31,7 @@ class RunReport:
     wrong_count: int
     error_count: int
     digest: str
+    digest_scheme: str = DIGEST_SCHEME
     results: list[dict[str, Any]] | None = field(default=None)
 
     @property
@@ -42,6 +45,7 @@ class RunReport:
             "wrong_count": self.wrong_count,
             "error_count": self.error_count,
             "digest": self.digest,
+            "digest_scheme": self.digest_scheme,
         }
         if include_results:
             payload["results"] = self.results

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import gc
-import hashlib
 import json
 import math
 import multiprocessing
@@ -27,7 +26,9 @@ for variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ[variable] = "1"
 
 from runtime.runner import CaseStoreWriter, NativeProcessRunner, PersistentPythonRunner
+from runtime.runner.common import DIGEST_BACKEND, DIGEST_SCHEME, digest_value
 from runtime.runner.native_process import DEFAULT_MANAGER
+from tests.fixtures.benchmarks.classic_algorithms import Solution as BenchmarkSolution
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +36,7 @@ SOLUTION_FILE = ROOT / "tests" / "fixtures" / "benchmarks" / "classic_algorithms
 OUTPUT_DIR = ROOT / "benchmark_results"
 WORKERS = (1, 2, 4, 6, 8, 12, 16)
 PYPY_EXECUTABLE = Path(r"C:\Users\john\anaconda3\envs\oj-pypy\python.exe")
+REFERENCE_SOLUTION = BenchmarkSolution()
 
 
 @dataclass(frozen=True)
@@ -90,18 +92,12 @@ def iter_cases(scenario: Scenario) -> Iterable[dict[str, Any]]:
             )
         else:
             raise ValueError(scenario.method)
-        yield {"cid": index, "input": case_input}
+        expected = getattr(REFERENCE_SOLUTION, scenario.method)(*case_input)
+        yield {"cid": index, "input": case_input, "expected": expected}
 
 
 def _digest_result(index: int, cid: Any, output: Any, error: Any) -> int:
-    payload = json.dumps(
-        [index, cid, output, error],
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=repr,
-    ).encode("utf-8")
-    return int.from_bytes(hashlib.blake2b(payload, digest_size=16).digest(), "big")
+    return digest_value(index, cid, output, error)
 
 
 def legacy_digest(results: list[dict[str, Any]]) -> str:
@@ -121,6 +117,8 @@ def benchmark_scenario(
     repeats: int,
     stores_dir: Path,
     backends: set[str],
+    use_precomputed_digest: bool,
+    worker_values: tuple[int, ...],
 ) -> list[Measurement]:
     store_path = stores_dir / f"{scenario.name}.ojbin"
     CaseStoreWriter.write(store_path, iter_cases(scenario))
@@ -132,7 +130,7 @@ def benchmark_scenario(
         if scenario.legacy_enabled and "legacy" in backends
         else None
     )
-    for workers in WORKERS:
+    for workers in worker_values:
         if legacy_cases is not None and "legacy" in backends:
             from tools.solution_runner import SolutionRunner
 
@@ -180,7 +178,11 @@ def benchmark_scenario(
             ) as persistent:
                 for repeat in range(repeats):
                     gc.collect()
-                    report = persistent.run_store(store_path, collect_results=False)
+                    report = persistent.run_store(
+                        store_path,
+                        collect_results=False,
+                        use_precomputed_digest=use_precomputed_digest,
+                    )
                     expected_digest = expected_digest or report.digest
                     if report.digest != expected_digest:
                         raise AssertionError(
@@ -299,6 +301,8 @@ def write_outputs(
     summary: list[dict[str, Any]],
     repeats: int,
     output_suffix: str,
+    use_precomputed_digest: bool,
+    worker_values: tuple[int, ...],
 ) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     safe_suffix = "".join(
@@ -307,10 +311,13 @@ def write_outputs(
     suffix = f"_{safe_suffix}" if safe_suffix else ""
     output_path = OUTPUT_DIR / f"runner_backend_comparison{suffix}.json"
     metadata = {
-        "workers": list(WORKERS),
+        "workers": list(worker_values),
         "repeats": repeats,
         "logical_cpus": os.cpu_count(),
         "process_limit": 16,
+        "digest_backend": DIGEST_BACKEND,
+        "digest_scheme": DIGEST_SCHEME,
+        "use_precomputed_digest": use_precomputed_digest,
     }
     output_path.write_text(
         json.dumps(
@@ -407,6 +414,8 @@ def main() -> int:
         choices=("legacy", "persistent", "native-cpython", "native-pypy"),
     )
     parser.add_argument("--output-suffix", default="")
+    parser.add_argument("--no-precomputed-digest", action="store_true")
+    parser.add_argument("--workers", action="append", type=int, choices=WORKERS)
     args = parser.parse_args()
     if args.repeats <= 0:
         parser.error("--repeats must be positive")
@@ -422,19 +431,29 @@ def main() -> int:
         args.backend
         or ("legacy", "persistent", "native-cpython", "native-pypy")
     )
+    worker_values = tuple(dict.fromkeys(args.workers or WORKERS))
 
     all_measurements: list[Measurement] = []
     with tempfile.TemporaryDirectory(prefix="runner_backend_benchmark_") as directory:
         stores_dir = Path(directory)
         for scenario in scenarios:
             all_measurements.extend(
-                benchmark_scenario(scenario, args.repeats, stores_dir, backends)
+                benchmark_scenario(
+                    scenario,
+                    args.repeats,
+                    stores_dir,
+                    backends,
+                    not args.no_precomputed_digest,
+                    worker_values,
+                )
             )
     write_outputs(
         all_measurements,
         summarize(all_measurements),
         args.repeats,
         args.output_suffix,
+        not args.no_precomputed_digest,
+        worker_values,
     )
     return 0
 

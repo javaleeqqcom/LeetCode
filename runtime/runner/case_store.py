@@ -10,11 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
+from .common import digest_value
+
 
 MAGIC = b"OJBIN001"
-VERSION = 1
+VERSION = 2
 HEADER = struct.Struct("<8sIQQQ")
-INDEX_ENTRY = struct.Struct("<QQ")
+INDEX_ENTRY_V1 = struct.Struct("<QQ")
+INDEX_ENTRY = struct.Struct("<QQ16sB7x")
+FLAG_EXPECTED_DIGEST = 1
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,7 @@ class CaseStoreInfo:
     case_count: int
     file_size: int
     table_offset: int
+    format_version: int = VERSION
 
 
 def _normalize_case(raw_case: Mapping[str, Any], index: int) -> dict[str, Any]:
@@ -74,7 +79,19 @@ class CaseStoreWriter:
                     ).encode("utf-8")
                     offset = data_handle.tell()
                     data_handle.write(payload)
-                    index_handle.write(INDEX_ENTRY.pack(offset, len(payload)))
+                    flags = 0
+                    expected_digest = b"\x00" * 16
+                    if "expected" in case:
+                        flags |= FLAG_EXPECTED_DIGEST
+                        expected_digest = digest_value(
+                            index,
+                            case["cid"],
+                            case["expected"],
+                            None,
+                        ).to_bytes(16, "big")
+                    index_handle.write(
+                        INDEX_ENTRY.pack(offset, len(payload), expected_digest, flags)
+                    )
                     count += 1
 
                 table_offset = data_handle.tell()
@@ -113,9 +130,11 @@ class CaseStoreReader:
             )
             if magic != MAGIC:
                 raise ValueError(f"invalid case-store magic: {magic!r}")
-            if version != VERSION:
+            if version not in {1, VERSION}:
                 raise ValueError(f"unsupported case-store version: {version}")
-            expected_size = table_offset + count * INDEX_ENTRY.size
+            self.format_version = version
+            self._index_entry = INDEX_ENTRY if version == VERSION else INDEX_ENTRY_V1
+            expected_size = table_offset + count * self._index_entry.size
             if payload_start != HEADER.size or expected_size > self._map.size():
                 raise ValueError(f"invalid case-store offsets: {self.path}")
             self.case_count = count
@@ -127,23 +146,41 @@ class CaseStoreReader:
     def __len__(self) -> int:
         return self.case_count
 
-    def _record_bounds(self, index: int) -> tuple[int, int]:
+    def _record_metadata(self, index: int) -> tuple[int, int, int | None]:
         if index < 0:
             index += self.case_count
         if index < 0 or index >= self.case_count:
             raise IndexError(index)
-        entry_offset = self.table_offset + index * INDEX_ENTRY.size
-        offset, length = INDEX_ENTRY.unpack_from(self._map, entry_offset)
+        entry_offset = self.table_offset + index * self._index_entry.size
+        expected_digest: int | None = None
+        if self.format_version == VERSION:
+            offset, length, digest_bytes, flags = INDEX_ENTRY.unpack_from(
+                self._map, entry_offset
+            )
+            if flags & FLAG_EXPECTED_DIGEST:
+                expected_digest = int.from_bytes(digest_bytes, "big")
+        else:
+            offset, length = INDEX_ENTRY_V1.unpack_from(self._map, entry_offset)
         end = offset + length
         if offset < HEADER.size or end > self.table_offset:
             raise ValueError(f"case {index} points outside payload section")
+        return offset, end, expected_digest
+
+    def _record_bounds(self, index: int) -> tuple[int, int]:
+        offset, end, _ = self._record_metadata(index)
         return offset, end
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        offset, end = self._record_bounds(index)
+    def read_record(self, index: int) -> tuple[dict[str, Any], int | None]:
+        """Decode one case and return its precomputed expected-result digest."""
+
+        offset, end, expected_digest = self._record_metadata(index)
         case = json.loads(self._map[offset:end])
         if isinstance(case.get("input"), list):
             case["input"] = tuple(case["input"])
+        return case, expected_digest
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        case, _ = self.read_record(index)
         return case
 
     def iter_range(self, start: int = 0, stop: int | None = None) -> Iterator[dict[str, Any]]:

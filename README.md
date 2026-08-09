@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.8.0
+- 版本：0.9.0
 
 ## 总览
 
@@ -77,9 +77,10 @@ with PersistentPythonRunner(
 ```
 
 - 每个 Python Worker 只加载一次学生源码和依赖，然后循环执行多个样例。
-- `.ojbin` 使用版本化偏移表和只读内存映射，可以流式生成、随机读取 10 万或 100 万样例；Worker 不再解析整套输入。
+- `.ojbin` v2 使用版本化偏移表和只读内存映射，可以流式生成、随机读取 10 万或 100 万样例；Worker 不再解析整套输入。v2 会为带 `expected` 的样例预存兼容旧版的结果摘要，Reader 仍可读取 v1 文件。
 - 默认动态分成约 `4 × workers` 个批次，在 Queue 通信与尾部负载均衡之间折中。
-- 正确结果可只在 Worker 内比较并回传摘要；错误、完整结果和 stdout 可按需收集。
+- 正确结果可只在 Worker 内比较并回传摘要；错误、完整结果和 stdout 可按需收集。摘要复用会验证实际输出与 `expected` 的 JSON 类型和值严格一致，不会把判题的浮点容差误当成摘要等价。
+- `collect_results=False` 时默认关闭逐样例计时与结果对象构造；未配置超时时不写共享状态，未捕获 stdout 时不创建限长缓冲器。
 - 正式调试配置最多使用 16 个 Worker，避免 Windows 桌面进程与 24 个逻辑处理器过度争抢。
 - `standard_mode=True` 仅允许基础 JSON 输入输出和常用算法库，启动更轻并兼容 PyPy；它是格式约束，不是安全沙箱。
 
@@ -91,9 +92,9 @@ with PersistentPythonRunner(
 python -m tests.benchmark_runner_backends --repeats 3
 ```
 
-架构、限制与采纳结论见 [`plan_documents/NATIVE_RUNNER_DESIGN.md`](plan_documents/NATIVE_RUNNER_DESIGN.md)，最终性能数据见 [`benchmark_results/FINAL_RUNNER_REPORT.md`](benchmark_results/FINAL_RUNNER_REPORT.md)。
+架构、限制与采纳结论见 [`plan_documents/NATIVE_RUNNER_DESIGN.md`](plan_documents/NATIVE_RUNNER_DESIGN.md)，后端基线见 [`benchmark_results/FINAL_RUNNER_REPORT.md`](benchmark_results/FINAL_RUNNER_REPORT.md)，v0.9 Runtime 热点优化结果见 [`benchmark_results/RUNTIME_ACCEL_REPORT.md`](benchmark_results/RUNTIME_ACCEL_REPORT.md)。
 
-`PersistentPythonRunner` 的 Worker 默认是长驻的 CPython 解释器进程；“长驻”表示复用解释器和已加载模块，并不表示学生代码已经编译为 C。框架热点的可选 Cython 机器码化方案见 [`plan_documents/CYTHON_HOTPATH_PLAN.md`](plan_documents/CYTHON_HOTPATH_PLAN.md)。
+`PersistentPythonRunner` 的 Worker 默认是长驻的 CPython 解释器进程；“长驻”表示复用解释器和已加载模块，并不表示学生代码已经编译为 C。`runtime/accel/` 提供框架摘要热点的可选 Cython `.pyd`，但端到端收益未达到默认采纳门槛，因此默认仍使用优化后的纯 Python 实现；构建和显式启用方法见 [`runtime/accel/README.md`](runtime/accel/README.md)，设计与验收结论见 [`plan_documents/CYTHON_HOTPATH_PLAN.md`](plan_documents/CYTHON_HOTPATH_PLAN.md)。
 
 ---
 

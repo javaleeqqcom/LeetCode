@@ -16,7 +16,7 @@ for variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ[variable] = "1"
 
 from runtime.runner.case_store import CaseStoreReader
-from runtime.runner.common import BoundedWriter as _BoundedWriter
+from runtime.runner.common import can_reuse_expected_digest as _can_reuse_expected_digest
 from runtime.runner.common import digest_value as _digest_value
 
 
@@ -61,12 +61,18 @@ def main() -> int:
     first_error = None
     digest = 0
     compute_seconds = decode_seconds = 0.0
-    with CaseStoreReader(args.store) as store:
+    # Native summaries never return student stdout.  Redirect once per worker
+    # instead of allocating and entering a bounded buffer for every case.
+    with (
+        open(os.devnull, "w", encoding="utf-8") as stdout_sink,
+        contextlib.redirect_stdout(stdout_sink),
+        CaseStoreReader(args.store) as store,
+    ):
         if args.start < 0 or args.stop < args.start or args.stop > len(store):
             raise ValueError("invalid worker case range")
         for index in range(args.start, args.stop):
             decode_started = time.perf_counter()
-            case = store[index]
+            case, expected_digest = store.read_record(index)
             decode_seconds += time.perf_counter() - decode_started
             compute_started = time.perf_counter()
             output = None
@@ -85,16 +91,14 @@ def main() -> int:
                 else:
                     caller = module.__dict__["main_caller_args"]
                     target = getattr(instance, runner.main_method)
-                writer = _BoundedWriter()
-                with contextlib.redirect_stdout(writer):
-                    if args.standard_mode:
-                        if isinstance(case["input"], dict):
-                            raw_output = target(**case["input"])
-                        else:
-                            raw_output = target(*case["input"])
+                if args.standard_mode:
+                    if isinstance(case["input"], dict):
+                        raw_output = target(**case["input"])
                     else:
-                        raw_output = caller(target, case["input"])
-                    output = parse_output(raw_output)
+                        raw_output = target(*case["input"])
+                else:
+                    raw_output = caller(target, case["input"])
+                output = parse_output(raw_output)
                 if "expected" in case:
                     is_wrong = not values_equal(case["expected"], output)
             except BaseException as exc:
@@ -108,7 +112,14 @@ def main() -> int:
                 else:
                     correct += 1
             compute_seconds += time.perf_counter() - compute_started
-            digest ^= _digest_value(index, case.get("cid", index), output, error)
+            digest ^= (
+                expected_digest
+                if expected_digest is not None
+                and error is None
+                and not is_wrong
+                and _can_reuse_expected_digest(case["expected"], output)
+                else _digest_value(index, case.get("cid", index), output, error)
+            )
 
     rss = 0
     try:

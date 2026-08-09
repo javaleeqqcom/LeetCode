@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping
 
 from .case_store import CaseStoreReader, CaseStoreWriter
 from .common import BoundedWriter as _BoundedWriter
+from .common import can_reuse_expected_digest as _can_reuse_expected_digest
 from .common import digest_value as _digest_value
 from .models import RunMetrics, RunReport
 
@@ -115,8 +116,11 @@ def _worker_main(
                 capture_stdout,
                 reuse_solution_instance,
                 collect_results,
+                track_timeout,
+                use_precomputed_digest,
+                profile_worker,
             ) = message
-            if status_slot is not None:
+            if status_slot is not None and track_timeout:
                 status_slot.run_id = run_id
                 status_slot.task_id = task_id
             if reader_path != store_path:
@@ -132,20 +136,22 @@ def _worker_main(
             chunk_digest = 0
             try:
                 for case_index in range(start, stop):
-                    if status_slot is not None:
+                    if status_slot is not None and track_timeout:
                         status_slot.case_index = case_index
                         status_slot.started_at = time.time()
-                    decode_started = time.perf_counter()
+                    decode_started = time.perf_counter() if profile_worker else 0.0
                     assert reader is not None
-                    case = reader[case_index]
-                    chunk_decode += time.perf_counter() - decode_started
+                    case, expected_digest = reader.read_record(case_index)
+                    if profile_worker:
+                        chunk_decode += time.perf_counter() - decode_started
 
-                    compute_started = time.perf_counter()
+                    compute_started = time.perf_counter() if profile_worker else 0.0
                     output = None
                     error = None
                     error_traceback = None
                     is_wrong = False
                     captured = ""
+                    cid = case.get("cid", case_index)
                     try:
                         if reuse_solution_instance:
                             if cached_instance is None:
@@ -155,44 +161,55 @@ def _worker_main(
                             instance = solution_class()
                         if spec.standard_mode:
                             target = getattr(instance, spec.method_name)
-                            writer = _BoundedWriter()
-                            output_context = (
-                                contextlib.redirect_stdout(writer)
-                                if capture_stdout
-                                else contextlib.nullcontext()
-                            )
+                            writer = _BoundedWriter() if capture_stdout else None
+                            output_context = contextlib.redirect_stdout(writer) if writer else contextlib.nullcontext()
                             with output_context:
                                 if isinstance(case["input"], dict):
                                     raw_output = target(**case["input"])
                                 else:
                                     raw_output = target(*case["input"])
-                            if capture_stdout:
+                            if writer is not None:
                                 captured = writer.getvalue()
                             output = parse_output(raw_output)
                             if "expected" in case:
                                 is_wrong = not values_equal(case["expected"], output)
-                            elapsed = time.perf_counter() - compute_started
-                            chunk_compute += elapsed
-                            result_item = (
-                                case_index,
-                                case.get("cid", case_index),
-                                output,
-                                error,
-                                error_traceback,
-                                elapsed,
-                                is_wrong,
-                                captured,
+                            elapsed = (
+                                time.perf_counter() - compute_started
+                                if profile_worker
+                                else 0.0
+                            )
+                            if profile_worker:
+                                chunk_compute += elapsed
+                            item_digest = (
+                                expected_digest
+                                if use_precomputed_digest
+                                and expected_digest is not None
+                                and not is_wrong
+                                and _can_reuse_expected_digest(
+                                    case["expected"], output
+                                )
+                                else _digest_value(case_index, cid, output, error)
                             )
                             if collect_results:
-                                chunk_results.append(result_item)
+                                chunk_results.append(
+                                    (
+                                        case_index,
+                                        cid,
+                                        output,
+                                        error,
+                                        error_traceback,
+                                        elapsed,
+                                        is_wrong,
+                                        captured,
+                                        item_digest,
+                                    )
+                                )
                             if is_wrong:
                                 chunk_wrong += 1
                             else:
                                 chunk_correct += 1
-                            chunk_digest ^= _digest_value(
-                                case_index, case.get("cid", case_index), output, error
-                            )
-                            if status_slot is not None:
+                            chunk_digest ^= item_digest
+                            if status_slot is not None and track_timeout:
                                 status_slot.started_at = 0.0
                             continue
                         if custom_caller is not None:
@@ -205,15 +222,11 @@ def _worker_main(
                             caller = module.__dict__["main_caller_args"]
                             target = getattr(instance, spec.method_name)
 
-                        writer = _BoundedWriter()
-                        output_context = (
-                            contextlib.redirect_stdout(writer)
-                            if capture_stdout
-                            else contextlib.nullcontext()
-                        )
+                        writer = _BoundedWriter() if capture_stdout else None
+                        output_context = contextlib.redirect_stdout(writer) if writer else contextlib.nullcontext()
                         with output_context:
                             raw_output = caller(target, case["input"])
-                        if capture_stdout:
+                        if writer is not None:
                             captured = writer.getvalue()
                         output = parse_output(raw_output)
                         if "expected" in case:
@@ -221,30 +234,42 @@ def _worker_main(
                     except BaseException as exc:
                         error = f"{type(exc).__name__}: {exc}"
                         error_traceback = traceback.format_exc()
-                    elapsed = time.perf_counter() - compute_started
-                    chunk_compute += elapsed
-                    result_item = (
-                        case_index,
-                        case.get("cid", case_index),
-                        output,
-                        error,
-                        error_traceback,
-                        elapsed,
-                        is_wrong,
-                        captured,
+                    elapsed = (
+                        time.perf_counter() - compute_started if profile_worker else 0.0
+                    )
+                    if profile_worker:
+                        chunk_compute += elapsed
+                    item_digest = (
+                        expected_digest
+                        if use_precomputed_digest
+                        and expected_digest is not None
+                        and error is None
+                        and not is_wrong
+                        and _can_reuse_expected_digest(case["expected"], output)
+                        else _digest_value(case_index, cid, output, error)
                     )
                     if collect_results:
-                        chunk_results.append(result_item)
+                        chunk_results.append(
+                            (
+                                case_index,
+                                cid,
+                                output,
+                                error,
+                                error_traceback,
+                                elapsed,
+                                is_wrong,
+                                captured,
+                                item_digest,
+                            )
+                        )
                     if error is not None:
                         chunk_errors += 1
                     elif is_wrong:
                         chunk_wrong += 1
                     else:
                         chunk_correct += 1
-                    chunk_digest ^= _digest_value(
-                        case_index, case.get("cid", case_index), output, error
-                    )
-                    if status_slot is not None:
+                    chunk_digest ^= item_digest
+                    if status_slot is not None and track_timeout:
                         status_slot.started_at = 0.0
 
                 if collect_results:
@@ -280,7 +305,7 @@ def _worker_main(
                     ("task_error", worker_id, run_id, task_id, traceback.format_exc())
                 )
             finally:
-                if status_slot is not None:
+                if status_slot is not None and track_timeout:
                     status_slot.run_id = -1
                     status_slot.task_id = -1
                     status_slot.case_index = -1
@@ -473,6 +498,8 @@ class PersistentPythonRunner:
         timeout_s: float | None = None,
         collect_results: bool = True,
         max_task_retries: int = 2,
+        use_precomputed_digest: bool = True,
+        profile_worker: bool | None = None,
     ) -> RunReport:
         if timeout_s is not None and timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
@@ -481,6 +508,8 @@ class PersistentPythonRunner:
                 "per-case timeout status is unavailable in PyPy on Windows; "
                 "use the native Job Object batch timeout"
             )
+        if profile_worker is None:
+            profile_worker = collect_results
         if not self._started:
             self.start()
         store_path = str(Path(store_path).resolve())
@@ -515,7 +544,17 @@ class PersistentPythonRunner:
 
         def record_result(item: tuple[Any, ...]) -> None:
             nonlocal correct_count, wrong_count, error_count, completed_count, digest_xor
-            index, cid, output, error, error_traceback, elapsed, wrong, stdout = item
+            (
+                index,
+                cid,
+                output,
+                error,
+                error_traceback,
+                elapsed,
+                wrong,
+                stdout,
+                item_digest,
+            ) = item
             compact = {
                 "index": index,
                 "cid": cid,
@@ -535,7 +574,7 @@ class PersistentPythonRunner:
                 compact["stdout"] = stdout
             if result_slots is not None:
                 result_slots[index] = compact
-            digest_xor ^= _digest_value(index, cid, output, error)
+            digest_xor ^= item_digest
             completed_count += 1
 
         def dispatch() -> None:
@@ -558,6 +597,9 @@ class PersistentPythonRunner:
                         self.capture_stdout,
                         self.reuse_solution_instance,
                         collect_results,
+                        timeout_s is not None,
+                        use_precomputed_digest,
+                        profile_worker,
                     )
                 )
 
@@ -586,6 +628,12 @@ class PersistentPythonRunner:
                             timeout_s,
                             False,
                             "",
+                            _digest_value(
+                                timed_out_index,
+                                timed_out_index,
+                                None,
+                                "Time Limit Exceeded (TLE)",
+                            ),
                         )
                     )
                     timed_out_cases += 1
@@ -718,6 +766,8 @@ class PersistentPythonRunner:
         chunk_size: int | None = None,
         timeout_s: float | None = None,
         collect_results: bool = True,
+        use_precomputed_digest: bool = True,
+        profile_worker: bool | None = None,
     ) -> RunReport:
         with tempfile.TemporaryDirectory(prefix="oj_runner_cases_") as directory:
             store_path = Path(directory) / "cases.ojbin"
@@ -727,6 +777,8 @@ class PersistentPythonRunner:
                 chunk_size=chunk_size,
                 timeout_s=timeout_s,
                 collect_results=collect_results,
+                use_precomputed_digest=use_precomputed_digest,
+                profile_worker=profile_worker,
             )
 
     def close(self) -> None:
