@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.9.0
+- 版本：0.10.0
 
 ## 总览
 
@@ -85,6 +85,39 @@ with PersistentPythonRunner(
 - `standard_mode=True` 仅允许基础 JSON 输入输出和常用算法库，启动更轻并兼容 PyPy；它是格式约束，不是安全沙箱。
 
 `native_runner/` 提供独立的 Windows C++ 管理器。当前已使用 Job Object 限制进程数、单进程提交内存、批次超时，并保证管理器退出时终止全部 Worker。文件系统 ACL、受限令牌/AppContainer 和网络隔离仍属于后续安全阶段，当前版本不会错误地宣称已经完成完整沙箱。
+
+### C/C++ 学生代码
+
+v0.10.0 的 `CompiledCppRunner` 会解析受限的 LeetCode C/C++ 接口、编译并缓存
+独立 Worker，再由同一个 C++ Job Object 管理器启动 1～16 个进程。每个进程映射
+同一个 `.ojbin` 文件并循环执行自己的连续样例区间，测试用例仍是与 Python 无关的
+统一 JSON 数据。
+
+```python
+from runtime.runner import CaseStoreWriter, CompiledCppRunner
+
+CaseStoreWriter.write("cases.ojbin", cases)
+runner = CompiledCppRunner(
+    "solution.cpp",
+    "twoSum",
+    workers=8,
+)
+report = runner.run_store("cases.ojbin", batch_timeout_s=10)
+```
+
+- C++：支持单个 `class Solution`、显式选择的公有方法，以及 JSON 标量、`string`、
+  `vector<T>`/嵌套 `vector` 参数和返回值。
+- C：第一阶段支持全局纯标量函数；指针数组、`numsSize`、二维列长、
+  `returnSize` 和返回内存所有权暂缓。
+- 编译缓存键包含源码、接口、Harness、JSON Runtime、编译器版本和编译参数；
+  缓存命中不重复编译。
+- 不支持的第一阶段接口包括链表、树、`void` 原地修改和需要按操作序列调用的
+  多成员设计题。
+- 源码格式检查和 Job Object 资源限制不是完整安全沙箱；不可信代码仍需后续
+  AppContainer/受限令牌、工作目录 ACL 与禁网能力。
+
+设计边界见 [`plan_documents/COMPILED_OJ_RUNNER_DESIGN.md`](plan_documents/COMPILED_OJ_RUNNER_DESIGN.md)，
+单/多进程结果见 [`benchmark_results/COMPILED_LANGUAGE_REPORT.md`](benchmark_results/COMPILED_LANGUAGE_REPORT.md)。
 
 后端对照脚本：
 

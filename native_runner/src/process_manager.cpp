@@ -73,6 +73,12 @@ std::string required(const std::map<std::string, std::string>& args,
     return found->second;
 }
 
+std::string optional(const std::map<std::string, std::string>& args,
+                     const std::string& name) {
+    std::map<std::string, std::string>::const_iterator found = args.find(name);
+    return found == args.end() ? std::string() : found->second;
+}
+
 void close_process(PROCESS_INFORMATION& process) {
     if (process.hThread) CloseHandle(process.hThread);
     if (process.hProcess) CloseHandle(process.hProcess);
@@ -87,8 +93,17 @@ int main(int argc, char** argv) {
     std::vector<PROCESS_INFORMATION> processes;
     try {
         const std::map<std::string, std::string> args = parse_args(argc, argv);
-        const std::string python = required(args, "--python");
-        const std::string worker_script = required(args, "--worker-script");
+        // Backward compatible modes:
+        //   Python: --python python.exe --worker-script native_worker.py
+        //   Native: --worker-executable compiled_oj_worker.exe
+        const std::string worker_executable =
+            args.find("--worker-executable") != args.end()
+                ? required(args, "--worker-executable")
+                : required(args, "--python");
+        const std::string worker_script = optional(args, "--worker-script");
+        if (args.find("--worker-executable") == args.end() && worker_script.empty()) {
+            throw std::runtime_error("Python mode requires --worker-script");
+        }
         const std::string store = required(args, "--store");
         const std::string solution = required(args, "--solution");
         const std::string method = required(args, "--method");
@@ -128,9 +143,11 @@ int main(int argc, char** argv) {
             const long long length = base + (worker_id < extra ? 1 : 0);
             const long long stop = start + length;
             std::wostringstream command;
-            command << quote(utf8_to_wide(python)) << L" "
-                    << quote(utf8_to_wide(worker_script))
-                    << L" --worker-id " << worker_id
+            command << quote(utf8_to_wide(worker_executable));
+            if (!worker_script.empty()) {
+                command << L" " << quote(utf8_to_wide(worker_script));
+            }
+            command << L" --worker-id " << worker_id
                     << L" --store " << quote(utf8_to_wide(store))
                     << L" --solution " << quote(utf8_to_wide(solution))
                     << L" --method " << quote(utf8_to_wide(method))

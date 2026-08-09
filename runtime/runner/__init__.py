@@ -9,6 +9,7 @@ __all__ = [
     "CaseStoreWriter",
     "PersistentPythonRunner",
     "NativeProcessRunner",
+    "CompiledCppRunner",
     "RunMetrics",
     "RunReport",
 ]
@@ -31,4 +32,8 @@ def __getattr__(name: str):
         from .native_process import NativeProcessRunner
 
         return NativeProcessRunner
+    if name == "CompiledCppRunner":
+        from .cpp_process import CompiledCppRunner
+
+        return CompiledCppRunner
     raise AttributeError(name)

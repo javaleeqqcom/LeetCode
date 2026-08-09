@@ -19,6 +19,9 @@ class RunMetrics:
     peak_worker_rss_bytes: int
     worker_restarts: int = 0
     timed_out_cases: int = 0
+    compile_seconds: float = 0.0
+    artifact_cache_hit: bool = False
+    fallback_digest_cases: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
