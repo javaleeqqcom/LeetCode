@@ -4,14 +4,38 @@ import numpy as np
 import math
 
 def build_test_cases(cases_gen_func: Callable[[Any],_CASE],size_list: Union[np.ndarray, List[int]]):
-    # 调用函数
-    cases = list(map(cases_gen_func,size_list))
-    # 增加 cid
-    for i,case in enumerate(cases):
-        case.update({'cid': i})
+    """调用单用例生成器并附加稳定的 ``cid``。
+
+    在生成阶段即检查公共协议，避免非法用例进入多进程后才以难以
+    定位的 Queue/JSON 错误失败。
+    """
+    if not callable(cases_gen_func):
+        raise TypeError("cases_gen_func 必须可调用")
+
+    cases = []
+    for i, scale in enumerate(size_list):
+        case = cases_gen_func(scale.item() if isinstance(scale, np.generic) else scale)
+        if not isinstance(case, dict):
+            raise TypeError(f"第 {i} 个用例必须是 dict，实际为 {type(case).__name__}")
+        if "input" not in case:
+            raise ValueError(f"第 {i} 个用例缺少 'input' 字段")
+        if not isinstance(case["input"], (tuple, list, dict)):
+            raise TypeError(
+                f"第 {i} 个用例的 input 必须是 tuple/list/dict，"
+                f"实际为 {type(case['input']).__name__}"
+            )
+        normalized = dict(case)
+        normalized["cid"] = i
+        cases.append(normalized)
     return cases
 
-def sample_lognormal_scales(num:int = 1000 , mean_scale: float = 10 ,second_moment: Optional[float] = None ,variance_ratio:float = 10) -> np.ndarray:
+def sample_lognormal_scales(
+    num: int = 1000,
+    mean_scale: float = 10,
+    second_moment: Optional[float] = None,
+    variance_ratio: float = 10,
+    seed: Optional[int] = None,
+) -> np.ndarray:
     """
     Sample monotonically increasing computational scales from a log-normal distribution.
 
@@ -44,15 +68,24 @@ def sample_lognormal_scales(num:int = 1000 , mean_scale: float = 10 ,second_mome
             Used when second_moment is not explicitly provided:
                 second_moment = variance_ratio * mean_scale^2
 
+        seed:
+            Optional deterministic seed. ``None`` preserves the historical
+            global NumPy random-stream behavior.
+
     Returns:
         np.ndarray(dtype=float):
             Sorted floating-point scales.
     """
+    if not isinstance(num, int) or num < 0:
+        raise ValueError("num 必须是非负整数")
+    if not np.isfinite(mean_scale) or mean_scale <= 0:
+        raise ValueError("mean_scale 必须是有限正数")
     if second_moment is None:
-        assert variance_ratio>1, "variance_ratio=mean_scale^2/mean_scale 必须＞1"
+        if not np.isfinite(variance_ratio) or variance_ratio <= 1:
+            raise ValueError("variance_ratio 必须是大于 1 的有限数")
         second_moment = mean_scale*mean_scale*variance_ratio
     # 根据对数正态分布的性质，计算 mu,sigma 使得 E(sacle)=mean_scale, E(sacle^2)=second_moment
-    if mean_scale <= 0 or second_moment <= 0:
+    if not np.isfinite(second_moment) or second_moment <= 0:
         raise ValueError("mean_scale 和 second_moment 必须为正数")
     ex_sq = mean_scale * mean_scale
     if second_moment <= ex_sq:
@@ -62,7 +95,12 @@ def sample_lognormal_scales(num:int = 1000 , mean_scale: float = 10 ,second_mome
     mu = np.log(mean_scale) - sigma_sq / 2.0
 
     # 2. 生成对数正态分布样本 (numpy 的 lognormal 参数为 mean=mu, sigma=sigma)
-    size_list = np.random.lognormal(mean=mu, sigma=sigma, size=num)
+    if seed is None:
+        size_list = np.random.lognormal(mean=mu, sigma=sigma, size=num)
+    else:
+        size_list = np.random.default_rng(seed).lognormal(
+            mean=mu, sigma=sigma, size=num
+        )
     # 3. 排序（仅用于后续规模递增需求，对统计量无影响）
     size_list.sort()
     return size_list
@@ -116,7 +154,14 @@ def quantize_scales(scale_list: Union[np.ndarray,List],
             Sorted integer scales.
     """
     # 1. 变换为整数并裁切
-    nums = np.asarray(scale_list).astype(int).clip(min_scale, max_scale)
+    if min_scale > max_scale:
+        raise ValueError("min_scale 不能大于 max_scale")
+    raw = np.asarray(scale_list, dtype=float)
+    if raw.ndim != 1:
+        raise ValueError("scale_list 必须是一维序列")
+    if not np.all(np.isfinite(raw)):
+        raise ValueError("scale_list 不能包含 NaN 或无穷大")
+    nums = raw.astype(np.int64).clip(min_scale, max_scale)
 
     # 2. 构建限制数组
     if max_repeat_array is None:
@@ -127,7 +172,7 @@ def quantize_scales(scale_list: Union[np.ndarray,List],
 
     # 4. 计算每个值允许的最大数量 (Vectorized)
     # 找出哪些值在 restriction_array 的定义域内
-    mask = values < len(max_repeat_array)
+    mask = (values >= 0) & (values < len(max_repeat_array))
     # 对于在定义域内的值，取 min(实际数量, 限制数量)
     counts[mask] = np.minimum(counts[mask], max_repeat_array[values[mask]])
     
@@ -140,6 +185,7 @@ def quantize_size_2D(
     size_list: Union[np.ndarray,List],
     bound=((1, -1), (1, -1)),
     beta=(5, 5),
+    seed: Optional[int] = None,
 ) -> np.ndarray:
     """
     Project one-dimensional computational scales into two-dimensional shapes.
@@ -175,6 +221,9 @@ def quantize_size_2D(
                 (1,1): highly variable ratios
                 (1,5): thin rectangular shapes
 
+        seed:
+            Optional deterministic seed for aspect-ratio sampling.
+
     Returns:
         ndarray(shape=(N,2)):
             Integer shape pairs.
@@ -182,14 +231,23 @@ def quantize_size_2D(
 
     size_list = np.asarray(size_list, dtype=float)
 
-    if np.any(size_list <= 0):
-        raise ValueError("size 必须 > 0")
+    if size_list.ndim != 1:
+        raise ValueError("size_list 必须是一维序列")
+    if not np.all(np.isfinite(size_list)) or np.any(size_list <= 0):
+        raise ValueError("size 必须是有限正数")
+    if len(bound) != 2 or any(len(axis_bound) != 2 for axis_bound in bound):
+        raise ValueError("bound 必须为 ((n1_min,n1_max),(n2_min,n2_max))")
+    if len(beta) != 2 or beta[0] <= 0 or beta[1] <= 0:
+        raise ValueError("beta 的两个形状参数必须大于 0")
 
     # -------------------------
     # 1. Beta ratio
     # -------------------------
 
-    r = np.random.beta(*beta, size=len(size_list))
+    if seed is None:
+        r = np.random.beta(*beta, size=len(size_list))
+    else:
+        r = np.random.default_rng(seed).beta(*beta, size=len(size_list))
 
     # 避免除零
     eps = 1e-12

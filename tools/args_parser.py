@@ -1,5 +1,5 @@
 from __future__ import annotations  # 必须放在文件第一行
-from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator
+from typing import Any, Dict, Tuple, Callable ,Union,List ,Optional,Deque,TypedDict,NotRequired,Generic,TypeVar,Iterator,get_args,get_origin
 from .args_parser_tools import (
     _is_base_type,
     _extract_actual_type,
@@ -52,6 +52,8 @@ class ListNode:
 
 # ====== 转换函数 ======
 def List2ListNode(lst: List[_BASE_TYPE]) -> Optional[ListNode]:
+    if not lst:
+        return None
     head = ListNode(lst[0])
     cur = head
     for val in lst[1:]:
@@ -95,9 +97,12 @@ class ListNodeKit(ListNodeKitBase): #[ListNode]):
     
 # 若方法需要返回一个 ListNode，则必须实现 ListNode2List ，以便测试结果的对比。注意该方法进行无环才运行执行
 def ListNode2List(node: Optional[ListNode]) -> List[_BASE_TYPE]:
-    nodes,it = ListNodeKit(node).flatten()
-    assert it.repeat_num > 0, "参数 ListNode 代表的链表有环！"
-    return [node.val for node in nodes]
+    if node is None:
+        return []
+    nodes, stop_index = ListNodeKit(node).flatten_stopIDX()
+    if stop_index >= 0:
+        raise ValueError(f"返回的 ListNode 链表存在环，环起点下标为 {stop_index}")
+    return [current.val for current in nodes]
 
 # Definition for a binary tree node.
 class TreeNode:
@@ -133,17 +138,26 @@ class TreeNodeKit(TreeNodeKitBase): #[TreeNode]):
         return self._to_string(self, "val")
     
 def TreeNode2List(root: Optional[TreeNode]) -> List[_BASE_TYPE]:
-    """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）"""
+    """将 TreeNode 转换为完全二叉树层序列表（含 None 占位）。
+
+    LeetCode 的标准树不允许环或共享子节点。这里使用 identity 集合
+    显式检查，避免学生代码返回非法结构时层序遍历永不结束。
+    """
     if not root:
         return []
-    
+
     result = []
     q:Deque[Optional[TreeNode]] = deque([root])
+    seen: set[int] = set()
     while q:
         node = q.popleft()
         if node is None:
             result.append(None)
         else:
+            node_id = id(node)
+            if node_id in seen:
+                raise ValueError("返回的 TreeNode 不是合法树：检测到环或共享子节点")
+            seen.add(node_id)
             result.append(node.val)
             q.append(node.left)
             q.append(node.right)
@@ -198,46 +212,76 @@ def _exchange_DIY_types(the_fun:Callable,sig_type:type,value:Any,error_prefix:st
         except Exception as e:
             raise ValueError(f"{error_prefix} 的输入类型 {value.__class__} 无法转化为函数 {the_fun.__name__} 所需的类型 {sig_type}，错误信息：\n{e}")
 
-def parse_output_to_standard(obj: Any, depth: int = 0) -> Any:
+def parse_output_to_standard(
+    obj: Any,
+    depth: int = 0,
+    _active_container_ids: Optional[set[int]] = None,
+) -> Any:
     """
     将对象转换为 JSON 可序列化的类型
     利用 output_parser_registry 一次性智能转换自定义类型
     """
-    # 超过 3 层，停止检查，避免如采用嵌套数组表示二叉树的情况
-    # 如果是 list[DIY 类型]，一般 DIY 类型不会太深
-    if depth > 3:
-        return obj
+    if depth > 100:
+        raise ValueError("输出嵌套层数过深，可能存在循环引用")
+
+    if _active_container_ids is None:
+        _active_container_ids = set()
+
+    # NumPy 是项目的已有依赖，显式转换标量和数组，避免把它们隐式转成字符串。
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        obj = obj.tolist()
     
     # 检查是否是 output_parser_registry 中注册的自定义类型
-    obj_type = type(obj)
-    if obj_type in output_parser_registry:
-        return output_parser_registry[obj_type](obj)
+    for registered_type, parser in output_parser_registry.items():
+        if isinstance(obj, registered_type):
+            return parser(obj)
+
+    if isinstance(obj, (dict, list, tuple, set)):
+        container_id = id(obj)
+        if container_id in _active_container_ids:
+            raise ValueError("输出容器存在循环引用")
+        _active_container_ids.add(container_id)
     
     # 处理字典 - 递归转换所有值
     if isinstance(obj, dict):
-        return {
-            key: parse_output_to_standard(value, depth + 1)
-            for key, value in obj.items()
-        }
+        try:
+            return {
+                key: parse_output_to_standard(value, depth + 1, _active_container_ids)
+                for key, value in obj.items()
+            }
+        finally:
+            _active_container_ids.remove(id(obj))
     
     # 处理列表 - 递归转换所有元素
     if isinstance(obj, list):
-        # 如果列表为空或第一个元素是 JSON 原生类型，不需要深度检查后续元素
-        if not obj or isinstance(obj[0], (str, int, float, bool, type(None))):
-            return obj
-        # 否则递归转换每个元素
-        return [parse_output_to_standard(item, depth + 1) for item in obj]
+        try:
+            return [
+                parse_output_to_standard(item, depth + 1, _active_container_ids)
+                for item in obj
+            ]
+        finally:
+            _active_container_ids.remove(id(obj))
     
     # 处理元组返回
-    if isinstance(obj, tuple):
-        return tuple(parse_output_to_standard(item, depth + 1) for item in obj)
+    if isinstance(obj, (tuple, set)):
+        try:
+            values = [
+                parse_output_to_standard(item, depth + 1, _active_container_ids)
+                for item in obj
+            ]
+            if isinstance(obj, set):
+                values.sort(key=repr)
+            return values
+        finally:
+            _active_container_ids.remove(id(obj))
     
     # JSON 原生支持的类型直接返回
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
     
-    # 其他类型，尝试转为字符串，方便追查错误
-    return str(obj)
+    raise TypeError(f"输出类型 {type(obj).__name__} 无法转换为 JSON 标准类型")
 
 # 如下基础类型由 json.dump json.load 自动完成双向转化，无需额外注册转换方法：
 # 1. 题目中的数组，在 python 中一律以 list 格式为准（输入不会出现 tuple）。
@@ -250,13 +294,28 @@ def _i_pname2ErrorMsg(i_pname:Union[int,str])->str:
     else: return f"题目参数 {i_pname}"
     
 def parse_standard_input(value:_BASE_TYPE,sig_type:inspect.Parameter,func_name:str,i_pname:Union[int,str]) -> Any:    
-    act_type = _extract_actual_type(sig_type.annotation)
-    if act_type == value.__class__:
+    annotation = sig_type.annotation
+    if annotation in (inspect.Signature.empty, Any):
         return value
-    else:
-        try:
-            return input_parser_registry[(value.__class__, act_type)](value)
-        except KeyError:
-            raise ValueError(f"{_i_pname2ErrorMsg(i_pname)}的类型 {value.__class__} 无法转化为主函数 {func_name} 所需的类型 {sig_type}。")
-        except Exception as e:
-            raise ValueError(f"主函数 {func_name} 在转化{_i_pname2ErrorMsg(i_pname)}时出现意外，错误信息：\n{e}")
+
+    union_args = get_args(annotation)
+    if value is None and type(None) in union_args:
+        return None
+
+    act_type = _extract_actual_type(annotation)
+    if act_type is type(None) and value is None:
+        return None
+    if isinstance(act_type, type) and isinstance(value, act_type):
+        return value
+
+    try:
+        return input_parser_registry[(value.__class__, act_type)](value)
+    except KeyError as exc:
+        raise ValueError(
+            f"{_i_pname2ErrorMsg(i_pname)}的类型 {value.__class__} 无法转化为"
+            f"主函数 {func_name} 所需的类型 {annotation}。"
+        ) from exc
+    except Exception as exc:
+        raise ValueError(
+            f"主函数 {func_name} 在转换{_i_pname2ErrorMsg(i_pname)}时出现意外：\n{exc}"
+        ) from exc

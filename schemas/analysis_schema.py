@@ -29,22 +29,22 @@ class ProblemAnalysis(BaseModel):
 
     need_conversion: bool
 
-    custom_types: List[str] = []
+    custom_types: List[str] = Field(default_factory=list)
 
     complexity: ComplexityInfo
 
     scale_config: ScaleConfig
 
-    test_strategy: List[str]
+    test_strategy: List[str] = Field(default_factory=list)
 
-    edge_cases: List[str]
+    edge_cases: List[str] = Field(default_factory=list)
 
-    stress_patterns: List[str]
+    stress_patterns: List[str] = Field(default_factory=list)
 
     algorithm_type: str
     difficulty: str
     # rag_queries: List[str]需将 rag_queries 替换为 knowledge_requirements
-    knowledge_requirements: List[str] = []   # 不再暴露 rag_queries
+    knowledge_requirements: List[str] = Field(default_factory=list)   # 不再暴露 rag_queries
     notes: Optional[str] = None
 
     corrected_code: Optional[str] = None

@@ -2,7 +2,8 @@ from typing import Any, Callable, Dict, List, Tuple, Union, Optional, get_type_h
 from collections import deque,defaultdict
 from itertools import chain
 from typing_extensions import Self
-from binarytree import build
+import inspect
+import types
 
 __DEBUG__ = False
 
@@ -15,10 +16,14 @@ def _is_base_type(sig_type) -> bool:
         Dict[Union[str, int], "_BASE_TYPE"]
     ]
     """
-    # 处理 Optional/Union 类型
+    # 未注解和 Any 表示由运行时值决定，不需要自定义转换。
+    if sig_type in (Any, inspect.Signature.empty):
+        return True
+
+    # 同时支持 typing.Union 和 Python 3.10+ 的 ``T | None``。
     origin = get_origin(sig_type)
-    
-    if origin is Union:
+
+    if origin in (Union, types.UnionType):
         args = get_args(sig_type)
         # 过滤掉 NoneType，检查所有非 None 类型
         non_none_args = [arg for arg in args if arg is not type(None)]
@@ -55,11 +60,14 @@ def _extract_actual_type(sig_type):
     """
     从类型注解中提取实际类型，用于注册表匹配
     """
+    if sig_type in (Any, inspect.Signature.empty):
+        return sig_type
+
     origin = get_origin(sig_type)
     
     if origin is not None:
         # 处理 Union/Optional 情况
-        if origin is Union:
+        if origin in (Union, types.UnionType):
             args = get_args(sig_type)
             # 过滤掉 NoneType，返回第一个非 None 类型
             non_none_args = [arg for arg in args if arg is not type(None)]
@@ -98,7 +106,6 @@ def _formated_string(val):
         return str(val)
 
 import functools
-import inspect
 
 def ReprDecorator(prep_property: str = "val"):
     def wrapper(cls):

@@ -15,6 +15,9 @@ def main_caller_args(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
 
     # 获取函数参数签名
     sig = inspect.signature(bind_func)
+    # 先由标准签名绑定器检查参数数量、必填项及位置，避免 zip 静默丢弃
+    # 多余参数，或让缺失参数以难懂的下游异常暴露。
+    sig.bind(*args)
     formated_args = (
         parse_standard_input(value,sig_type,bind_func.__name__,i) 
         for i,(value , sig_type) in enumerate(zip(args , sig.parameters.values()))
@@ -33,7 +36,7 @@ def main_caller_kwargs(bind_func: Callable, kwargs:_KWARGS)->_BASE_TYPE:
 
     # 获取函数参数签名
     sig = inspect.signature(bind_func)
-    assert len(kwargs) == len(sig.parameters), f"传入 kwargs 字典的参数个数与函数 {bind_func.__name__} 参数个数不匹配"
+    sig.bind(**kwargs)
 
 
     # 仅当 input_params 的键与函数参数名完全一致时，才能进行转换，否则需要单独设计 main_caller_kwargs 函数

@@ -5,10 +5,10 @@
 from pathlib import Path
 import time
 
-from docs_inclusion import build_docs_inclusion
+from .docs_inclusion import build_docs_inclusion
 
-from index_builder import build_index
-from semantic_index_builder import build_semantic_index
+from .index_builder import build_index
+from .semantic_index_builder import build_semantic_index
 
 
 # =========================================================

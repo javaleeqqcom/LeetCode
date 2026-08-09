@@ -16,7 +16,7 @@ RAG 检索调试工具（基于新版 retriever.py）
 import sys
 import argparse
 from typing import Dict, Any
-from retriever import RAGRetriever
+from .retriever import RAGRetriever
 
 def format_metadata(meta: Dict[str, Any]) -> str:
     """将 metadata 格式化为易读的字符串（兼容 semantic / AST 两种知识库）"""

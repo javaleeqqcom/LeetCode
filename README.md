@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.7.7
+- 版本：0.8.0
 
 ## 总览
 
@@ -7,13 +7,13 @@
 
 - **零侵入执行**：直接运行学生编写的 LeetCode 风格代码（含 `Solution` 类及 `ListNode`/`TreeNode` 等自定义类型），无需修改任何源代码。
 - **全自动环境模拟**：自动处理编码检测（UTF‑8/GBK/BOM）、类型注入、虚拟模块隔离，使本地执行行为与 LeetCode 在线判题环境完全一致。
-- **高效批量验证**：支持多线程并发执行、早停策略、智能文件管理，显著提升大规模测试用例的运行效率。
+- **高效批量验证**：支持受控的多工作进程执行、早停策略和智能文件管理；执行器会保留单进程模式，避免小任务被进程启动开销拖慢。
 - **结构化调试辅助**：为链表和二叉树提供安全迭代器、环检测、美观打印等工具，方便快速定位算法逻辑错误。
 - **AI 增强工作流**：采用 Agent + Runtime 分层架构，通过统一的 `SolutionStruct` 导出代码结构，AI Agent 可基于此自动生成测试用例与暴力验证代码，实现执行逻辑与生成逻辑的完全解耦，并已初步集成 RAG 检索能力。
 
 ---
 
-## 一、多线程测试工具（核心引擎）
+## 一、多进程测试工具（核心引擎）
 
 `tools/solution_runner.py` 是框架的核心模块，提供以下功能：
 
@@ -30,10 +30,11 @@ from tools.solution_runner import SolutionRunner
 
 runner = SolutionRunner("P82_V0.py")                # 自动识别主方法
 cases = runner.read_test_case("P82q1.txt")          # 读取测试用例
-results = runner.run(cases, log_suffix="_V0")       # 执行并输出日志
+results = runner.run(cases, log_folder="logs")      # 执行并将错误日志写入 logs/
 ```
-- **多线程支持**：通过 `thread` 参数设置并发数（默认为1）。多线程模式下，测试用例被分批次提交给线程池，大幅缩短总耗时。
-- **结果顺序一致性保证**：多线程执行完成后，所有子线程返回的结果会通过**最优归并（Optimal Merge Pattern）算法**进行汇总，用户需确保输入测试样例的 `cid` 为升序排列，则汇总输出结果与输入测试样例的 `cid` 顺序一致。
+- **多进程支持**：兼容保留的 `thread` 参数用于设置工作进程数（默认为 1，`-1` 表示按逻辑处理器数自动选择）。执行器没有固定的工作进程上限，但不会创建多于测试用例数的空闲进程；超过逻辑处理器数时会给出过度调度警告。Windows 下使用 `spawn` 隔离子进程，以支持超时后终止失控任务。
+- **适用范围**：多进程主要适合单例计算量较大的 CPU 密集任务；小任务或输入体积远大于计算量的任务通常使用 `thread=1` 更快。实测结果见 [`benchmark_results/parallel_scaling.md`](benchmark_results/parallel_scaling.md)。
+- **结果顺序一致性保证**：并发完成后按原始输入顺序恢复结果；每个测试用例的 `cid` 只需唯一，可以是整数或字符串，无需预先排序。
 - **早停机制**：支持按错误比例（`early_stop<1`）或错误数量（`early_stop>=1`）提前终止执行，节省无效计算资源。
 - **日志文件**：每个测试用例生成独立日志文件，包含输入、输出、耗时、异常堆栈及 `print` 重定向内容。文件名自动去除非法字符并避免冲突，存放于学生代码文件所在目录。
 
@@ -57,7 +58,46 @@ results = optimized.run(cases)
 
 ---
 
-## 二、特殊类型调试工具
+## 二、长驻执行后端（大规模测试）
+
+新代码位于 `runtime/runner/`，与旧 `tools/solution_runner.py` 分开，便于保持兼容并进行 A/B 性能验证。
+
+```python
+from runtime.runner import CaseStoreWriter, PersistentPythonRunner
+
+CaseStoreWriter.write("cases.ojbin", generated_cases)  # generated_cases 可以是生成器
+with PersistentPythonRunner(
+    "solution.py",
+    main_method="solve",
+    workers=8,
+    standard_mode=True,
+) as runner:
+    report = runner.run_store("cases.ojbin", collect_results=False)
+    print(report.metrics.throughput_cases_per_second)
+```
+
+- 每个 Python Worker 只加载一次学生源码和依赖，然后循环执行多个样例。
+- `.ojbin` 使用版本化偏移表和只读内存映射，可以流式生成、随机读取 10 万或 100 万样例；Worker 不再解析整套输入。
+- 默认动态分成约 `4 × workers` 个批次，在 Queue 通信与尾部负载均衡之间折中。
+- 正确结果可只在 Worker 内比较并回传摘要；错误、完整结果和 stdout 可按需收集。
+- 正式调试配置最多使用 16 个 Worker，避免 Windows 桌面进程与 24 个逻辑处理器过度争抢。
+- `standard_mode=True` 仅允许基础 JSON 输入输出和常用算法库，启动更轻并兼容 PyPy；它是格式约束，不是安全沙箱。
+
+`native_runner/` 提供独立的 Windows C++ 管理器。当前已使用 Job Object 限制进程数、单进程提交内存、批次超时，并保证管理器退出时终止全部 Worker。文件系统 ACL、受限令牌/AppContainer 和网络隔离仍属于后续安全阶段，当前版本不会错误地宣称已经完成完整沙箱。
+
+后端对照脚本：
+
+```powershell
+python -m tests.benchmark_runner_backends --repeats 3
+```
+
+架构、限制与采纳结论见 [`plan_documents/NATIVE_RUNNER_DESIGN.md`](plan_documents/NATIVE_RUNNER_DESIGN.md)，最终性能数据见 [`benchmark_results/FINAL_RUNNER_REPORT.md`](benchmark_results/FINAL_RUNNER_REPORT.md)。
+
+`PersistentPythonRunner` 的 Worker 默认是长驻的 CPython 解释器进程；“长驻”表示复用解释器和已加载模块，并不表示学生代码已经编译为 C。框架热点的可选 Cython 机器码化方案见 [`plan_documents/CYTHON_HOTPATH_PLAN.md`](plan_documents/CYTHON_HOTPATH_PLAN.md)。
+
+---
+
+## 三、特殊类型调试工具
 
 ### 1. 基础工具 (`args_parser_tools.py`)
 - `input_parser_registry`：类型转换注册表，例如将 `List[int]` 自动转换为 `ListNode`。
@@ -103,7 +143,7 @@ for idx, node in it:
 
 ---
 
-## 三、AI Agent 工作流（解耦设计）
+## 四、AI Agent 工作流（解耦设计）
 
 框架已实现 **Agent 层** 与 **Runtime 层** 的分离，通过标准化数据结构（`ProblemContext`、`SolutionStruct`）实现完全解耦。
 - **Runtime 层**（`tools/`）：仅负责代码执行、结果比较、测试用例读写。
@@ -134,11 +174,11 @@ EvaluateAgent (规划中) →  分析通过率、错误分布，反馈优化建�
 
 ---
 
-## 四、总结
+## 五、总结
 
 | 模块 | 核心价值 |
 |------|----------|
-| **多线程测试工具** | 零侵入运行学生代码，自动处理编码/类型/环境，支持并发执行与早停。 |
+| **多进程测试工具** | 零侵入运行学生代码，自动处理编码/类型/环境，支持并发执行与早停。 |
 | **特殊类型调试工具** | 为链表和二叉树提供安全迭代、环检测、美观打印，显著提升调试效率。 |
 | **AI Agent 架构** | 通过 Agent 与 Runtime 分层、SolutionStruct 统一导出，并集成 RAG 知识库，自动生成测试用例与暴力算法。已实现测试生成与 RAG 协同，向 Graph‑RAG 演进。 |
 

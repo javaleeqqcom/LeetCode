@@ -2,7 +2,7 @@ from typing import TypedDict, Optional, List
 from schemas.problem_context import ProblemContext
 from schemas.analysis_schema import ProblemAnalysis
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     problem: Optional[ProblemContext]
     analysis: Optional[ProblemAnalysis]
     retrieved_case_context: Optional[str]

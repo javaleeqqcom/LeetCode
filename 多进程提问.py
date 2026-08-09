@@ -16,17 +16,23 @@ case_generator_agent = AIC("agents\case_generator_agent.py")
 graph_state = AIC(r"agents\graph_state.py")
 reference_retriever = AIC(r"agents\reference_retriever.py")
 
-template_text = fr"""
+solution_runner = AIC(r"tools\solution_runner.py")
+solution_struct = AIC(r"tools\solution_struct.py")
 
-已按你说的修改了代码：
-{retriever}
-需要修改：
-{debug_retriever}
-以验证合并库后DB 可以检索到正确的内容。
-顺便注意一下路径：
-{AIC(r"rag\__init__.py")}
-避免出现 ModuleNotFoundError: No module named 'rag' 的情况。
-但是要注意从 leetcode 根目录也要能直接调用 rag/ 下的 .py
+template_text = fr"""
+{README}
+{AGENTS_DOC}
+{AIC(r"tools\沙箱技术.md")}
+{solution_runner}
+{solution_struct}
+原有开启12个线程执行1s的Python代码效率加速比仅有 200%~300%，
+现在需要改进多线程的方式：
+- 采用 Python 实现 Agent，但是调用 C++ 管理多线程调度
+- C++ 多线程调度实现：
+  - 将测试任务分配到不同线程，使得各线程busy率尽可能逼近100%
+  - 每个线程调用不同编程语言执行OJ答题任务，C++ 调用 Python、C、C++、Java等，各任务内部采用 while 循环通过管道通信获取测试样例，并反馈状态。
+  - 架构设计要能兼容沙箱安全技术（可以暂不实现）
+  - 架构设计要能高效执行代码，如 Python 采用 PyPy，有 m 个线程则只需编译 m 次等。
 """
 
 # 使用示例

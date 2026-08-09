@@ -179,10 +179,10 @@ def {_CUSTOM_CALLER_NAME}(bind_func: Callable, args:_ARGS)->_BASE_TYPE:
     CONVERSION_CALLS = f"""
 ```conversion.py
 # 该代码会拼接在<code>之后运行，无需引用<init-code>中的函数即可调用，其中的 {_CUSTOM_CALLER_NAME} 会被覆盖。
-def {_CUSTOM_CALLER_NAME}(instance: object, main_method:None,args:？)->{_BASE_TYPE.__name__}:
-    # 当 Solution 类存在多个方法时，必须重写 {_CUSTOM_CALLER_NAME} 函数。而且 main_method = None，因为不存在唯一的主方法
-    # test_case 格式：{{"input": input_params}}
-    params = test_case["input"]
+def {_CUSTOM_CALLER_NAME}(instance: object, args:_PARAMS)->{_BASE_TYPE.__name__}:
+    # 当 Solution 类存在多个方法时，runner 会把 Solution 实例和
+    # test_case["input"] 传入本函数。
+    params = args
     
     # 在此手动处理调用逻辑，例如：
     # - 参数重新排列

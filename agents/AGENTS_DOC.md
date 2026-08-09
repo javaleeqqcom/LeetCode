@@ -1,5 +1,5 @@
 # 🧠 Agents 模块文档
-> 版本：0.7.7（2026‑06‑28 更新）
+> 版本：0.8.0（2026‑08‑09 更新）
 
 ## 概览
 `agents/` 目录实现了框架的 **Agent 层**，负责题目分析、测试用例生成、工作流编排等高层任务。  
@@ -81,7 +81,7 @@ code = AgentIO.clean_llm_code(response.content)
 
 | 类 / 方法 | 描述 |
 |-----------|------|
-| `AnalyzeAgent(llm)` | 初始化分析 Agent，可选传入 LLM 实例，默认使用 `qwen3-coder-30b-q8`（温度 0）。加载 `prompts/analyze.prompt.md` 提示模板，构建 `PydanticOutputParser` 解析链。 |
+| `AnalyzeAgent(llm)` | 初始化分析 Agent，可选传入 LLM 实例。默认模型由 `OLLAMA_CODE_MODEL` 控制（当前默认 `DeepSeek-Coder-V2-Lite-Instruct-Q5_K_M:latest`），推理线程硬上限为 8。加载分析模板并构建结构化解析链。 |
 | `AnalyzeAgent.run(problem)` | 调用 LLM，传入题目标题、描述、约束、标签、方法签名等信息，返回 `ProblemAnalysis` 对象。 |
 
 **数据流：**
@@ -94,10 +94,10 @@ code = AgentIO.clean_llm_code(response.content)
 
 | 类 / 方法 | 描述 |
 |-----------|------|
-| `CaseGeneratorAgent(problem, llm=None)` | **V0.7.7 变更**：构造时必须传入 `ProblemContext`。内部直接持有 `RAGRetriever` 实例（用于查询 `case_generator` 语义知识库），不再依赖 `ReferenceRetriever`。 |
+| `CaseGeneratorAgent(problem, llm=None, case_validator=None)` | 构造时必须传入 `ProblemContext`。可选 `case_validator` 用于题目级语义抽样；内部直接查询 `case_generator` 语义知识库。 |
 | `CaseGeneratorAgent.build_rag_context(query)` | 接收多维度查询文本，调用 `self.retriever.build_context(query, collection_name="case_generator")`，返回格式化文本块。 |
 | `CaseGeneratorAgent.build_prompt()` | 构建完整的 LLM 消息列表。自动从 `self.problem` 提取标题、描述、标签、复杂度等构造高质量 RAG 查询，再调用 `build_rag_context` 获取上下文。最终 Prompt 包含：题目描述、学生代码、`case_generator` 模板、复杂度分析摘要、RAG 上下文。 |
-| `CaseGeneratorAgent.run(dry_run=False)` | 执行生成流程。<br>**dry_run=True**：保存 Prompt 日志并进入半监督模式，等待用户从剪贴板提供代码。<br>**dry_run=False**：调用 LLM → 清洗代码 → 自动修复 import → 验证 → 保存到 `auto/case_generator_xxx.py`，返回代码字符串。 |
+| `CaseGeneratorAgent.run(dry_run=False)` | 执行生成流程。<br>**dry_run=True**：保存 Prompt 日志并进入半监督模式。<br>**dry_run=False**：调用 LLM → 清洗/修复 import → 隔离进程验证（含 5 秒超时）→ 可选语义验证。首个 LLM 候选失败时，会尝试本次检索出的可执行 RAG 模块；候选只有通过同一组验证才会采用。 |
 
 **生成文件命名规则：**
 `auto/case_generator_000.py`、`auto/case_generator_001.py` ……
@@ -219,12 +219,12 @@ agents/
 ---
 
 ## 五、注意事项
-1. **LLM 依赖**：`AnalyzeAgent` 和 `CaseGeneratorAgent` 默认使用本地 Ollama 模型（`qwen3-coder-30b-q8`），请确保服务已启动。
-2. **模板文件**：Agent 依赖 `prompts/` 目录下的 `.prompt.md` 文件，路径硬编码，移动时需同步调整。
+1. **LLM 依赖**：请确保本地 Ollama 服务已启动并安装 `OLLAMA_CODE_MODEL` 指定的模型；`OLLAMA_NUM_THREAD` 即使设置更大也会限制为 8。
+2. **模板文件**：Agent 从项目根目录解析 `prompts/`，不依赖启动时的当前工作目录。
 3. **剪贴板功能**：跨平台剪贴板需要对应的系统工具（`clip`、`pbcopy`、`xclip`/`xsel`），缺失时自动降级为文件保存。
 4. **复杂度分析**：`ComplexityAnalyzer` 为简易实现，仅作参考，不应作为精确的复杂度判断依据。
 5. **RAG 检索**：
-   - `CaseGeneratorAgent` 直接使用 `RAGRetriever.build_context()` 查询 **`case_generator`** 语义知识库，返回的文本块直接嵌入 Prompt。
+   - `CaseGeneratorAgent` 查询 **`case_generator`** 语义知识库；结果既会嵌入 Prompt，也可作为经过验证后采用的代码候选。
    - `ReferenceRetriever` 保留用于查询 **`conversion`** AST 知识库，返回 `SolutionStruct` 列表，供未来需要结构化代码参考的场景使用。
    - 使用前请确保已执行 `rag/rag_knowledge_update.py` 构建两个知识库。
 6. **工作流状态**：`build_graph.py` 中的 `retrieve_node` 目前仅透传数据，未执行实际 RAG 查询；实际检索逻辑已集成在 `CaseGeneratorAgent.build_rag_context()` 中。

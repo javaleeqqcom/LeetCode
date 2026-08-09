@@ -6,8 +6,17 @@ import ast
 import re
 import sys
 import subprocess
+import base64
 
 class AgentIO:
+
+    SAFE_GENERATOR_IMPORTS = {
+        "bisect", "collections", "functools", "heapq", "itertools",
+        "json", "math", "numpy", "random", "statistics", "string", "typing",
+    }
+    BLOCKED_GENERATOR_CALLS = {
+        "breakpoint", "compile", "eval", "exec", "input", "open", "__import__",
+    }
 
     # ========== 基础工具（原有） ==========
     @classmethod
@@ -34,7 +43,9 @@ class AgentIO:
 
     @classmethod
     def clean_llm_code(cls, text: str) -> str:
-        text = text.strip()
+        # 部分本地模型会偶发返回孤立 UTF-16 surrogate；它能通过 ast.parse，
+        # 但在保存或送入独立解释器时触发 UnicodeEncodeError。
+        text = text.encode("utf-8", errors="replace").decode("utf-8").strip()
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.S) # 去除思考过程
         m = re.search(r"```(?:python)?\s*(.*?)\s*```", text, flags=re.S) # 提取Python代码框内部
         if m:
@@ -278,30 +289,88 @@ class AgentIO:
         - 没有抛出异常
         返回 (是否通过, 错误信息)
         """
-        # 预备一个干净的全局命名空间，避免污染
-        exec_globals = {"__builtins__": __builtins__}
         try:
-            compile(code, "<agent_fix>", "exec")
+            tree = ast.parse(code, filename="<agent_fix>", mode="exec")
         except Exception as e:
             return False, f"语法错误: {e}"
 
-        try:
-            exec(code, exec_globals)
-        except Exception as e:
-            return False, f"执行失败: {e}"
-
-        if "case_generator" not in exec_globals:
+        definitions = {
+            node.name for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        if "case_generator" not in definitions:
             return False, "未定义 case_generator 函数"
 
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots = {alias.name.split(".", 1)[0] for alias in node.names}
+                disallowed = roots - cls.SAFE_GENERATOR_IMPORTS
+                if disallowed:
+                    return False, f"不允许导入模块: {sorted(disallowed)}"
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").split(".", 1)[0]
+                if root not in cls.SAFE_GENERATOR_IMPORTS:
+                    return False, f"不允许导入模块: {root or '<relative>'}"
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in cls.BLOCKED_GENERATOR_CALLS
+            ):
+                return False, f"不允许调用: {node.func.id}"
+            elif (
+                isinstance(node, ast.If)
+                and isinstance(node.test, ast.Compare)
+                and isinstance(node.test.left, ast.Name)
+                and node.test.left.id == "__name__"
+            ):
+                return False, "禁止生成 main/__name__ 执行入口"
+            elif (
+                isinstance(node, ast.While)
+                and isinstance(node.test, ast.Constant)
+                and node.test.value is True
+            ):
+                return False, "禁止 while True 无界拒绝采样；请直接构造合法样例"
+
+        # 在独立解释器中执行，设置硬超时；生成代码不会污染 Agent 主进程。
+        validator = r'''
+import base64
+import json
+import sys
+
+code = base64.b64decode(sys.stdin.buffer.read()).decode("utf-8")
+namespace = {"__builtins__": __builtins__}
+exec(compile(code, "<case_generator>", "exec"), namespace)
+generator = namespace["case_generator"]
+for scale in (0, 1, 1.5, 10.5, 100, 1000):
+    result = generator(scale)
+    if not isinstance(result, dict):
+        raise TypeError(f"scale={scale}: expected dict, got {type(result).__name__}")
+    if "input" not in result:
+        raise ValueError(f"scale={scale}: missing input")
+    reserved = {"output", "error", "traceback", "elapsed", "cid"} & result.keys()
+    if reserved:
+        raise ValueError(f"scale={scale}: reserved keys are not allowed: {sorted(reserved)}")
+    if not isinstance(result["input"], (tuple, list, dict)):
+        raise TypeError(f"scale={scale}: input must be tuple/list/dict")
+    json.dumps(result, ensure_ascii=False)
+print("CASE_GENERATOR_VALID")
+'''
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
-            result = exec_globals["case_generator"](10)
-        except Exception as e:
-            return False, f"调用 case_generator(10) 失败: {e}"
-
-        if not isinstance(result, dict):
-            return False, f"返回值类型错误: 期望 dict，实际 {type(result)}"
-
-        if "input" not in result:
-            return False, '返回值缺少 "input" 键'
-
+            completed = subprocess.run(
+                [sys.executable, "-I", "-c", validator],
+                input=base64.b64encode(code.encode("utf-8")),
+                capture_output=True,
+                timeout=5,
+                creationflags=creation_flags,
+            )
+        except subprocess.TimeoutExpired:
+            return False, "生成器验证超过 5 秒，可能存在死循环或不合理开销"
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).decode(
+                "utf-8", errors="replace"
+            ).strip()
+            return False, f"隔离执行失败: {detail[-1000:]}"
+        if b"CASE_GENERATOR_VALID" not in completed.stdout:
+            return False, "隔离执行未返回成功标记"
         return True, ""

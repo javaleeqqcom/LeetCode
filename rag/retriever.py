@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import chromadb
+from pathlib import Path
 
 from typing import List, Dict, Any
 
-from embedding import (
+from .embedding import (
     OllamaEmbeddingFunction,
 )
 
@@ -17,12 +18,13 @@ from embedding import (
 # retriever
 # =========================================================
 class RAGRetriever:
-    _client = None
+    _clients = {}
 
     def __init__(self, db_root: str = "./rag_db"):
-        if RAGRetriever._client is None:
-            RAGRetriever._client = chromadb.PersistentClient(path=db_root)
-        self.client = RAGRetriever._client
+        db_root = str(Path(db_root).resolve())
+        if db_root not in RAGRetriever._clients:
+            RAGRetriever._clients[db_root] = chromadb.PersistentClient(path=db_root)
+        self.client = RAGRetriever._clients[db_root]
         self.embedding_function = OllamaEmbeddingFunction()
         self.collections = {}
 
@@ -48,14 +50,19 @@ class RAGRetriever:
         where: dict | None = None,
     ) -> List[Dict[str, Any]]:
 
-        collection = self.get_collection(
-            collection_name
-        )
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("RAG query 不能为空")
+        if not isinstance(topk, int) or topk <= 0:
+            raise ValueError("topk 必须为正整数")
+        collection = self.get_collection(collection_name)
+        count = collection.count()
+        if count == 0:
+            return []
 
         # ⭐⭐⭐ 不再手工 embedding
         res = collection.query(
             query_texts=[query],
-            n_results=topk,
+            n_results=min(topk, count),
             where=where,
             include=[
                 "documents",
@@ -102,6 +109,11 @@ class RAGRetriever:
             topk=topk,
         )
 
+        return self.format_context(docs)
+
+    @staticmethod
+    def format_context(docs: List[Dict[str, Any]]) -> str:
+        """Format already-retrieved results without issuing another query."""
         blocks = []
 
         for i, d in enumerate(docs):

@@ -2,12 +2,15 @@
 *.zip
 *.rar
 *.txt
+!native_runner/CMakeLists.txt
 *.log
 *.pyc
 *.pyd
 *.exp
 *.exe
 *.obj
+*.ojbin
+*.writing
 *.pbd
 build/
 __pycache__/

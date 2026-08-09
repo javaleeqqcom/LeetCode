@@ -1,14 +1,18 @@
 # agents/case_generator_agent.py
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, Tuple
 import time
+import os
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.chat_models import ChatOllama
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from schemas.problem_context import ProblemContext
 from tools.solution_struct import ComplexityHint
 from agents.agent_io import AgentIO
 from rag.retriever import RAGRetriever # 直接使用 RAGRetriever，不再使用 ReferenceRetriever
+from agents.ollama_config import build_chat_ollama
+
+
+_ROOT = Path(__file__).resolve().parent.parent
 
 _DEFAULT_CASE_GENERATOR_TEMPLATE = r'''
 def case_generator(scale: int) -> dict:
@@ -22,24 +26,33 @@ def case_generator(scale: int) -> dict:
 '''
 
 class CaseGeneratorAgent:
-    def __init__(self, problem: ProblemContext, llm=None):
+    def __init__(
+        self,
+        problem: ProblemContext,
+        llm=None,
+        case_validator: Optional[Callable[[str], Tuple[bool, str]]] = None,
+    ):
         self.problem = problem
-        self.llm = llm or ChatOllama(model="qwen3-coder-30b-q8:latest", temperature=0)
+        self.case_validator = case_validator
+        self.llm = llm or build_chat_ollama()
         
         self.retriever = RAGRetriever()
+        self.rag_candidates: List[str] = []
         
-        prompt_text = Path("prompts/case_generator.prompt.md").read_text(encoding="utf-8")
+        prompt_text = (_ROOT / "prompts" / "case_generator.prompt.md").read_text(encoding="utf-8")
         self.prompt = ChatPromptTemplate.from_template(prompt_text)
         self.chain = self.prompt | self.llm
 
     def build_rag_context(self, query: str) -> str:
         """查询 case_generator 知识库，返回格式化文本上下文"""
         try:
-            return self.retriever.build_context(
+            results = self.retriever.search(
                 query=query,
                 collection_name="case_generator",
-                topk=5
+                topk=3
             )
+            self.rag_candidates = [item["document"] for item in results]
+            return self.retriever.format_context(results)
         except Exception as e:
             print(f"RAG 检索失败（将使用空上下文）: {e}")
             return ""
@@ -68,7 +81,12 @@ class CaseGeneratorAgent:
         rag_context = self.build_rag_context(query)   # 现在返回的是文本上下文
 
         msg = self.prompt.format_messages(
-            question=self.problem.description,
+            question=(
+                f"{self.problem.title}\n\n{self.problem.description}\n\n"
+                f"约束：{self.problem.constraints}\n"
+                f"示例：{self.problem.examples}\n"
+                f"标签：{', '.join(self.problem.tags)}"
+            ),
             student_code=self.problem.solution_struct.source_code,
             case_generator_code=_DEFAULT_CASE_GENERATOR_TEMPLATE,
             analysis=analysis_str,
@@ -143,17 +161,66 @@ class CaseGeneratorAgent:
             # 正式调用 LLM
             print("🤖 正在调用 LLM 生成测试用例生成器...")
             try:
-                response = self.llm.invoke(messages)
-                assert isinstance(response.content, str), "LLM 返回非字符串"
-                code = AgentIO.clean_llm_code(response.content)
-                code = AgentIO.auto_fix_imports(code)
-                # 全自动模式也做验证，失败则抛出明确的 RuntimeError
-                valid, err_msg = AgentIO.validate_case_generator(code)
+                code = ""
+                err_msg = "尚未生成"
+                attempt_messages = list(messages)
+                max_attempts = max(
+                    1, min(int(os.getenv("OLLAMA_GENERATION_ATTEMPTS", "3")), 4)
+                )
+                valid = False
+                for attempt in range(max_attempts):
+                    response = self.llm.invoke(attempt_messages)
+                    if not isinstance(response.content, str):
+                        raise TypeError("LLM 返回非字符串")
+                    response_path = (
+                        AgentIO.get_log_dir(self.problem.problem_dir)
+                        / f"AI_response_{idx:03d}_attempt_{attempt + 1}.log"
+                    )
+                    response_path.write_text(response.content, encoding="utf-8")
+                    code = AgentIO.auto_fix_imports(
+                        AgentIO.clean_llm_code(response.content)
+                    )
+                    valid, err_msg = AgentIO.validate_case_generator(code)
+                    if valid and self.case_validator is not None:
+                        valid, err_msg = self.case_validator(code)
+                    if valid:
+                        break
+                    if attempt == 0 and self.case_validator is not None:
+                        # 首轮失败后先尝试检索到的可执行模块，避免在已有
+                        # 合格确定性候选时继续消耗多轮模型推理。
+                        for candidate in self.rag_candidates:
+                            candidate_code = AgentIO.auto_fix_imports(
+                                AgentIO.clean_llm_code(candidate)
+                            )
+                            candidate_valid, candidate_error = (
+                                AgentIO.validate_case_generator(candidate_code)
+                            )
+                            if candidate_valid and self.case_validator is not None:
+                                candidate_valid, candidate_error = self.case_validator(
+                                    candidate_code
+                                )
+                            if candidate_valid:
+                                code = candidate_code
+                                valid = True
+                                print("✅ LLM 候选未通过，已采用经验证的 RAG 代码模块。")
+                                break
+                            err_msg = candidate_error
+                        if valid:
+                            break
+                    # 保留上一次 assistant 输出，否则下一次 invoke 是无状态的，
+                    # 模型只看得到错误说明却看不到需要修改的代码。
+                    attempt_messages.append(response)
+                    attempt_messages.append(
+                        HumanMessage(
+                            content=(
+                                "上一次生成未通过验证："
+                                f"{err_msg}。请只返回修正后的完整 Python 代码。"
+                            )
+                        )
+                    )
                 if not valid:
                     raise RuntimeError(
-                        f"LLM 生成的代码验证失败：{err_msg}\n"
-                        f"请手动检查或使用 dry_run 模式。\n"
-                        f"Prompt 已保存至: {prompt_path}"
+                        f"连续 {max_attempts} 次生成均未通过验证：{err_msg}"
                     )
             except Exception as e:
                 raise RuntimeError(

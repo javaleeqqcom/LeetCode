@@ -6,10 +6,10 @@ import json
 import os
 from pathlib import Path
 
-from embedding import VectorStore
-from docs_inclusion import diff_docs
+from .embedding import VectorStore
+from .docs_inclusion import diff_docs
 
-from semantic_chunker import SemanticChunker
+from .semantic_chunker import SemanticChunker
 
 
 # =========================================================

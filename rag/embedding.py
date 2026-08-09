@@ -2,7 +2,10 @@
 # 更新于 RAG V0.2.1
 # 2026-5-22
 
-from typing import List
+from __future__ import annotations
+
+from typing import Any, List
+import os
 
 import chromadb
 import requests
@@ -14,7 +17,7 @@ from chromadb.api.types import (
     Embeddings,
 )
 
-EMBED_MODEL = "qwen3-embed-0.6b:q8"
+EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embed-0.6b:q8")
 
 
 # =========================================================
@@ -34,7 +37,7 @@ class VectorStore:
         )
 
     # typing error: 未定义“CodeChunk”
-    def add_chunks(self, chunks: List[CodeChunk]):
+    def add_chunks(self, chunks: List[Any]):
         """
         将 CodeChunk 列表写入 ChromaDB 向量数据库。
 
@@ -167,15 +170,23 @@ class OllamaEmbeddingFunction(
     ) -> Embeddings:
 
         res = requests.post(
-            "http://localhost:11434/api/embed",
+            os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/") + "/api/embed",
             json={
                 "model": self.model,
                 "input": list(input),
+                "options": {
+                    "num_thread": max(
+                        1, min(int(os.getenv("OLLAMA_NUM_THREAD", "8")), 8)
+                    ),
+                    "num_ctx": max(
+                        2_048, min(int(os.getenv("OLLAMA_EMBED_NUM_CTX", "8192")), 8_192)
+                    ),
+                },
+                "keep_alive": os.getenv("OLLAMA_EMBED_KEEP_ALIVE", "2m"),
             },
+            timeout=max(10, int(os.getenv("OLLAMA_EMBED_TIMEOUT", "120"))),
         )
-
-        if res.status_code != 200:
-            raise RuntimeError(res.text)
+        res.raise_for_status()
 
         data = res.json()
 

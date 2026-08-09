@@ -1,5 +1,6 @@
 # test_TreeNodeKit.py
-# python -m tools.test_listnode_kit
+# python -m tools.test_TreeNodeKit
+import os
 import random
 import sys
 from typing import List, Optional, Tuple, Set, Any,TypeVar, Dict
@@ -406,13 +407,20 @@ def clip_distinct(val_list):
             res.append(v)
     return res, dup
 
-def test_random_tree(seed = 42):
-    """随机生成二叉树并随机添加非法链接，验证 TreeNodeKit 的遍历与环检测正确性"""
+def test_random_tree(seed=42, times=200, illegal_links=20, show_progress=False):
+    """随机生成二叉树并随机添加非法链接，验证遍历与环检测。
+
+    历史默认值为 10_000 棵树、每棵最多 100 次破坏（约百万轮复合
+    遍历），容易被误判为死循环。默认改为适合日常回归的规模；完整
+    压力测试仍可通过环境变量在脚本入口恢复。
+    """
+    if times <= 0 or illegal_links <= 0:
+        raise ValueError("times 和 illegal_links 必须为正整数")
     print("\n=== 6. 随机树 + 非法链接测试 ===")
     random.seed(seed)
-    times = 10000
     for i in range(times):
-        print(f"random test {i}",end="\r")
+        if show_progress:
+            print(f"random test {i}", end="\r")
         left_p = random.random()
         right_p = random.random()
         root = random_tree(8, 20, left_p, right_p)   # 生成合法二叉树
@@ -422,7 +430,7 @@ def test_random_tree(seed = 42):
         nodes_dict = {}
         rep_nodes = [] # 初始为合法树，无需停止索引
 
-        for j in range(100): # 非法链接次数上限                # 索引 -> 节点
+        for j in range(illegal_links):  # 非法链接次数上限
             if not nodes_dict:
                 nodes_dict:Dict[int, TreeNode] = {node.visit_index: node.raw for node in nodes if node.raw}
             # 第一次必是合法树，因此只需从第二次开始添加非法链接（重复节点或环）
@@ -508,7 +516,11 @@ if __name__ == "__main__":
     test_setters_and_unwrap()
 
     begin = time.time()
-    test_random_tree()
+    test_random_tree(
+        times=int(os.getenv("TREE_TEST_TIMES", "200")),
+        illegal_links=int(os.getenv("TREE_TEST_LINKS", "20")),
+        show_progress=os.getenv("TREE_TEST_PROGRESS", "0") == "1",
+    )
     end = time.time()
     print(f"test_random_tree cost: {end-begin:.3f}s")
 

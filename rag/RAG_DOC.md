@@ -1,6 +1,6 @@
 # 📘 LeetCode 本地自动化测试框架（Python）+ RAG 增强版
 
-> 版本：0.7.7（2026‑06‑28 更新）
+> 版本：0.8.0（2026‑08‑09 更新）
 
 ---
 
@@ -151,10 +151,11 @@
 
 | 类 / 函数 | 描述 |
 |----------|------|
-| `RAGRetriever(db_root)` | 初始化，`db_root` 默认 `"./rag_db"`。V0.7.7 起使用**类级别共享客户端**，与 `VectorStore` 共用同一 `PersistentClient`。 |
+| `RAGRetriever(db_root)` | 初始化，`db_root` 默认 `"./rag_db"`。客户端按规范化后的数据库绝对路径复用，避免不同 `db_root` 错用同一客户端。 |
 | `RAGRetriever.get_collection(collection_name)` | 懒加载 ChromaDB collection，复用客户端。 |
 | `RAGRetriever.search(query, collection_name, topk, where)` | 执行向量检索，返回 `[{score, document, metadata}]`。内部调用 ChromaDB 的 `query`，并将距离转换为相似度（`1.0 - dist`）。 |
 | `RAGRetriever.build_context(query, collection_name, topk)` | 调用 `search()` 后格式化输出为文本块，包含相似度、文件路径、类型、名称和内容，便于直接拼接到 Prompt 中。 |
+| `RAGRetriever.format_context(results)` | 格式化已检索结果，不重复执行向量查询。 |
 
 ---
 
@@ -293,8 +294,8 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 1. **新旧接口混用**  
    `index_builder.py` 仍调用 `VectorStore.add_chunks()`（旧版），而 `semantic_index_builder.py` 使用 `add_documents()`（新版）。建议统一为 `add_documents`，并迁移 AST 知识库至统一的 Document 格式。
 
-2. **嵌入模型固定**  
-   `embedding.py` 中的 `EMBED_MODEL = "qwen3-embed-0.6b:q8"` 为硬编码，未实现运行时切换。
+2. **嵌入模型与资源参数**
+   默认嵌入模型为 `qwen3-embed-0.6b:q8`，可通过 `OLLAMA_EMBED_MODEL` 切换；请求超时、上下文和计算线程也可由环境变量配置，其中线程数硬上限为 8。
 
 3. **图结构未充分利用**  
    虽在 `CodeChunk` 和 `RAGModule` 中设计了 `parent`/`deps` 字段，但检索时未利用这些关系进行 Graph‑RAG 排序或遍历。`SemanticChunker` 已正确填充父子关系，待下游利用。
@@ -308,6 +309,7 @@ prompt = f"{question}\n\n学生代码：\n{code}\n\n相关代码上下文：\n{c
 
 - ✅ **Phase 1**：实现 `retriever.build_context()`（已完成）。
 - ✅ **Phase 5.1**：统一 ChromaDB 客户端（一个 PersistentClient，多个 Collection）（已完成）。
+- ✅ **Phase 5.2**：检索代码候选通过隔离执行与题目语义验证后，可作为 LLM 失败时的确定性回退（已完成）。
 - **Phase 2**：统一 `VectorStore` 接口，废弃 `add_chunks`，全面迁移至 `add_documents`。
 - **Phase 3**：在 `retriever.py` 中加入重排序（rerank）模块。
 - **Phase 4**：实现基于 `parent` 和 `deps` 的 Graph‑RAG 检索增强，例如 `SemanticChunker.rebuild_prompt_modules()` 自动拉取依赖模块。
