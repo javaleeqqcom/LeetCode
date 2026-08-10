@@ -12,6 +12,8 @@ __all__ = [
     "CompiledCppRunner",
     "RunMetrics",
     "RunReport",
+    "AutoTuneConfig",
+    "AutoTuneDecision",
 ]
 
 
@@ -24,6 +26,13 @@ def __getattr__(name: str):
         from .models import RunMetrics, RunReport
 
         return {"RunMetrics": RunMetrics, "RunReport": RunReport}[name]
+    if name in {"AutoTuneConfig", "AutoTuneDecision"}:
+        from .auto_tune import AutoTuneConfig, AutoTuneDecision
+
+        return {
+            "AutoTuneConfig": AutoTuneConfig,
+            "AutoTuneDecision": AutoTuneDecision,
+        }[name]
     if name == "PersistentPythonRunner":
         from .persistent_python import PersistentPythonRunner
 

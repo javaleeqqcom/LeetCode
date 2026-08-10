@@ -1,5 +1,5 @@
 # LeetCode 本地自动化测试框架
-- 版本：0.10.0
+- 版本：0.11.0
 
 ## 总览
 
@@ -118,6 +118,26 @@ report = runner.run_store("cases.ojbin", batch_timeout_s=10)
 
 设计边界见 [`plan_documents/COMPILED_OJ_RUNNER_DESIGN.md`](plan_documents/COMPILED_OJ_RUNNER_DESIGN.md)，
 单/多进程结果见 [`benchmark_results/COMPILED_LANGUAGE_REPORT.md`](benchmark_results/COMPILED_LANGUAGE_REPORT.md)。
+
+### Auto 进程数（v0.11.0）
+
+`PersistentPythonRunner` 和 `CompiledCppRunner` 均可设置 `workers="auto"`。Auto 会综合 CPU/内存、样例数量与体积、程序循环/递归特征，以及少量代表样例的单进程实测结果，在 1～16 个进程中选择。默认内存预算为 8 GiB；探针 TLE 时固定降级到单进程，避免并发放大失控代码。
+
+```python
+from runtime.runner import AutoTuneConfig, PersistentPythonRunner
+
+with PersistentPythonRunner(
+    "solution.py",
+    main_method="solve",
+    workers="auto",
+    standard_mode=True,
+    auto_tune_config=AutoTuneConfig(expected_runs=1),
+) as runner:
+    report = runner.run_store("cases.ojbin", collect_results=False)
+    print(report.metrics.workers, report.auto_tune["reasons"])
+```
+
+本机策略校准：`python tests/calibrate_auto_workers.py`。详细设计见 [`plan_documents/AUTO_WORKER_DESIGN.md`](plan_documents/AUTO_WORKER_DESIGN.md)，实测与 TLE 结果见 [`benchmark_results/AUTO_WORKER_REPORT.md`](benchmark_results/AUTO_WORKER_REPORT.md)。
 
 后端对照脚本：
 

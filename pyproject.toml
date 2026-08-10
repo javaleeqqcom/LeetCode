@@ -1,6 +1,6 @@
 [project]
 name = "leetcode-local-runner"
-version = "0.10.0"
+version = "0.11.0"
 description = "Local OJ validation, RAG case generation, and persistent execution backends"
 requires-python = ">=3.9"
 

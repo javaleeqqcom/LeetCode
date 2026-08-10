@@ -36,6 +36,7 @@ class RunReport:
     digest: str
     digest_scheme: str = DIGEST_SCHEME
     results: list[dict[str, Any]] | None = field(default=None)
+    auto_tune: dict[str, Any] | None = field(default=None)
 
     @property
     def completed_count(self) -> int:
@@ -52,4 +53,6 @@ class RunReport:
         }
         if include_results:
             payload["results"] = self.results
+        if self.auto_tune is not None:
+            payload["auto_tune"] = self.auto_tune
         return payload

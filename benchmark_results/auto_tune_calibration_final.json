@@ -1,0 +1,612 @@
+{
+  "schema_version": 1,
+  "system": {
+    "logical_cpus": 24,
+    "physical_cpus": 12,
+    "total_memory_bytes": 50631016448,
+    "available_memory_bytes": 26933239808,
+    "cpu_load_percent": 16.4,
+    "platform": "Windows-AMD64"
+  },
+  "profile_path": "D:\\Users\\java_lee\\Documents\\GitHub\\LeetCode\\build\\auto_tune\\host_profile.json",
+  "workers": [
+    1,
+    2,
+    4,
+    6,
+    8,
+    12,
+    16
+  ],
+  "repeats": 3,
+  "profiles": {
+    "persistent_python": {
+      "startup_seconds": {
+        "1": 0.11635310000565369,
+        "2": 0.14788150000094902,
+        "4": 0.2233929999929387,
+        "6": 0.30878769999253564,
+        "8": 0.36786329999449663,
+        "12": 0.5643638000037754,
+        "16": 0.6728087999945274
+      },
+      "parallel_efficiency": {
+        "1": 1.0,
+        "2": 0.9953323681142191,
+        "4": 0.8758406690101156,
+        "6": 0.7588680588150624,
+        "8": 0.6404185524752483,
+        "12": 0.5024121736012706,
+        "16": 0.4109441798625109
+      }
+    },
+    "compiled": {
+      "startup_seconds": {
+        "1": 0.02811420000216458,
+        "2": 0.03316019999329001,
+        "4": 0.04937110000173561,
+        "6": 0.04937110000173561,
+        "8": 0.05964320000202861,
+        "12": 0.07195310000679456,
+        "16": 0.08775900000182446
+      },
+      "parallel_efficiency": {
+        "1": 1.0,
+        "2": 0.9178909322586573,
+        "4": 0.44628357794673656,
+        "6": 0.7256293446164758,
+        "8": 0.30225393836917674,
+        "12": 0.5566569847654731,
+        "16": 0.4031379879344843
+      }
+    }
+  },
+  "raw_measurements": [
+    {
+      "backend": "persistent_python",
+      "workers": 1,
+      "repeat": 0,
+      "startup_seconds": 0.1221679000009317,
+      "wall_seconds": 1.672878800003673,
+      "compute_seconds": 1.6638484000577591,
+      "rss_bytes": 30015488
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 1,
+      "repeat": 1,
+      "startup_seconds": 0.11144179999246262,
+      "wall_seconds": 2.0080132000002777,
+      "compute_seconds": 1.9960784000140848,
+      "rss_bytes": 30261248
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 1,
+      "repeat": 2,
+      "startup_seconds": 0.11635310000565369,
+      "wall_seconds": 1.6277910999924643,
+      "compute_seconds": 1.6186977999896044,
+      "rss_bytes": 30461952
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 2,
+      "repeat": 0,
+      "startup_seconds": 0.15725340000062715,
+      "wall_seconds": 0.8403619000018807,
+      "compute_seconds": 1.6637922998343129,
+      "rss_bytes": 60559360
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 2,
+      "repeat": 1,
+      "startup_seconds": 0.14788150000094902,
+      "wall_seconds": 0.8308746000111569,
+      "compute_seconds": 1.6487802999763517,
+      "rss_bytes": 60571648
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 2,
+      "repeat": 2,
+      "startup_seconds": 0.1460621999867726,
+      "wall_seconds": 0.8611699000030058,
+      "compute_seconds": 1.7070419999945443,
+      "rss_bytes": 60583936
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 4,
+      "repeat": 0,
+      "startup_seconds": 0.22649839999212418,
+      "wall_seconds": 0.47750660000019707,
+      "compute_seconds": 1.880127400130732,
+      "rss_bytes": 120750080
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 4,
+      "repeat": 1,
+      "startup_seconds": 0.2233929999929387,
+      "wall_seconds": 0.4895300999924075,
+      "compute_seconds": 1.8754345999623183,
+      "rss_bytes": 120336384
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 4,
+      "repeat": 2,
+      "startup_seconds": 0.2186851000005845,
+      "wall_seconds": 0.4498786000040127,
+      "compute_seconds": 1.7736026001221035,
+      "rss_bytes": 120856576
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 6,
+      "repeat": 0,
+      "startup_seconds": 0.2931949999911012,
+      "wall_seconds": 0.36740659999486525,
+      "compute_seconds": 2.088956400155439,
+      "rss_bytes": 181178368
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 6,
+      "repeat": 1,
+      "startup_seconds": 0.30878769999253564,
+      "wall_seconds": 0.4265185999975074,
+      "compute_seconds": 2.4274857000855263,
+      "rss_bytes": 181862400
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 6,
+      "repeat": 2,
+      "startup_seconds": 0.3114418999903137,
+      "wall_seconds": 0.33736529998714104,
+      "compute_seconds": 1.9161024999484653,
+      "rss_bytes": 181207040
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 8,
+      "repeat": 0,
+      "startup_seconds": 0.3552664000017103,
+      "wall_seconds": 0.2923736000084318,
+      "compute_seconds": 2.262725900145597,
+      "rss_bytes": 241213440
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 8,
+      "repeat": 1,
+      "startup_seconds": 0.36786329999449663,
+      "wall_seconds": 0.3265205999923637,
+      "compute_seconds": 2.508704799809493,
+      "rss_bytes": 241213440
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 8,
+      "repeat": 2,
+      "startup_seconds": 0.38861110000289045,
+      "wall_seconds": 0.33156389999203384,
+      "compute_seconds": 2.5600291999144247,
+      "rss_bytes": 241881088
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 12,
+      "repeat": 0,
+      "startup_seconds": 0.5643638000037754,
+      "wall_seconds": 0.23793570000270847,
+      "compute_seconds": 2.5702059998438926,
+      "rss_bytes": 363053056
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 12,
+      "repeat": 1,
+      "startup_seconds": 0.5188172000052873,
+      "wall_seconds": 0.2839467000012519,
+      "compute_seconds": 3.024840099969879,
+      "rss_bytes": 362336256
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 12,
+      "repeat": 2,
+      "startup_seconds": 0.5665065000066534,
+      "wall_seconds": 0.2774745000060648,
+      "compute_seconds": 2.9910933000355726,
+      "rss_bytes": 361988096
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 16,
+      "repeat": 0,
+      "startup_seconds": 0.6728087999945274,
+      "wall_seconds": 0.2676506999996491,
+      "compute_seconds": 3.380485000103363,
+      "rss_bytes": 483901440
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 16,
+      "repeat": 1,
+      "startup_seconds": 0.6818804000067757,
+      "wall_seconds": 0.23866550000093412,
+      "compute_seconds": 3.2356739999959245,
+      "rss_bytes": 482246656
+    },
+    {
+      "backend": "persistent_python",
+      "workers": 16,
+      "repeat": 2,
+      "startup_seconds": 0.6517337999976007,
+      "wall_seconds": 0.25442610000027344,
+      "compute_seconds": 3.07911419980519,
+      "rss_bytes": 482713600
+    },
+    {
+      "backend": "compiled",
+      "workers": 1,
+      "repeat": 0,
+      "startup_seconds": 0.03791590000037104,
+      "wall_seconds": 0.5996806000039214,
+      "compute_seconds": 0.5555904999999995,
+      "rss_bytes": 5550080
+    },
+    {
+      "backend": "compiled",
+      "workers": 1,
+      "repeat": 1,
+      "startup_seconds": 0.02811420000216458,
+      "wall_seconds": 0.5797902999911457,
+      "compute_seconds": 0.5442741999999995,
+      "rss_bytes": 5550080
+    },
+    {
+      "backend": "compiled",
+      "workers": 1,
+      "repeat": 2,
+      "startup_seconds": 0.027657700004056096,
+      "wall_seconds": 0.5979977999959374,
+      "compute_seconds": 0.5553953000000001,
+      "rss_bytes": 5550080
+    },
+    {
+      "backend": "compiled",
+      "workers": 2,
+      "repeat": 0,
+      "startup_seconds": 0.03316019999329001,
+      "wall_seconds": 0.39781729999231175,
+      "compute_seconds": 0.7040634999999998,
+      "rss_bytes": 10035200
+    },
+    {
+      "backend": "compiled",
+      "workers": 2,
+      "repeat": 1,
+      "startup_seconds": 0.03567599999951199,
+      "wall_seconds": 0.33510719999321736,
+      "compute_seconds": 0.5734765000000002,
+      "rss_bytes": 10043392
+    },
+    {
+      "backend": "compiled",
+      "workers": 2,
+      "repeat": 2,
+      "startup_seconds": 0.028195599996251985,
+      "wall_seconds": 0.3435911999986274,
+      "compute_seconds": 0.6044563999999999,
+      "rss_bytes": 10043392
+    },
+    {
+      "backend": "compiled",
+      "workers": 4,
+      "repeat": 0,
+      "startup_seconds": 0.039792299998225644,
+      "wall_seconds": 0.3686096000019461,
+      "compute_seconds": 1.2373657999999996,
+      "rss_bytes": 19017728
+    },
+    {
+      "backend": "compiled",
+      "workers": 4,
+      "repeat": 1,
+      "startup_seconds": 0.05743629999051336,
+      "wall_seconds": 0.40267759999551345,
+      "compute_seconds": 1.2762788999999999,
+      "rss_bytes": 19017728
+    },
+    {
+      "backend": "compiled",
+      "workers": 4,
+      "repeat": 2,
+      "startup_seconds": 0.04937110000173561,
+      "wall_seconds": 0.21510139999736566,
+      "compute_seconds": 0.6510198,
+      "rss_bytes": 19017728
+    },
+    {
+      "backend": "compiled",
+      "workers": 6,
+      "repeat": 0,
+      "startup_seconds": 0.043126399992615916,
+      "wall_seconds": 0.18295109999598935,
+      "compute_seconds": 0.8383325999999999,
+      "rss_bytes": 27979776
+    },
+    {
+      "backend": "compiled",
+      "workers": 6,
+      "repeat": 1,
+      "startup_seconds": 0.045438700006343424,
+      "wall_seconds": 0.1736495999939507,
+      "compute_seconds": 0.7451646000000001,
+      "rss_bytes": 27992064
+    },
+    {
+      "backend": "compiled",
+      "workers": 6,
+      "repeat": 2,
+      "startup_seconds": 0.044585299998288974,
+      "wall_seconds": 0.18026520000421442,
+      "compute_seconds": 0.7839619999999999,
+      "rss_bytes": 27987968
+    },
+    {
+      "backend": "compiled",
+      "workers": 8,
+      "repeat": 0,
+      "startup_seconds": 0.0555154999892693,
+      "wall_seconds": 0.17251290001149755,
+      "compute_seconds": 0.9205217,
+      "rss_bytes": 36966400
+    },
+    {
+      "backend": "compiled",
+      "workers": 8,
+      "repeat": 1,
+      "startup_seconds": 0.05964320000202861,
+      "wall_seconds": 0.3067001000017626,
+      "compute_seconds": 1.350314,
+      "rss_bytes": 36962304
+    },
+    {
+      "backend": "compiled",
+      "workers": 8,
+      "repeat": 2,
+      "startup_seconds": 0.09623349999310449,
+      "wall_seconds": 0.29532400000607595,
+      "compute_seconds": 1.5953868,
+      "rss_bytes": 36966400
+    },
+    {
+      "backend": "compiled",
+      "workers": 12,
+      "repeat": 0,
+      "startup_seconds": 0.0914688000048045,
+      "wall_seconds": 0.1927845000027446,
+      "compute_seconds": 1.2966705,
+      "rss_bytes": 54812672
+    },
+    {
+      "backend": "compiled",
+      "workers": 12,
+      "repeat": 1,
+      "startup_seconds": 0.07195310000679456,
+      "wall_seconds": 0.1572664999985136,
+      "compute_seconds": 0.967938,
+      "rss_bytes": 54829056
+    },
+    {
+      "backend": "compiled",
+      "workers": 12,
+      "repeat": 2,
+      "startup_seconds": 0.06670769999618642,
+      "wall_seconds": 0.1548412999982247,
+      "compute_seconds": 0.9433476999999999,
+      "rss_bytes": 54812672
+    },
+    {
+      "backend": "compiled",
+      "workers": 16,
+      "repeat": 0,
+      "startup_seconds": 0.08775900000182446,
+      "wall_seconds": 0.17157570000563283,
+      "compute_seconds": 1.175399,
+      "rss_bytes": 72470528
+    },
+    {
+      "backend": "compiled",
+      "workers": 16,
+      "repeat": 1,
+      "startup_seconds": 0.08144429999811109,
+      "wall_seconds": 0.17611020000185817,
+      "compute_seconds": 1.2084218,
+      "rss_bytes": 72474624
+    },
+    {
+      "backend": "compiled",
+      "workers": 16,
+      "repeat": 2,
+      "startup_seconds": 0.09790189999330323,
+      "wall_seconds": 0.2602522999950452,
+      "compute_seconds": 1.7011147,
+      "rss_bytes": 72462336
+    }
+  ],
+  "auto_validation": {
+    "persistent_python": {
+      "workers": 6,
+      "wall_seconds": 0.34120439999969676,
+      "correct": 256,
+      "decision": {
+        "workers": 6,
+        "backend_family": "persistent_python",
+        "candidate_workers": [
+          1,
+          2,
+          4,
+          6,
+          8,
+          12,
+          16
+        ],
+        "predicted_wall_seconds": {
+          "1": 1.719389349607809,
+          "2": 0.9823830458274734,
+          "4": 0.6975696563140314,
+          "6": 0.6736321505106949,
+          "8": 0.6921068734325856,
+          "12": 0.8399033017136753,
+          "16": 0.9252612587408529
+        },
+        "memory_limited_workers": 286,
+        "cpu_limited_workers": 16,
+        "estimated_total_compute_seconds": 1.6538527989760041,
+        "estimated_total_decode_seconds": 0.007360000628978014,
+        "reasons": [
+          "measured_representative_cases",
+          "predicted_parallel_wall_time_is_lower",
+          "desktop_cpu_reserve_applied"
+        ],
+        "system": {
+          "logical_cpus": 24,
+          "physical_cpus": 12,
+          "total_memory_bytes": 50631016448,
+          "available_memory_bytes": 26888908800,
+          "cpu_load_percent": 45.8,
+          "platform": "Windows-AMD64"
+        },
+        "store": {
+          "case_count": 256,
+          "file_size_bytes": 151990,
+          "sampled_cases": 32,
+          "average_input_bytes": 519.0,
+          "p95_input_bytes": 519.0,
+          "maximum_input_bytes": 519,
+          "expected_fraction": 1.0
+        },
+        "program": {
+          "language": "python",
+          "source_bytes": 3015,
+          "loop_count": 9,
+          "maximum_loop_depth": 2,
+          "branch_count": 7,
+          "recursive": false,
+          "complexity_score": 10.71
+        },
+        "probe": {
+          "backend_family": "persistent_python",
+          "sample_cases": 8,
+          "wall_seconds": 0.05406579999544192,
+          "compute_seconds": 0.05168289996800013,
+          "decode_seconds": 0.00023000001965556294,
+          "peak_rss_bytes": 29982720,
+          "timed_out": false,
+          "error": null
+        },
+        "profile_source": "D:\\Users\\java_lee\\Documents\\GitHub\\LeetCode\\build\\auto_tune\\host_profile.json"
+      }
+    },
+    "compiled": {
+      "workers": 12,
+      "wall_seconds": 0.177696399987326,
+      "correct": 256,
+      "decision": {
+        "workers": 12,
+        "backend_family": "compiled",
+        "candidate_workers": [
+          1,
+          2,
+          4,
+          6,
+          8,
+          12,
+          16
+        ],
+        "predicted_wall_seconds": {
+          "1": 0.5297996999991198,
+          "2": 0.30526921776667515,
+          "4": 0.3288891396147173,
+          "6": 0.16410662893857944,
+          "8": 0.26538395635759665,
+          "12": 0.14673475993848775,
+          "16": 0.1650481400182312
+        },
+        "memory_limited_workers": 16,
+        "cpu_limited_workers": 16,
+        "estimated_total_compute_seconds": 0.4943616,
+        "estimated_total_decode_seconds": 0.0051712,
+        "reasons": [
+          "measured_representative_cases",
+          "predicted_parallel_wall_time_is_lower",
+          "memory_budget_applied",
+          "desktop_cpu_reserve_applied"
+        ],
+        "system": {
+          "logical_cpus": 24,
+          "physical_cpus": 12,
+          "total_memory_bytes": 50631016448,
+          "available_memory_bytes": 26880167936,
+          "cpu_load_percent": 21.0,
+          "platform": "Windows-AMD64"
+        },
+        "store": {
+          "case_count": 256,
+          "file_size_bytes": 1069750,
+          "sampled_cases": 32,
+          "average_input_bytes": 4103.0,
+          "p95_input_bytes": 4103.0,
+          "maximum_input_bytes": 4103,
+          "expected_fraction": 1.0
+        },
+        "program": {
+          "language": "cpp",
+          "source_bytes": 3662,
+          "loop_count": 13,
+          "maximum_loop_depth": 3,
+          "branch_count": 7,
+          "recursive": false,
+          "complexity_score": 19.61
+        },
+        "probe": {
+          "backend_family": "compiled",
+          "sample_cases": 8,
+          "wall_seconds": 0.045877299999119714,
+          "compute_seconds": 0.0154488,
+          "decode_seconds": 0.0001616,
+          "peak_rss_bytes": 4485120,
+          "timed_out": false,
+          "error": null
+        },
+        "profile_source": "D:\\Users\\java_lee\\Documents\\GitHub\\LeetCode\\build\\auto_tune\\host_profile.json"
+      }
+    }
+  },
+  "tle_validation": {
+    "python": {
+      "workers": 1,
+      "timed_out_cases": 1,
+      "probe_reason": [
+        "probe_timed_out",
+        "single_worker_limits_resource_blast_radius"
+      ]
+    },
+    "cpp": {
+      "workers": 1,
+      "terminated": true,
+      "elapsed_seconds": 0.44048419999307953,
+      "probe_reason": [
+        "probe_timed_out",
+        "single_worker_limits_resource_blast_radius"
+      ]
+    }
+  }
+}

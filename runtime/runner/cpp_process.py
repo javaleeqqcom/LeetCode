@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -14,6 +15,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .auto_tune import (
+    AutoTuneConfig,
+    AutoTuneDecision,
+    AutoTuneProbe,
+    create_probe_store,
+    inspect_program,
+    inspect_store,
+    inspect_system,
+    select_workers,
+)
 from .case_store import CaseStoreReader
 from .common import digest_value
 from .models import RunMetrics, RunReport
@@ -410,9 +421,51 @@ class _Toolchain:
     environment: dict[str, str]
 
 
+def _configured_msvc(compiler: Path) -> _Toolchain | None:
+    """Load vcvars for an explicit MSVC executable, including VS previews."""
+    compiler = compiler.resolve()
+    if not compiler.is_file():
+        return None
+    try:
+        vc_root = compiler.parents[6]
+    except IndexError:
+        return None
+    vcvars = vc_root / "Auxiliary" / "Build" / "vcvars64.bat"
+    if not vcvars.is_file():
+        return None
+    try:
+        completed = subprocess.run(
+            ["cmd.exe", "/d", "/c", "call", str(vcvars), ">nul", "&&", "set"],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    environment = os.environ.copy()
+    for line in completed.stdout.splitlines():
+        if "=" not in line or line.startswith("="):
+            continue
+        key, value = line.split("=", 1)
+        environment[key.upper()] = value
+    return _Toolchain(compiler, "msvc", environment)
+
+
+@functools.lru_cache(maxsize=1)
 def _msvc_toolchain() -> _Toolchain | None:
     if os.name != "nt":
         return None
+    # Developer Command Prompt environments already contain the exact MSVC
+    # toolset selected by vcvars.  Prefer it, including preview Visual Studio
+    # releases that older setuptools discovery code may not recognize yet.
+    current = shutil.which("cl.exe")
+    if current:
+        return _Toolchain(Path(current).resolve(), "msvc", os.environ.copy())
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -420,14 +473,27 @@ def _msvc_toolchain() -> _Toolchain | None:
 
             configured = _get_vc_env("x64")
     except (ImportError, OSError, RuntimeError, ValueError):
-        return None
-    environment = os.environ.copy()
-    for key, value in configured.items():
-        environment[key.upper()] = value
-    located = shutil.which("cl.exe", path=environment.get("PATH"))
-    if not located:
-        return None
-    return _Toolchain(Path(located).resolve(), "msvc", environment)
+        configured = None
+    if configured is not None:
+        environment = os.environ.copy()
+        for key, value in configured.items():
+            environment[key.upper()] = value
+        located = shutil.which("cl.exe", path=environment.get("PATH"))
+        if located:
+            return _Toolchain(Path(located).resolve(), "msvc", environment)
+
+    program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    candidates = sorted(
+        program_files.glob(
+            "Microsoft Visual Studio/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe"
+        ),
+        reverse=True,
+    )
+    for compiler in candidates:
+        toolchain = _configured_msvc(compiler)
+        if toolchain is not None:
+            return toolchain
+    return None
 
 
 def _gnu_toolchain(candidate: os.PathLike[str] | str) -> _Toolchain | None:
@@ -446,6 +512,11 @@ def _gnu_toolchain(candidate: os.PathLike[str] | str) -> _Toolchain | None:
 def _toolchain(configured: os.PathLike[str] | str | None) -> _Toolchain:
     if configured is not None:
         if Path(str(configured)).name.lower() in {"cl", "cl.exe"}:
+            explicit = Path(str(configured))
+            if explicit.is_file():
+                selected = _configured_msvc(explicit)
+                if selected is not None:
+                    return selected
             msvc = _msvc_toolchain()
             if msvc is None:
                 raise FileNotFoundError("the configured MSVC x64 environment is unavailable")
@@ -455,9 +526,7 @@ def _toolchain(configured: os.PathLike[str] | str | None) -> _Toolchain:
             return candidate
         raise FileNotFoundError(f"configured C++ compiler does not exist: {configured}")
     if os.environ.get("CXX"):
-        candidate = _gnu_toolchain(os.environ["CXX"])
-        if candidate is not None:
-            return candidate
+        return _toolchain(os.environ["CXX"])
     msvc = _msvc_toolchain()
     if msvc is not None:
         return msvc
@@ -664,15 +733,19 @@ class CompiledCppRunner:
         solution_file: os.PathLike[str] | str,
         main_method: str | None = None,
         *,
-        workers: int = 1,
+        workers: int | str = 1,
         manager_path: os.PathLike[str] | str = DEFAULT_MANAGER,
         compiler: os.PathLike[str] | str | None = None,
         memory_limit_mb: int = 512,
         workspace: os.PathLike[str] | str | None = None,
         compile_timeout_s: float = 90.0,
         force_rebuild: bool = False,
+        auto_tune_config: AutoTuneConfig | None = None,
     ) -> None:
-        if not 1 <= workers <= MAX_WORKERS:
+        auto_workers = isinstance(workers, str) and workers.lower() == "auto"
+        if not auto_workers and (
+            not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS
+        ):
             raise ValueError(f"workers must be between 1 and {MAX_WORKERS}")
         self.solution_file = Path(solution_file).resolve()
         suffix = self.solution_file.suffix.lower()
@@ -687,7 +760,10 @@ class CompiledCppRunner:
             if self.language == "c"
             else parse_cpp_solution(self.source, main_method)
         )
-        self.workers = workers
+        self.workers = 1 if auto_workers else workers
+        self._auto_workers = auto_workers
+        self.auto_tune_config = auto_tune_config or AutoTuneConfig()
+        self.last_auto_tune: AutoTuneDecision | None = None
         self.manager_path = Path(manager_path).resolve()
         self._toolchain = _toolchain(compiler)
         if self.language == "c" and self._toolchain.family != "msvc":
@@ -860,6 +936,82 @@ class CompiledCppRunner:
         *,
         batch_timeout_s: float | None = None,
     ) -> RunReport:
+        if not self._auto_workers:
+            return self._run_store_with_workers(
+                store_path,
+                workers=self.workers,
+                batch_timeout_s=batch_timeout_s,
+            )
+
+        config = self.auto_tune_config
+        resolved_store = Path(store_path).resolve()
+        system = inspect_system()
+        store = inspect_store(resolved_store)
+        program = inspect_program(self.source, self.language, self.method.name)
+        probe: AutoTuneProbe | None = None
+        if config.enable_probe and store.case_count:
+            with tempfile.TemporaryDirectory(
+                prefix="oj_cpp_auto_probe_", dir=self.workspace
+            ) as directory:
+                probe_store = Path(directory) / "probe.ojbin"
+                sampled = create_probe_store(
+                    resolved_store, probe_store, config.sample_cases
+                )
+                try:
+                    probe_report = self._run_store_with_workers(
+                        probe_store,
+                        workers=1,
+                        # The Python backend enforces this limit per case;
+                        # the native manager currently exposes a batch limit.
+                        batch_timeout_s=config.probe_timeout_s * sampled,
+                        include_compile_metrics=False,
+                    )
+                    probe = AutoTuneProbe(
+                        backend_family="compiled",
+                        sample_cases=sampled,
+                        wall_seconds=probe_report.metrics.wall_seconds,
+                        compute_seconds=probe_report.metrics.worker_compute_seconds,
+                        decode_seconds=probe_report.metrics.worker_decode_seconds,
+                        peak_rss_bytes=probe_report.metrics.peak_worker_rss_bytes,
+                    )
+                except Exception as exc:
+                    probe = AutoTuneProbe(
+                        backend_family="compiled",
+                        sample_cases=sampled,
+                        wall_seconds=config.probe_timeout_s * sampled,
+                        compute_seconds=0.0,
+                        decode_seconds=0.0,
+                        peak_rss_bytes=0,
+                        timed_out=True,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+        decision = select_workers(
+            backend_family="compiled",
+            system=system,
+            store=store,
+            program=program,
+            config=config,
+            probe=probe,
+            worker_memory_limit_bytes=self.memory_limit_mb * 1024**2,
+        )
+        self.workers = decision.workers
+        self.last_auto_tune = decision
+        report = self._run_store_with_workers(
+            resolved_store,
+            workers=decision.workers,
+            batch_timeout_s=batch_timeout_s,
+        )
+        report.auto_tune = decision.to_dict()
+        return report
+
+    def _run_store_with_workers(
+        self,
+        store_path: os.PathLike[str] | str,
+        *,
+        workers: int,
+        batch_timeout_s: float | None = None,
+        include_compile_metrics: bool = True,
+    ) -> RunReport:
         if batch_timeout_s is not None and batch_timeout_s <= 0:
             raise ValueError("batch_timeout_s must be positive")
         store_path = Path(store_path).resolve()
@@ -886,7 +1038,7 @@ class CompiledCppRunner:
                 "--case-count",
                 str(case_count),
                 "--workers",
-                str(self.workers),
+                str(workers),
                 "--memory-mb",
                 str(self.memory_limit_mb),
                 "--timeout-ms",
@@ -916,7 +1068,7 @@ class CompiledCppRunner:
                     f"{completed.stdout}\n{completed.stderr}\n{worker_errors}"
                 )
             worker_files = sorted(result_path.glob("worker_*.json"))
-            expected_workers = min(self.workers, max(1, case_count))
+            expected_workers = min(workers, max(1, case_count))
             if len(worker_files) != expected_workers:
                 raise RuntimeError(
                     f"expected {expected_workers} C++ results, got {len(worker_files)}"
@@ -944,7 +1096,7 @@ class CompiledCppRunner:
             raise RuntimeError("C++ workers returned an invalid completed-case count")
         metrics = RunMetrics(
             backend=f"native_process_manager_standard_{self.language}",
-            workers=self.workers,
+            workers=workers,
             case_count=case_count,
             wall_seconds=wall_seconds,
             throughput_cases_per_second=(case_count / wall_seconds if wall_seconds else 0.0),
@@ -958,6 +1110,8 @@ class CompiledCppRunner:
             peak_worker_rss_bytes=sum(int(item["rss_bytes"]) for item in worker_results),
             compile_seconds=(
                 self.manager_compile_seconds + self.build_info.compile_seconds
+                if include_compile_metrics
+                else 0.0
             ),
             artifact_cache_hit=self.build_info.cache_hit,
             fallback_digest_cases=fallback_count,

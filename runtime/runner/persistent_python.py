@@ -17,6 +17,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .auto_tune import (
+    AutoTuneConfig,
+    AutoTuneDecision,
+    AutoTuneProbe,
+    create_probe_store,
+    inspect_program,
+    inspect_store,
+    inspect_system,
+    select_workers,
+)
 from .case_store import CaseStoreReader, CaseStoreWriter
 from .common import BoundedWriter as _BoundedWriter
 from .common import can_reuse_expected_digest as _can_reuse_expected_digest
@@ -328,13 +338,17 @@ class PersistentPythonRunner:
         solution_file: os.PathLike[str] | str,
         main_method: str | None = None,
         *,
-        workers: int = 1,
+        workers: int | str = 1,
         capture_stdout: bool = True,
         reuse_solution_instance: bool = False,
         standard_mode: bool = False,
         start: bool = True,
+        auto_tune_config: AutoTuneConfig | None = None,
     ) -> None:
-        if not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+        auto_workers = isinstance(workers, str) and workers.lower() == "auto"
+        if not auto_workers and (
+            not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS
+        ):
             raise ValueError(f"workers must be between 1 and {MAX_WORKERS}")
         self.solution_file = Path(solution_file).resolve()
         if standard_mode:
@@ -356,7 +370,11 @@ class PersistentPythonRunner:
             source_code = tuple(legacy.source_code_lst)
             resolved_method = legacy.main_method
             has_custom_caller = legacy.has_custom_caller
-        self.workers = workers
+        self.workers = 1 if auto_workers else workers
+        self._auto_workers = auto_workers
+        self._auto_selected = not auto_workers
+        self.auto_tune_config = auto_tune_config or AutoTuneConfig()
+        self.last_auto_tune: AutoTuneDecision | None = None
         self.capture_stdout = capture_stdout
         self.reuse_solution_instance = reuse_solution_instance
         self.standard_mode = standard_mode
@@ -376,7 +394,7 @@ class PersistentPythonRunner:
         self._started = False
         self._run_id = 0
         self.pool_startup_seconds = 0.0
-        if start:
+        if start and not self._auto_workers:
             self.start()
 
     def _spawn_worker(self, worker_id: int) -> None:
@@ -406,6 +424,11 @@ class PersistentPythonRunner:
     def start(self) -> None:
         if self._started:
             return
+        if self._auto_workers and not self._auto_selected:
+            raise RuntimeError(
+                "workers='auto' needs case-store features; call run() or run_store() "
+                "instead of start()"
+            )
         started_at = time.perf_counter()
         self._result_queue = self._context.Queue()
         for worker_id in range(self.workers):
@@ -434,6 +457,75 @@ class PersistentPythonRunner:
                 raise RuntimeError(f"worker {message[1]} boot failed:\n{message[2]}")
         self.pool_startup_seconds = time.perf_counter() - started_at
         self._started = True
+
+    def _select_auto_workers(self, store_path: os.PathLike[str] | str) -> None:
+        if self._auto_selected:
+            return
+        config = self.auto_tune_config
+        system = inspect_system()
+        store = inspect_store(store_path)
+        program = inspect_program(
+            "\n".join(self._spec.source_code),
+            "python",
+            self._spec.method_name,
+        )
+        probe: AutoTuneProbe | None = None
+        if config.enable_probe and store.case_count:
+            with tempfile.TemporaryDirectory(prefix="oj_auto_probe_") as directory:
+                probe_store = Path(directory) / "probe.ojbin"
+                sampled = create_probe_store(
+                    store_path, probe_store, config.sample_cases
+                )
+                probe_runner = PersistentPythonRunner(
+                    self.solution_file,
+                    main_method=self._spec.method_name,
+                    workers=1,
+                    capture_stdout=False,
+                    reuse_solution_instance=self.reuse_solution_instance,
+                    standard_mode=self.standard_mode,
+                    start=True,
+                )
+                try:
+                    report = probe_runner.run_store(
+                        probe_store,
+                        timeout_s=config.probe_timeout_s,
+                        collect_results=False,
+                        profile_worker=True,
+                    )
+                    probe = AutoTuneProbe(
+                        backend_family="persistent_python",
+                        sample_cases=sampled,
+                        wall_seconds=report.metrics.wall_seconds,
+                        compute_seconds=report.metrics.worker_compute_seconds,
+                        decode_seconds=report.metrics.worker_decode_seconds,
+                        peak_rss_bytes=report.metrics.peak_worker_rss_bytes,
+                        timed_out=report.metrics.timed_out_cases > 0,
+                    )
+                except Exception as exc:
+                    message = f"{type(exc).__name__}: {exc}"
+                    probe = AutoTuneProbe(
+                        backend_family="persistent_python",
+                        sample_cases=sampled,
+                        wall_seconds=config.probe_timeout_s,
+                        compute_seconds=0.0,
+                        decode_seconds=0.0,
+                        peak_rss_bytes=0,
+                        timed_out=("timeout" in message.lower() or "tle" in message.lower()),
+                        error=message,
+                    )
+                finally:
+                    probe_runner.close()
+        decision = select_workers(
+            backend_family="persistent_python",
+            system=system,
+            store=store,
+            program=program,
+            config=config,
+            probe=probe,
+        )
+        self.workers = decision.workers
+        self.last_auto_tune = decision
+        self._auto_selected = True
 
     def _restart_worker(self, worker_id: int) -> None:
         process = self._processes[worker_id]
@@ -510,6 +602,8 @@ class PersistentPythonRunner:
             )
         if profile_worker is None:
             profile_worker = collect_results
+        if self._auto_workers and not self._auto_selected:
+            self._select_auto_workers(store_path)
         if not self._started:
             self.start()
         store_path = str(Path(store_path).resolve())
@@ -757,6 +851,11 @@ class PersistentPythonRunner:
             error_count=error_count,
             digest=f"{digest_xor:032x}",
             results=results,
+            auto_tune=(
+                self.last_auto_tune.to_dict()
+                if self.last_auto_tune is not None
+                else None
+            ),
         )
 
     def run(
@@ -809,7 +908,8 @@ class PersistentPythonRunner:
         self._started = False
 
     def __enter__(self) -> "PersistentPythonRunner":
-        self.start()
+        if not self._auto_workers or self._auto_selected:
+            self.start()
         return self
 
     def __exit__(self, *_: object) -> None:
